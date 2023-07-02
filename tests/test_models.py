@@ -1,4 +1,4 @@
-from backend.models import Simulation, Decision
+from backend.simulation import Simulation, Decision
 
 
 def test_simulation_update():

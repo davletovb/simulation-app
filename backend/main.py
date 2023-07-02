@@ -6,7 +6,8 @@ from sqlalchemy.orm import Session
 from pydantic import BaseModel
 import uvicorn
 
-from .models import Base, Simulation
+from .simulation import Base, Simulation
+from .assistant import Assistant
 from .database import Session, User, engine, SessionLocal
 from .auth import create_access_token, get_password_hash, verify_password, Token, TokenData, ACCESS_TOKEN_EXPIRE_MINUTES, ALGORITHM, SECRET_KEY
 
