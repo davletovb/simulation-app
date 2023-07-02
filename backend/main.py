@@ -6,15 +6,14 @@ from sqlalchemy.orm import Session
 from pydantic import BaseModel
 import uvicorn
 
-from .simulation import Base, Simulation
-from .assistant import Assistant
-from .database import Session, User, engine, SessionLocal
+from .simulation_logic import SimulationLogic
+from .database import Session, User, engine, SessionLocal, Base
 from .auth import create_access_token, get_password_hash, verify_password, Token, TokenData, ACCESS_TOKEN_EXPIRE_MINUTES, ALGORITHM, SECRET_KEY
 
 
 app = FastAPI()
 
-simulation = Simulation()
+simulation_logic = SimulationLogic()
 
 
 class Decision(BaseModel):
@@ -113,61 +112,45 @@ async def read_users(current_user: User = Depends(get_current_superuser)):
 
 @app.post("/simulation/start")
 async def start_simulation(current_user: User = Depends(get_current_user)):
-    try:
-        simulation.start()
-        return {"status": "Simulation started"}
-    except ValueError as e:
-        return {"error": str(e)}
+    await simulation_logic.start_simulation()
+    return {"status": "Simulation started"}
 
 
 @app.post("/simulation/stop")
 async def stop_simulation(current_user: User = Depends(get_current_user)):
-    try:
-        simulation.stop()
-        return {"status": "Simulation stopped"}
-    except ValueError as e:
-        return {"error": str(e)}
+    await simulation_logic.stop_simulation()
+    return {"status": "Simulation stopped"}
 
 
 @app.get("/simulation/state")
 async def get_simulation_state(current_user: User = Depends(get_current_user)):
-    try:
-        state = simulation.get_state()
-        return {"state": state}
-    except ValueError as e:
-        return {"error": str(e)}
+    state = await simulation_logic.get_simulation_state()
+    return {"state": state}
 
 
 @app.post("/simulation/update")
 async def update_simulation(decision: Decision, current_user: User = Depends(get_current_user)):
-    # Here you would update the simulation based on the decision
-    try:
-        simulation.update(decision)
-        return {"message": "Simulation updated"}
-    except ValueError as e:
-        return {"error": str(e)}
+    await simulation_logic.update_simulation(decision)
+    return {"message": "Simulation updated"}
 
 
 @app.post("/simulation/decision")
 async def make_decision(decision: Decision, current_user: User = Depends(get_current_user)):
     # Here you would update the simulation based on the decision
-    return {"status": f"Decision made: {decision.parameter} - {decision.action}"}
+    transition = await simulation_logic.simulation.assistant.make_decision(simulation_logic.simulation)
+    return {"status": f"Decision made: {decision.parameter} - {decision.action}", "transition": transition}
 
 
 @app.get("/assistant/state")
 async def get_assistant_state(current_user: User = Depends(get_current_user)):
-    try:
-        state = simulation.assistant.get_state()
-        return {"state": state}
-    except ValueError as e:
-        return {"error": str(e)}
+    state = await simulation_logic.get_assistant_state()
+    return {"state": state}
 
 
 @app.post("/assistant/command")
 async def send_command_to_assistant(command: Command, current_user: User = Depends(get_current_user)):
-    # Here you would send the command to the assistant and get the response
     try:
-        response = simulation.interact_with_assistant(command.command)
+        response = await simulation_logic.interact_with_assistant(command.command)
         return {"response": response}
     except ValueError as e:
         return {"error": str(e)}
