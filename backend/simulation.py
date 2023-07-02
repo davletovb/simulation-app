@@ -75,6 +75,14 @@ class Transition(ABC):
     async def apply(self, state: State) -> State:
         pass
 
+    def to_dict(self):
+        return {
+            "class": self.__class__.__name__,
+            # Include any other attributes that should be serialized here.
+            # For example, if the Transition has an 'action' attribute, you could include it like this:
+            # "action": self.action,
+        }
+
 class SimulationError(Exception):
     pass
 
@@ -85,7 +93,7 @@ class Simulation:
 
     async def update(self, transition: Transition):
         self.current_state = await transition.apply(self.current_state)
-        self.assistant.remember_transition(transition)
+        await self.assistant.remember("transitions", transition)
 
     async def interact_with_assistant(self, command):
         response = await self.assistant.interact_with_user(command)

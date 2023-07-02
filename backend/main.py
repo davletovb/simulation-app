@@ -138,7 +138,7 @@ async def update_simulation(decision: Decision, current_user: User = Depends(get
 async def make_decision(decision: Decision, current_user: User = Depends(get_current_user)):
     # Here you would update the simulation based on the decision
     transition = await simulation_logic.simulation.assistant.make_decision(simulation_logic.simulation)
-    return {"status": f"Decision made: {decision.parameter} - {decision.action}", "transition": transition}
+    return {"status": f"Decision made: {decision.parameter} - {decision.action}", "transition": transition.to_dict()}
 
 
 @app.get("/assistant/state")
