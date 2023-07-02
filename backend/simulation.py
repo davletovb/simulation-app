@@ -1,4 +1,3 @@
-from langchain import LangChainAssistant
 from abc import ABC, abstractmethod
 
 import json
@@ -73,7 +72,7 @@ class State(ABC):
 
 class Transition(ABC):
     @abstractmethod
-    def apply(self, state: State) -> State:
+    async def apply(self, state: State) -> State:
         pass
 
 class SimulationError(Exception):
@@ -84,24 +83,24 @@ class Simulation:
         self.current_state = initial_state
         self.assistant = assistant
 
-    def update(self, transition: Transition):
-        self.current_state = transition.apply(self.current_state)
+    async def update(self, transition: Transition):
+        self.current_state = await transition.apply(self.current_state)
         self.assistant.remember_transition(transition)
 
-    def interact_with_assistant(self, command):
-        response = self.assistant.interact_with_user(command)
+    async def interact_with_assistant(self, command):
+        response = await self.assistant.interact_with_user(command)
         return response
 
-    def save_state(self):
+    async def save_state(self):
         db = SessionLocal()
         state_json = self.current_state.to_json()
         state_record = SimulationState(state_json=state_json)
         db.add(state_record)
-        db.commit()
+        await db.commit()
 
-    def load_state(self, id: int):
+    async def load_state(self, id: int):
         db = SessionLocal()
-        state_record = db.query(SimulationState).get(id)
+        state_record = await db.query(SimulationState).get(id)
         state_dict = json.loads(state_record.state_json)
         self.current_state = State.from_json(state_dict)
     

@@ -15,17 +15,17 @@ class Assistant:
             "get_simulation_state": self.get_state,
         }
 
-    def send_command(self, command):
+    async def send_command(self, command):
         if command in self.commands:
-            return self.commands[command]()
+            return await self.commands[command]()
         else:
             raise ValueError(f"Invalid command: {command}")
 
-    def start_simulation(self):
+    async def start_simulation(self):
         self.state = "active"
         return self.state
 
-    def stop_simulation(self):
+    async def stop_simulation(self):
         self.state = "idle"
         return self.state
 
