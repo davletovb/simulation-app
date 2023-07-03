@@ -7,10 +7,20 @@ class AssistantError(Exception):
 class Assistant:
     def __init__(self):
         self.assistant = LangChainAssistant()
-        self.state = "idle"
-        self.memory = {}
+        self.state = {
+            "status": "idle",
+            "conversation_history": [],
+            "current_task": None,
+            "knowledge_base": {},
+            "personality_traits": {},
+            "mood": "neutral",
+            "emotional_state": None
+        }
 
     async def process_command(self, command: str):
+        # Add command to conversation history
+        self.conversation_history.append({"user": command})
+        
         # Parse the command
         parsed_command = self.parse_command(command)
 
@@ -26,33 +36,31 @@ class Assistant:
         else:
             raise ValueError(f"Invalid command: {command}")
 
+        # Add response to conversation history
+        self.conversation_history.append({"assistant": response})
+
         # Return the response
         return response
 
     async def start_simulation(self):
         self.state = "active"
+        self.current_task = "start_simulation"
         return self.state
 
     async def stop_simulation(self):
         self.state = "idle"
+        self.current_task = "stop_simulation"
         return self.state
 
-    def get_state(self):
-        return self.state
+    def get_state(self, key=None):
+        if key is None:
+            return self.state
+        else:
+            return self.state.get(key)
 
-    def set_state(self, state):
-        self.state = state
+    def set_state(self, key, value):
+        self.state[key] = value
 
-    async def remember(self, item_type: str, item):
-        """Remember an item of a certain type."""
-        if item_type not in self.memory:
-            self.memory[item_type] = []
-        self.memory[item_type].append(item)
-
-    async def get_personality(self):
-        personality = "friendly" if len(self.memory) % 2 == 0 else "grumpy"
-        return personality
-    
     async def generate_decision(self, simulation: Simulation) -> Transition:
         # Analyze the current state of the simulation
         state = simulation.current_state

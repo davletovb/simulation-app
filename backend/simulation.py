@@ -93,7 +93,6 @@ class Simulation:
 
     async def update(self, transition: Transition):
         self.current_state = await transition.apply(self.current_state)
-        await self.assistant.remember("transitions", transition)
 
     async def interact_with_assistant(self, command):
         response = await self.assistant.process_command(command)
