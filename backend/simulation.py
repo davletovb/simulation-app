@@ -27,18 +27,20 @@ class ActionType(Enum):
     RANDOMIZE = "randomize"
 
 class Parameter:
-    def __init__(self, value: Union[int, float, bool, str], type: ParameterType, initial_value: Union[int, float, bool, str], dependencies: List = None, update_rule: Callable = None):
-        self.logger = logging.getLogger(__name__)
+    def __init__(self, name: str, value: Union[int, float, bool, str], type: ParameterType, initial_value: Union[int, float, bool, str], dependencies: List = None, update_rule: Callable = None):
+        
         if not isinstance(value, type.value):
             self.logger.error(f"Invalid value: {value} is not of type {type}")
             raise ValueError(f"Invalid value: {value} is not of type {type}")
+        self.name = name
         self.value = value
         self.type = type
         self.initial_value = initial_value
-        self.dependencies = dependencies
+        self.dependencies = dependencies if dependencies else []
         self.update_rule = update_rule
+        self.logger = logging.getLogger(__name__)
 
-    def update(self, decision):
+    def update_value(self, decision):
         if self.update_rule:
             try:
                 self.value = self.update_rule(self.value, decision)
@@ -68,6 +70,10 @@ class Parameter:
             except Exception as e:
                 self.logger.error(f"Error updating parameter: {e}")
                 raise SimulationError(f"Error updating parameter: {e}")
+        
+        # Adjust the value based on the values of the dependencies
+        for dependency in self.dependencies:
+            self.value += dependency.value
 
     def get_dependencies(self):
         return self.dependencies
