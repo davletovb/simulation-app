@@ -2,6 +2,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from enum import Enum
 from typing import Union, Callable, List, Dict
+import asyncio
 import copy
 import json
 import random
@@ -136,15 +137,21 @@ class Simulation:
     def __init__(self, initial_state: State, assistant: Assistant):
         self.current_state = initial_state
         self.assistant = assistant
+        self.running = False
         self.logger = logging.getLogger(__name__)
     
-    async def start_simulation(self):
-        self.state = "active"
-        return self.state
+    async def start_simulation(self, saved_state_id=None):
+        self.running = True
+        if saved_state_id is not None:
+            # Load the saved state
+            await self.load_state(saved_state_id)
+        else:
+            # Load the default state
+            self.current_state = self.initial_state
+        # The simulation is now ready to start running
 
     async def stop_simulation(self):
-        self.state = "idle"
-        return self.state
+        self.running = False
     
     async def get_state(self):
         self.current_state.get_value()
