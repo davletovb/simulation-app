@@ -1,8 +1,6 @@
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
 from enum import Enum
-from typing import Union, Callable, List, Dict
-import asyncio
+from typing import Union, List, Dict
 import copy
 import json
 import random
@@ -18,16 +16,16 @@ class ParameterType(Enum):
     STRING = "string"
 
 class ActionType(Enum):
-    INCREASE = "increase"
-    DECREASE = "decrease"
+    CHANGE = "change"
     SET = "set"
     TOGGLE = "toggle"
     SCALE = "scale"
     RESET = "reset"
     RANDOMIZE = "randomize"
+    CHANGE_PERCENTAGE = "change_percentage"
 
 class Parameter:
-    def __init__(self, name: str, value: Union[int, float, bool, str], type: ParameterType, initial_value: Union[int, float, bool, str], dependencies: List = None, update_rule: Callable = None):
+    def __init__(self, name: str, value: Union[int, float, bool, str], type: ParameterType, initial_value: Union[int, float, bool, str], dependencies: List = None):
         
         if not isinstance(value, type.value):
             self.logger.error(f"Invalid value: {value} is not of type {type}")
@@ -37,49 +35,52 @@ class Parameter:
         self.type = type
         self.initial_value = initial_value
         self.dependencies = dependencies if dependencies else []
-        self.update_rule = update_rule
         self.logger = logging.getLogger(__name__)
 
+    def get_value(self):
+        return self.value
+
     def update_value(self, decision):
-        if self.update_rule:
-            try:
-                self.value = self.update_rule(self.value, decision)
-            except Exception as e:
-                self.logger.error(f"Error applying update rule: {e}")
-                raise SimulationError(f"Error applying update rule: {e}")
-        else:
-            try:
-                if decision.action == ActionType.INCREASE:
-                    self.value += 1
-                elif decision.action == ActionType.DECREASE:
-                    self.value -= 1
-                elif decision.action == ActionType.SET:
-                    self.value = decision.value
-                elif decision.action == ActionType.TOGGLE:
-                    if self.type != ParameterType.BOOLEAN:
-                        raise ValueError("Invalid action: 'toggle' can only be applied to boolean parameters")
-                    self.value = not self.value
-                elif decision.action == ActionType.SCALE:
-                    self.value *= decision.value
-                elif decision.action == ActionType.RESET:
-                    self.value = self.initial_value
-                elif decision.action == ActionType.RANDOMIZE:
-                    self.value = random.uniform(decision.value[0], decision.value[1])
-                else:
-                    raise ValueError(f"Invalid action: {decision.action}")
-            except Exception as e:
-                self.logger.error(f"Error updating parameter: {e}")
-                raise SimulationError(f"Error updating parameter: {e}")
-        
+        # Use the update rule to update the value
+        try:
+            self.value = self.update_rule(self.value, decision)
+        except Exception as e:
+            self.logger.error(f"Error applying update rule: {e}")
+            raise SimulationError(f"Error applying update rule: {e}")
+
         # Adjust the value based on the values of the dependencies
         for dependency in self.dependencies:
-            self.value += dependency.value
+            self.value = self.adjust_for_dependency(self.value, dependency.value)
 
+    def update_rule(self, value, decision):
+        if decision.action == ActionType.CHANGE:
+            return value + decision.value
+        elif decision.action == ActionType.SET:
+            return decision.value
+        elif decision.action == ActionType.TOGGLE:
+            if self.type != ParameterType.BOOLEAN:
+                raise ValueError("Invalid action: 'toggle' can only be applied to boolean parameters")
+            return not value
+        elif decision.action == ActionType.SCALE:
+            return value * decision.value
+        elif decision.action == ActionType.RESET:
+            return self.initial_value
+        elif decision.action == ActionType.RANDOMIZE:
+            return random.uniform(decision.value[0], decision.value[1])
+        elif decision.action == ActionType.CHANGE_PERCENTAGE:
+            return value * (1 + decision.value / 100)
+        else:
+            raise ValueError(f"Invalid action: {decision.action}")
+
+    def adjust_for_dependency(self, value, dependency_value):
+        # Adjust the value based on the value of a dependency
+        # This is just an example. The exact adjustment will depend on the rules of your simulation.
+        return value + dependency_value
+    
     def get_dependencies(self):
         return self.dependencies
 
-
-class State(ABC):
+class State:
     def __init__(self):
         self.parameters = {
             "primary": {},
@@ -90,16 +91,21 @@ class State(ABC):
     def get_value(self):
         return {
             "parameters": {
-                "primary": [param.value for param in self.parameters["primary"].values()],
-                "secondary": [param.value for param in self.parameters["secondary"].values()],
-                "tertiary": [param.value for param in self.parameters["tertiary"].values()]
+                "primary": {name: param.value for name, param in self.parameters["primary"].items()},
+                "secondary": {name: param.value for name, param in self.parameters["secondary"].items()},
+                "tertiary": {name: param.value for name, param in self.parameters["tertiary"].items()}
             }
         }
 
     def set_value(self, state):
         for category in ["primary", "secondary", "tertiary"]:
-            for param, value in zip(self.parameters[category].values(), state["parameters"][category]):
-                param.value = value
+            for name, value in state["parameters"][category].items():
+                self.parameters[category][name].value = value
+    
+    def update_value(self, decision):
+        for category in ["primary", "secondary", "tertiary"]:
+            for name, param in self.parameters[category].items():
+                param.update_value(decision)
 
     def to_json(self):
         return json.dumps(self.get_value())
