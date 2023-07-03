@@ -1,11 +1,13 @@
 from abc import ABC, abstractmethod
-
-import json
 from dataclasses import dataclass
 from enum import Enum
+from typing import Union, Callable, List, Dict
+import copy
+import json
 import random
+import logging
 
-from .database import Base, SimulationState, SessionLocal
+from .database import SimulationState, SessionLocal
 from .assistant import Assistant
 
 class ParameterType(Enum):
@@ -23,52 +25,83 @@ class ActionType(Enum):
     RESET = "reset"
     RANDOMIZE = "randomize"
 
-@dataclass
 class Parameter:
-    value: float
-    type: ParameterType
-    initial_value: float
-    dependencies: list = None
-    update_rule: callable = None
+    def __init__(self, value: Union[int, float, bool, str], type: ParameterType, initial_value: Union[int, float, bool, str], dependencies: List = None, update_rule: Callable = None):
+        self.logger = logging.getLogger(__name__)
+        if not isinstance(value, type.value):
+            self.logger.error(f"Invalid value: {value} is not of type {type}")
+            raise ValueError(f"Invalid value: {value} is not of type {type}")
+        self.value = value
+        self.type = type
+        self.initial_value = initial_value
+        self.dependencies = dependencies
+        self.update_rule = update_rule
 
     def update(self, decision):
         if self.update_rule:
-            self.value = self.update_rule(self.value, decision)
+            try:
+                self.value = self.update_rule(self.value, decision)
+            except Exception as e:
+                self.logger.error(f"Error applying update rule: {e}")
+                raise SimulationError(f"Error applying update rule: {e}")
         else:
-            if decision.action == ActionType.INCREASE:
-                self.value += 1
-            elif decision.action == ActionType.DECREASE:
-                self.value -= 1
-            elif decision.action == ActionType.SET:
-                self.value = decision.value
-            elif decision.action == ActionType.TOGGLE:
-                if self.type != ParameterType.BOOLEAN:
-                    raise ValueError("Invalid action: 'toggle' can only be applied to boolean parameters")
-                self.value = not self.value
-            elif decision.action == ActionType.SCALE:
-                self.value *= decision.value
-            elif decision.action == ActionType.RESET:
-                self.value = self.initial_value
-            elif decision.action == ActionType.RANDOMIZE:
-                self.value = random.uniform(decision.value[0], decision.value[1])
-            else:
-                raise ValueError(f"Invalid action: {decision.action}")
+            try:
+                if decision.action == ActionType.INCREASE:
+                    self.value += 1
+                elif decision.action == ActionType.DECREASE:
+                    self.value -= 1
+                elif decision.action == ActionType.SET:
+                    self.value = decision.value
+                elif decision.action == ActionType.TOGGLE:
+                    if self.type != ParameterType.BOOLEAN:
+                        raise ValueError("Invalid action: 'toggle' can only be applied to boolean parameters")
+                    self.value = not self.value
+                elif decision.action == ActionType.SCALE:
+                    self.value *= decision.value
+                elif decision.action == ActionType.RESET:
+                    self.value = self.initial_value
+                elif decision.action == ActionType.RANDOMIZE:
+                    self.value = random.uniform(decision.value[0], decision.value[1])
+                else:
+                    raise ValueError(f"Invalid action: {decision.action}")
+            except Exception as e:
+                self.logger.error(f"Error updating parameter: {e}")
+                raise SimulationError(f"Error updating parameter: {e}")
 
     def get_dependencies(self):
         return self.dependencies
 
 
 class State(ABC):
-    @abstractmethod
+    def __init__(self):
+        self.parameters = {
+            "primary": {},
+            "secondary": {},
+            "tertiary": {}
+        }
+
     def get_value(self):
-        pass
+        return {
+            "parameters": {
+                "primary": [param.value for param in self.parameters["primary"].values()],
+                "secondary": [param.value for param in self.parameters["secondary"].values()],
+                "tertiary": [param.value for param in self.parameters["tertiary"].values()]
+            }
+        }
+
+    def set_value(self, state):
+        for category in ["primary", "secondary", "tertiary"]:
+            for param, value in zip(self.parameters[category].values(), state["parameters"][category]):
+                param.value = value
 
     def to_json(self):
-        return json.dumps(self.__dict__)
+        return json.dumps(self.get_value())
 
     @classmethod
     def from_json(cls, json_str):
-        return cls(**json.loads(json_str))
+        state = cls()
+        state.set_value(json.loads(json_str))
+        return state
 
 class Transition(ABC):
     @abstractmethod
@@ -83,6 +116,19 @@ class Transition(ABC):
             # "action": self.action,
         }
 
+class ParameterTransition(Transition):
+    def __init__(self, changes: Dict[str, float]):
+        self.changes = changes
+
+    async def apply(self, state: State) -> State:
+        new_state = copy.deepcopy(state)  # Create a copy of the current state
+        for parameter_name, change in self.changes.items():
+            # Get the current value of the parameter
+            current_value = new_state.get_value()[parameter_name]
+            # Update the value of the parameter in the new state
+            new_state.set_value(parameter_name, current_value + change)
+        return new_state  # Return the new state
+
 class SimulationError(Exception):
     pass
 
@@ -90,42 +136,44 @@ class Simulation:
     def __init__(self, initial_state: State, assistant: Assistant):
         self.current_state = initial_state
         self.assistant = assistant
+        self.logger = logging.getLogger(__name__)
 
-    async def update(self, transition: Transition):
-        self.current_state = await transition.apply(self.current_state)
+    async def update_state(self, transition: Transition):
+        try:
+            self.current_state = await transition.apply(self.current_state)
+        except Exception as e:
+            self.logger.error(f"Error applying transition: {e}")
+            raise SimulationError(f"Error applying transition: {e}")
 
     async def interact_with_assistant(self, command):
-        response = await self.assistant.process_command(command)
-        return response
-    
-    def get_state(self):
-        return {
-            "primary_parameters": [param.value for param in self.primary_parameters.values()],
-            "secondary_parameters": [param.value for param in self.secondary_parameters.values()],
-            "tertiary_parameters": [param.value for param in self.tertiary_parameters.values()],
-            "assistant_state": self.assistant.get_state(),
-        }
-
-    def set_state(self, state):
-        for param, value in zip(self.primary_parameters.values(), state["primary_parameters"]):
-            param.value = value
-        for param, value in zip(self.secondary_parameters.values(), state["secondary_parameters"]):
-            param.value = value
-        for param, value in zip(self.tertiary_parameters.values(), state["tertiary_parameters"]):
-            param.value = value
-        self.assistant.set_state(state["assistant_state"])
+        try:
+            response = await self.assistant.process_command(command)
+            return response
+        except Exception as e:
+            self.logger.error(f"Error processing command: {e}")
+            raise SimulationError(f"Error processing command: {e}")
 
     async def save_state(self):
-        db = SessionLocal()
-        state_json = self.current_state.to_json()
-        state_record = SimulationState(state_json=state_json)
-        db.add(state_record)
-        await db.commit()
+        try:
+            db = SessionLocal()
+            state_dict = {
+                "simulation_state": self.current_state.get_value(),
+                "assistant_state": self.assistant.get_state(),
+            }
+            state_record = SimulationState(state=state_dict)
+            db.add(state_record)
+            await db.commit()
+        except Exception as e:
+            self.logger.error(f"Error saving state: {e}")
+            raise SimulationError(f"Error saving state: {e}")
 
     async def load_state(self, id: int):
-        db = SessionLocal()
-        state_record = await db.query(SimulationState).get(id)
-        state_dict = json.loads(state_record.state_json)
-        self.current_state = State.from_json(state_dict)
-    
-
+        try:
+            db = SessionLocal()
+            state_record = await db.query(SimulationState).get(id)
+            state_dict = state_record.get_state()
+            self.current_state.set_value(state_dict["simulation_state"])
+            self.assistant.set_state(state_dict["assistant_state"])
+        except Exception as e:
+            self.logger.error(f"Error loading state: {e}")
+            raise SimulationError(f"Error loading state: {e}")
