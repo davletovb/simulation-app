@@ -1,6 +1,7 @@
 from sqlalchemy import Column, Integer, String, create_engine, Text, Boolean
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.ext.declarative import declarative_base
+import json
 
 Base = declarative_base()
 
@@ -21,6 +22,13 @@ class SimulationState(Base):
     secondary_parameters = Column(Text)
     tertiary_parameters = Column(Text)
     assistant_state = Column(String)
+    state = Column(String, default="{}")
+
+    def get_state(self):
+        return json.loads(self.state)
+
+    def set_state(self, state):
+        self.state = json.dumps(state)
 
 
 class User(Base):

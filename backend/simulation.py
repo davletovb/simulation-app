@@ -96,8 +96,25 @@ class Simulation:
         await self.assistant.remember("transitions", transition)
 
     async def interact_with_assistant(self, command):
-        response = await self.assistant.interact_with_user(command)
+        response = await self.assistant.process_command(command)
         return response
+    
+    def get_state(self):
+        return {
+            "primary_parameters": [param.value for param in self.primary_parameters.values()],
+            "secondary_parameters": [param.value for param in self.secondary_parameters.values()],
+            "tertiary_parameters": [param.value for param in self.tertiary_parameters.values()],
+            "assistant_state": self.assistant.get_state(),
+        }
+
+    def set_state(self, state):
+        for param, value in zip(self.primary_parameters.values(), state["primary_parameters"]):
+            param.value = value
+        for param, value in zip(self.secondary_parameters.values(), state["secondary_parameters"]):
+            param.value = value
+        for param, value in zip(self.tertiary_parameters.values(), state["tertiary_parameters"]):
+            param.value = value
+        self.assistant.set_state(state["assistant_state"])
 
     async def save_state(self):
         db = SessionLocal()

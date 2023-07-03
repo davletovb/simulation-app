@@ -10,17 +10,16 @@ from .simulation_logic import SimulationLogic
 from .database import Session, User, engine, SessionLocal, Base
 from .auth import create_access_token, get_password_hash, verify_password, Token, TokenData, ACCESS_TOKEN_EXPIRE_MINUTES, ALGORITHM, SECRET_KEY
 
-
 app = FastAPI()
 
 simulation_logic = SimulationLogic()
 
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
 class Decision(BaseModel):
     parameter: str
     action: str
     command: str
-
 
 class Command(BaseModel):
     command: str
@@ -28,8 +27,6 @@ class Command(BaseModel):
 class UserIn(BaseModel):
     username: str
     password: str
-
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
 def get_db():
     db = SessionLocal()
@@ -106,7 +103,7 @@ def get_current_superuser(current_user: User = Depends(get_current_user)):
 
 @app.get("/users")
 async def read_users(current_user: User = Depends(get_current_superuser)):
-    # Here you would return a list of all users
+    # returns a list of all users for admin
     pass
 
 

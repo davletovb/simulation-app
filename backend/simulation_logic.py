@@ -20,4 +20,4 @@ class SimulationLogic:
         return self.simulation.assistant.get_state()
 
     async def interact_with_assistant(self, command):
-        return self.simulation.interact_with_assistant(command)
+        return self.simulation.assistant.process_command(command)
