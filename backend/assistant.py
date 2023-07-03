@@ -25,9 +25,7 @@ class Assistant:
         parsed_command = self.parse_command(command)
 
         # Perform the action
-        if parsed_command == "start_simulation":
-            response = await self.start_simulation()
-        elif parsed_command == "stop_simulation":
+        if parsed_command == "stop_simulation":
             response = await self.stop_simulation()
         elif parsed_command == "get_simulation_state":
             response = await self.get_state()
@@ -41,11 +39,6 @@ class Assistant:
 
         # Return the response
         return response
-
-    async def start_simulation(self):
-        self.state = "active"
-        self.current_task = "start_simulation"
-        return self.state
 
     async def stop_simulation(self):
         self.state = "idle"

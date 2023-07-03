@@ -137,6 +137,17 @@ class Simulation:
         self.current_state = initial_state
         self.assistant = assistant
         self.logger = logging.getLogger(__name__)
+    
+    async def start_simulation(self):
+        self.state = "active"
+        return self.state
+
+    async def stop_simulation(self):
+        self.state = "idle"
+        return self.state
+    
+    async def get_state(self):
+        self.current_state.get_value()
 
     async def update_state(self, transition: Transition):
         try:
@@ -144,14 +155,6 @@ class Simulation:
         except Exception as e:
             self.logger.error(f"Error applying transition: {e}")
             raise SimulationError(f"Error applying transition: {e}")
-
-    async def interact_with_assistant(self, command):
-        try:
-            response = await self.assistant.process_command(command)
-            return response
-        except Exception as e:
-            self.logger.error(f"Error processing command: {e}")
-            raise SimulationError(f"Error processing command: {e}")
 
     async def save_state(self):
         try:
