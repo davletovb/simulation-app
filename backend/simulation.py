@@ -23,6 +23,39 @@ class ActionType(Enum):
     RESET = "reset"
     RANDOMIZE = "randomize"
     CHANGE_PERCENTAGE = "change_percentage"
+    COMPLEX = "complex"
+
+class Decision:
+    def __init__(self, action: ActionType, value: Union[int, float, bool, str, dict], priority: int = 1):
+        self.action = action
+        self.value = value
+        self.priority = priority
+
+        # Validate the decision
+        self.validate()
+
+    def validate(self):
+        # Check that the action is a valid ActionType
+        if not isinstance(self.action, ActionType):
+            raise ValueError(f"Invalid action: {self.action}")
+
+        # Check that the value is appropriate for the action
+        if self.action in [ActionType.CHANGE, ActionType.CHANGE_PERCENTAGE, ActionType.SCALE] and not isinstance(self.value, (int, float)):
+            raise ValueError(f"Invalid value for {self.action}: {self.value}. Value must be an integer or float.")
+        elif self.action == ActionType.SET and not isinstance(self.value, (int, float, bool, str)):
+            raise ValueError(f"Invalid value for {self.action}: {self.value}. Value must be an integer, float, boolean, or string.")
+        elif self.action == ActionType.TOGGLE and not isinstance(self.value, bool):
+            raise ValueError(f"Invalid value for {self.action}: {self.value}. Value must be a boolean.")
+        elif self.action == ActionType.COMPLEX and not isinstance(self.value, dict):
+            raise ValueError(f"Invalid value for {self.action}: {self.value}. Value must be a dictionary for complex decisions.")
+
+        # Check that the priority is a positive integer
+        if not isinstance(self.priority, int) or self.priority <= 0:
+            raise ValueError(f"Invalid priority: {self.priority}. Priority must be a positive integer.")
+
+    def __repr__(self):
+        return f"Decision(action={self.action}, value={self.value}, priority={self.priority})"
+
 
 class Parameter:
     def __init__(self, name: str, value: Union[int, float, bool, str], type: ParameterType, initial_value: Union[int, float, bool, str], dependencies: List = None):
@@ -58,8 +91,6 @@ class Parameter:
         elif decision.action == ActionType.SET:
             return decision.value
         elif decision.action == ActionType.TOGGLE:
-            if self.type != ParameterType.BOOLEAN:
-                raise ValueError("Invalid action: 'toggle' can only be applied to boolean parameters")
             return not value
         elif decision.action == ActionType.SCALE:
             return value * decision.value
@@ -79,6 +110,9 @@ class Parameter:
     
     def get_dependencies(self):
         return self.dependencies
+    
+    def __repr__(self):
+        return f"Parameter(name={self.name}, value={self.value}, type={self.type})"
 
 class State:
     def __init__(self):
