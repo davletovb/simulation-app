@@ -26,7 +26,8 @@ class ActionType(Enum):
     COMPLEX = "complex"
 
 class Decision:
-    def __init__(self, action: ActionType, value: Union[int, float, bool, str, dict], priority: int = 1):
+    def __init__(self, parameter_name: str, action: ActionType, value: Union[int, float, bool, str, dict], priority: int = 1):
+        self.parameter_name = parameter_name
         self.action = action
         self.value = value
         self.priority = priority
@@ -136,9 +137,11 @@ class State:
             for name, value in state["parameters"][category].items():
                 self.parameters[category][name].value = value
     
-    def update_value(self, decision):
+    def apply_decision(self, decision: Decision):
+        # Update the state based on the decision
         for category in ["primary", "secondary", "tertiary"]:
-            for name, param in self.parameters[category].items():
+            if decision.parameter_name in self.parameters[category]:
+                param = self.parameters[category][decision.parameter_name]
                 param.update_value(decision)
 
     def to_json(self):
@@ -164,16 +167,15 @@ class Transition(ABC):
         }
 
 class ParameterTransition(Transition):
-    def __init__(self, changes: Dict[str, float]):
-        self.changes = changes
+    def __init__(self, decision: Decision):
+        self.decision = decision
 
     async def apply(self, state: State) -> State:
         new_state = copy.deepcopy(state)  # Create a copy of the current state
-        for parameter_name, change in self.changes.items():
-            # Get the current value of the parameter
-            current_value = new_state.get_value()[parameter_name]
-            # Update the value of the parameter in the new state
-            new_state.set_value(parameter_name, current_value + change)
+        # Get the parameter that the decision applies to
+        param = new_state.parameters[self.decision.parameter_name]
+        # Update the value of the parameter based on the decision
+        param.update_value(self.decision)
         return new_state  # Return the new state
 
 class SimulationError(Exception):

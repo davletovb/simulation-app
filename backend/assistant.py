@@ -1,12 +1,13 @@
-from simulation import Simulation, Transition
+from simulation import Simulation, Transition, ParameterTransition
 from langchain import LangChainAssistant
 
 class AssistantError(Exception):
     pass
 
 class Assistant:
-    def __init__(self):
+    def __init__(self, simulation: Simulation):
         self.assistant = LangChainAssistant()
+        self.simulation = simulation
         self.state = {
             "status": "idle",
             "conversation_history": [],
@@ -41,9 +42,9 @@ class Assistant:
         return response
 
     async def stop_simulation(self):
-        self.state = "idle"
+        self.state["status"] = "idle"
         self.current_task = "stop_simulation"
-        return self.state
+        await self.simulation.stop_simulation()
 
     def get_state(self, key=None):
         if key is None:
@@ -56,7 +57,7 @@ class Assistant:
 
     async def generate_decision(self, simulation: Simulation) -> Transition:
         # Analyze the current state of the simulation
-        state = simulation.current_state
+        state = simulation.get_state()
 
         """
         Use the assistant's decision-making capabilities to make a decision
@@ -68,7 +69,16 @@ class Assistant:
         It may also involve the state and narrative. Assistant will generate a list of decisions based on
         the current state and the narrative of the simulation.
         """
-        decision = await self.assistant.analyze_state(state)
+        decisions = await self.assistant.analyze_state(state)
 
-        # Return the decision
-        return decision
+        # Create a ParameterTransition for each decision
+        transitions = []
+        for decision in decisions:
+            for category in ["primary", "secondary", "tertiary"]:
+                if decision.parameter_name in state.parameters[category]:
+                    transition = ParameterTransition({decision.parameter_name: decision})
+                    transitions.append(transition)
+
+        # Return the list of transitions
+        return transitions
+
