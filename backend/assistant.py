@@ -1,4 +1,4 @@
-from simulation import Simulation, Transition, ParameterTransition
+from .simulation import Simulation, Transition, ParameterTransition
 from langchain import LangChainAssistant
 
 class AssistantError(Exception):

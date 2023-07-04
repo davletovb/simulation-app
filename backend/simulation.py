@@ -6,7 +6,7 @@ import json
 import random
 import logging
 
-from .database import SimulationState, SessionLocal
+from .database import SimulationState, SessionLocal, save_state, load_state, load_parameters
 from .assistant import Assistant
 
 class ParameterType(Enum):
@@ -137,6 +137,9 @@ class State:
             for name, value in state["parameters"][category].items():
                 self.parameters[category][name].value = value
     
+    def set_parameters(self, parameters: Dict[str, Dict[str, Parameter]]):
+        self.parameters = parameters
+    
     def apply_decision(self, decision: Decision):
         # Update the state based on the decision
         for category in ["primary", "secondary", "tertiary"]:
@@ -178,6 +181,12 @@ class ParameterTransition(Transition):
         param.update_value(self.decision)
         return new_state  # Return the new state
 
+class NarrativeTemplate:
+    def generate_narrative_element(self, state: State, decision: Decision):
+        # This method generates a narrative element based on the current state and decision
+        narrative_element = ""
+        return narrative_element
+
 class SimulationError(Exception):
     pass
 
@@ -186,6 +195,9 @@ class Simulation:
         self.current_state = initial_state
         self.assistant = assistant
         self.running = False
+        self.success_metrics = []
+        self.narratives = {}
+        self.simulation_success = False
         self.logger = logging.getLogger(__name__)
     
     async def start_simulation(self, saved_state_id=None):
@@ -210,28 +222,26 @@ class Simulation:
         except Exception as e:
             self.logger.error(f"Error applying transition: {e}")
             raise SimulationError(f"Error applying transition: {e}")
+    
+    def setup_narrative(self, narrative_name):
+        narrative = self.narratives[narrative_name]
+        self.current_state.set_parameters(narrative['initial_conditions'])
+        self.success_metrics = narrative['success_metrics']
 
+    def check_success(self):
+        for parameter, target_value in self.success_metrics.items():
+            if self.current_state.parameters[parameter] < target_value:
+                return False
+        return True
+    
     async def save_state(self):
-        try:
-            db = SessionLocal()
-            state_dict = {
-                "simulation_state": self.current_state.get_value(),
-                "assistant_state": self.assistant.get_state(),
-            }
-            state_record = SimulationState(state=state_dict)
-            db.add(state_record)
-            await db.commit()
-        except Exception as e:
-            self.logger.error(f"Error saving state: {e}")
-            raise SimulationError(f"Error saving state: {e}")
+        save_state(self, SessionLocal)
 
     async def load_state(self, id: int):
-        try:
-            db = SessionLocal()
-            state_record = await db.query(SimulationState).get(id)
-            state_dict = state_record.get_state()
-            self.current_state.set_value(state_dict["simulation_state"])
-            self.assistant.set_state(state_dict["assistant_state"])
-        except Exception as e:
-            self.logger.error(f"Error loading state: {e}")
-            raise SimulationError(f"Error loading state: {e}")
+        load_state(id, self, SessionLocal)
+
+    async def load_parameters(self, filename: str):
+        parameters = load_parameters(filename)
+        self.current_state.parameters = parameters
+    
+
