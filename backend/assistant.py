@@ -1,6 +1,8 @@
 from .simulation import Simulation, Transition, ParameterTransition
 from langchain import LangChainAssistant
 
+import csv
+
 class AssistantError(Exception):
     pass
 
@@ -15,13 +17,38 @@ class Assistant:
             "knowledge_base": {},
             "personality_traits": {},
             "mood": "neutral",
-            "emotional_state": None
+            "emotional_state": None,
+            "backstory": {},
+            "speech_style": {}
         }
+        self.load_personality_traits('personality_traits.csv')
+    
+    def load_personality_traits(self, filename):
+        with open(filename, 'r') as file:
+            reader = csv.reader(file)
+            next(reader)  # Skip the header row
+            for row in reader:
+                trait, value = row
+                self.state['personality_traits'][trait] = value
+
+    def load_backstory(self, filename):
+        with open(filename, 'r') as file:
+            self.state['backstory'] = file.read()
+
+    def adjust_speech_style(self, style):
+        self.state['speech_style'] = style
+
+    def adjust_emotional_state(self, emotion):
+        self.state['emotional_state'] = emotion
 
     async def process_command(self, command: str):
         # Add command to conversation history
         self.conversation_history.append({"user": command})
         
+        # Adjust speech style and emotional state based on command
+        self.adjust_speech_style(self.analyze_speech_style(command))
+        self.adjust_emotional_state(self.analyze_emotional_state(command))
+
         # Parse the command
         parsed_command = self.parse_command(command)
 
