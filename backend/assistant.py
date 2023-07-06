@@ -8,38 +8,41 @@ class AssistantError(Exception):
 
 class Assistant:
     def __init__(self, simulation: Simulation):
-        self.assistant = LangChainAssistant()
         self.simulation = simulation
-        self.state = {
-            "status": "idle",
-            "conversation_history": [],
-            "current_task": None,
-            "knowledge_base": {},
-            "personality_traits": {},
-            "mood": "neutral",
-            "emotional_state": None,
-            "backstory": {},
-            "speech_style": {}
-        }
-        self.load_personality_traits('personality_traits.csv')
+        self.conversation_history = []
+        self.personality_traits = self.load_personality_traits("personality_traits.csv")
+        self.backstory = self.load_backstory("backstory.txt")
+        self.speech_style = "formal"
+        self.emotional_state = "neutral"
     
     def load_personality_traits(self, filename):
+        personality_traits = {}
         with open(filename, 'r') as file:
             reader = csv.reader(file)
             next(reader)  # Skip the header row
             for row in reader:
                 trait, value = row
-                self.state['personality_traits'][trait] = value
+                personality_traits[trait] = value
+        return personality_traits
 
     def load_backstory(self, filename):
         with open(filename, 'r') as file:
-            self.state['backstory'] = file.read()
+            backstory = file.read()
+        return backstory
 
     def adjust_speech_style(self, style):
-        self.state['speech_style'] = style
+        self.speech_style = style
 
     def adjust_emotional_state(self, emotion):
-        self.state['emotional_state'] = emotion
+        self.emotional_state = emotion
+
+    def analyze_speech_style(self, command):
+        # Analyze the command and return the appropriate speech style
+        pass
+
+    def analyze_emotional_state(self, command):
+        # Analyze the command and return the appropriate emotional state
+        pass
 
     async def process_command(self, command: str):
         # Add command to conversation history
