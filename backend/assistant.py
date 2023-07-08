@@ -1,114 +1,63 @@
-from .simulation import Simulation, Transition, ParameterTransition
-from langchain import LangChainAssistant
+from .simulation import Simulation, Transition, ParameterTransition, State
 
-import csv
 
-class AssistantError(Exception):
-    pass
+from langchain import OpenAI
+from langchain.chat_models import ChatOpenAI
+from langchain.experimental.generative_agents import GenerativeAgent, GenerativeAgentMemory
+from langchain.retrievers import TimeWeightedVectorStoreRetriever
+from langchain.vectorstores import Chroma
+from langchain.embeddings import OpenAIEmbeddings
+from chromadb.config import Settings
+
+# Set Chroma settings
+CHROMA_SETTINGS = Settings(
+    chroma_db_impl="duckdb+parquet",
+    persist_directory="db",
+    anonymized_telemetry=False)
 
 class Assistant:
-    def __init__(self, simulation: Simulation):
-        self.simulation = simulation
-        self.conversation_history = []
-        self.personality_traits = self.load_personality_traits("personality_traits.csv")
-        self.backstory = self.load_backstory("backstory.txt")
-        self.speech_style = "formal"
-        self.emotional_state = "neutral"
-    
-    def load_personality_traits(self, filename):
-        personality_traits = {}
-        with open(filename, 'r') as file:
-            reader = csv.reader(file)
-            next(reader)  # Skip the header row
-            for row in reader:
-                trait, value = row
-                personality_traits[trait] = value
-        return personality_traits
+    def __init__(self, name: str, age: int, status: str, traits: str):
+        self.name = name
+        self.age = age
+        self.status = status
+        self.traits = traits
+        self.llm = OpenAI(model="text-davinci-003",max_tokens=1500)
+        self.embeddings = OpenAIEmbeddings()
+        self.vectorstore = Chroma(embedding_function=self.embeddings, client_settings=CHROMA_SETTINGS, persist_directory="db")
+        self.memory_retriever = TimeWeightedVectorStoreRetriever(vectorstore=self.vectorstore, other_score_keys=["importance"], k=15)
+        self.memory = GenerativeAgentMemory(llm=self.llm, reflection_threshold=8, memory_retriever=self.memory_retriever)
+        self.agent = GenerativeAgent(
+            name=self.name,
+            age=self.age,
+            status=self.status,
+            traits=self.traits,
+            llm=self.llm,
+            memory=self.memory
+        )
 
-    def load_backstory(self, filename):
-        with open(filename, 'r') as file:
-            backstory = file.read()
-        return backstory
+    def fetch_news(self):
+        # Fetch news from the agent's memory
+        relevant_events = self.agent.memory.retrieve_recent_memories()
 
-    def adjust_speech_style(self, style):
-        self.speech_style = style
+        return relevant_events
 
-    def adjust_emotional_state(self, emotion):
-        self.emotional_state = emotion
+    def generate_decision(self, news_event):
+        # Generate a decision based on a news event
+        decision = self.agent.generate_reaction(news_event)[1]
 
-    def analyze_speech_style(self, command):
-        # Analyze the command and return the appropriate speech style
-        pass
+        return decision
 
-    def analyze_emotional_state(self, command):
-        # Analyze the command and return the appropriate emotional state
-        pass
+    def generate_response(self, state: State, news_event: str = None):
+        # Generate a different response based on the current narrative
+        response = self.agent.generate_dialogue_response(news_event)[1]
 
-    async def process_command(self, command: str):
-        # Add command to conversation history
-        self.conversation_history.append({"user": command})
-        
-        # Adjust speech style and emotional state based on command
-        self.adjust_speech_style(self.analyze_speech_style(command))
-        self.adjust_emotional_state(self.analyze_emotional_state(command))
-
-        # Parse the command
-        parsed_command = self.parse_command(command)
-
-        # Perform the action
-        if parsed_command == "stop_simulation":
-            response = await self.stop_simulation()
-        elif parsed_command == "get_simulation_state":
-            response = await self.get_state()
-        elif parsed_command == "make_decision":
-            response = await self.generate_decision()
-        else:
-            raise ValueError(f"Invalid command: {command}")
-
-        # Add response to conversation history
-        self.conversation_history.append({"assistant": response})
-
-        # Return the response
         return response
 
-    async def stop_simulation(self):
-        self.state["status"] = "idle"
-        self.current_task = "stop_simulation"
-        await self.simulation.stop_simulation()
+    def process_input(self, input_text: str, state: State):
+        # Use the agent to process the input
+        _, response = self.agent.generate_dialogue_response(input_text)
+        print(response)
 
-    def get_state(self, key=None):
-        if key is None:
-            return self.state
-        else:
-            return self.state.get(key)
-
-    def set_state(self, key, value):
-        self.state[key] = value
-
-    async def generate_decision(self, simulation: Simulation) -> Transition:
-        # Analyze the current state of the simulation
-        state = simulation.get_state()
-
-        """
-        Use the assistant's decision-making capabilities to make a decision
-        This could involve machine learning, rule-based systems, etc.
-        For now, let's assume that the assistant has a method called analyze_state
-        that takes a state and returns a decision
-        The assistant needs to understand the current state of the simulation to make an informed decision. 
-        This could involve extracting and analyzing various features from the state.
-        It may also involve the state and narrative. Assistant will generate a list of decisions based on
-        the current state and the narrative of the simulation.
-        """
-        decisions = await self.assistant.analyze_state(state)
-
-        # Create a ParameterTransition for each decision
-        transitions = []
-        for decision in decisions:
-            for category in ["primary", "secondary", "tertiary"]:
-                if decision.parameter_name in state.parameters[category]:
-                    transition = ParameterTransition({decision.parameter_name: decision})
-                    transitions.append(transition)
-
-        # Return the list of transitions
-        return transitions
+    def __repr__(self) -> str:
+        return str(self.agent.get_summary())
 

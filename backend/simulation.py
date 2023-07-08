@@ -1,15 +1,13 @@
-from abc import ABC, abstractmethod
-from enum import Enum
-from typing import Union, List, Dict
-import copy
-import json
-import random
-import logging
-
 from .database import SimulationState, SessionLocal, save_state, load_state, load_parameters
 from .assistant import Assistant
 
-class ParameterType(Enum):
+from enum import Enum
+from typing import Union, List, Dict
+import json
+import logging
+import pickle
+
+class ParameterValueType(Enum):
     INTEGER = "integer"
     FLOAT = "float"
     BOOLEAN = "boolean"
@@ -25,223 +23,126 @@ class ActionType(Enum):
     CHANGE_PERCENTAGE = "change_percentage"
     COMPLEX = "complex"
 
-class Decision:
-    def __init__(self, parameter_name: str, action: ActionType, value: Union[int, float, bool, str, dict], priority: int = 1):
-        self.parameter_name = parameter_name
-        self.action = action
-        self.value = value
-        self.priority = priority
-
-        # Validate the decision
-        self.validate()
-
-    def validate(self):
-        # Check that the action is a valid ActionType
-        if not isinstance(self.action, ActionType):
-            raise ValueError(f"Invalid action: {self.action}")
-
-        # Check that the value is appropriate for the action
-        if self.action in [ActionType.CHANGE, ActionType.CHANGE_PERCENTAGE, ActionType.SCALE] and not isinstance(self.value, (int, float)):
-            raise ValueError(f"Invalid value for {self.action}: {self.value}. Value must be an integer or float.")
-        elif self.action == ActionType.SET and not isinstance(self.value, (int, float, bool, str)):
-            raise ValueError(f"Invalid value for {self.action}: {self.value}. Value must be an integer, float, boolean, or string.")
-        elif self.action == ActionType.TOGGLE and not isinstance(self.value, bool):
-            raise ValueError(f"Invalid value for {self.action}: {self.value}. Value must be a boolean.")
-        elif self.action == ActionType.COMPLEX and not isinstance(self.value, dict):
-            raise ValueError(f"Invalid value for {self.action}: {self.value}. Value must be a dictionary for complex decisions.")
-
-        # Check that the priority is a positive integer
-        if not isinstance(self.priority, int) or self.priority <= 0:
-            raise ValueError(f"Invalid priority: {self.priority}. Priority must be a positive integer.")
-
-    def __repr__(self):
-        return f"Decision(action={self.action}, value={self.value}, priority={self.priority})"
-
+class ParameterType(Enum):
+    PRIMARY = 1
+    SECONDARY = 2
+    TERTIARY = 3
 
 class Parameter:
-    def __init__(self, name: str, value: Union[int, float, bool, str], type: ParameterType, initial_value: Union[int, float, bool, str], dependencies: List = None):
-        
-        if not isinstance(value, type.value):
-            self.logger.error(f"Invalid value: {value} is not of type {type}")
-            raise ValueError(f"Invalid value: {value} is not of type {type}")
+    def __init__(self, name: str, initial_value: float, parameter_type: ParameterType, dependencies: List = None):
         self.name = name
-        self.value = value
-        self.type = type
-        self.initial_value = initial_value
+        self.value = initial_value
+        self.parameter_type = parameter_type
         self.dependencies = dependencies if dependencies else []
-        self.logger = logging.getLogger(__name__)
 
-    def get_value(self):
-        return self.value
+    def update_value(self, decisions: List):
+        """Update the value of the parameter based on the effects of all decisions."""
+        for decision in decisions:
+            self.value += decision.effect
 
-    def update_value(self, decision):
-        # Use the update rule to update the value
-        try:
-            self.value = self.update_rule(self.value, decision)
-        except Exception as e:
-            self.logger.error(f"Error applying update rule: {e}")
-            raise SimulationError(f"Error applying update rule: {e}")
+    def adjust_for_dependency(self):
+        """Adjust the value of the parameter based on the values of its dependencies."""
+        if self.dependencies:
+            total_dependency_value = sum(dep.value for dep in self.dependencies)
+            average_dependency_value = total_dependency_value / len(self.dependencies)
+            self.value += average_dependency_value
 
-        # Adjust the value based on the values of the dependencies
-        for dependency in self.dependencies:
-            self.value = self.adjust_for_dependency(self.value, dependency.value)
+class Decision:
+    def __init__(self, name: str, effects: Dict[Parameter, float], influence_cost: int):
+        self.name = name
+        self.effects = effects
+        self.influence_cost = influence_cost
 
-    def update_rule(self, value, decision):
-        if decision.action == ActionType.CHANGE:
-            return value + decision.value
-        elif decision.action == ActionType.SET:
-            return decision.value
-        elif decision.action == ActionType.TOGGLE:
-            return not value
-        elif decision.action == ActionType.SCALE:
-            return value * decision.value
-        elif decision.action == ActionType.RESET:
-            return self.initial_value
-        elif decision.action == ActionType.RANDOMIZE:
-            return random.uniform(decision.value[0], decision.value[1])
-        elif decision.action == ActionType.CHANGE_PERCENTAGE:
-            return value * (1 + decision.value / 100)
-        else:
-            raise ValueError(f"Invalid action: {decision.action}")
+class Minister:
+    def __init__(self, name: str, loyalty: float, influence: float):
+        self.name = name
+        self.loyalty = loyalty
+        self.influence = influence
 
-    def adjust_for_dependency(self, value, dependency_value):
-        # Adjust the value based on the value of a dependency
-        # This is just an example. The exact adjustment will depend on the rules of your simulation.
-        return value + dependency_value
+class CitizenGroup:
+    def __init__(self, name: str, size: int, political_view: str):
+        self.name = name
+        self.size = size
+        self.political_view = political_view
+
+class EconomicSector:
+    def __init__(self, name: str, importance: float):
+        self.name = name
+        self.importance = importance
+
+
+class Narrative:
+    def __init__(self, name: str, initial_parameters: Dict[str, Parameter], initial_decisions: Dict[str, Decision], initial_ministers: Dict[str, Minister], initial_citizen_groups: Dict[str, CitizenGroup], initial_economic_sectors: Dict[str, EconomicSector]):
+        self.name = name
+        self.initial_parameters = initial_parameters
+        self.initial_decisions = initial_decisions
+        self.initial_ministers = initial_ministers
+        self.initial_citizen_groups = initial_citizen_groups
+        self.initial_economic_sectors = initial_economic_sectors
+
+    def start(self):
+        # Create a state with the initial entities defined by this narrative
+        return State(parameters=self.initial_parameters, decisions=self.initial_decisions, ministers=self.initial_ministers, citizen_groups=self.initial_citizen_groups, economic_sectors=self.initial_economic_sectors)
+
+
+class Metric:
+    def __init__(self, name: str, calculation_function):
+        self.name = name
+        self.calculation_function = calculation_function
+
+    def calculate(self, state):
+        return self.calculation_function(state)
     
-    def get_dependencies(self):
-        return self.dependencies
-    
-    def __repr__(self):
-        return f"Parameter(name={self.name}, value={self.value}, type={self.type})"
 
 class State:
-    def __init__(self):
-        self.parameters = {
-            "primary": {},
-            "secondary": {},
-            "tertiary": {}
-        }
+    def __init__(self, parameters: Dict[str, Parameter] = None, decisions: Dict[str, Decision] = None, ministers: Dict[str, Minister] = None, citizen_groups: Dict[str, CitizenGroup] = None, economic_sectors: Dict[str, EconomicSector] = None, assistant: Assistant = None, narrative: Narrative = None):
+        self.parameters = parameters if parameters else {}
+        self.decisions = decisions if decisions else {}
+        self.ministers = ministers if ministers else {}
+        self.citizen_groups = citizen_groups if citizen_groups else {}
+        self.economic_sectors = economic_sectors if economic_sectors else {}
+        self.influence = 0  # Player's influence, to be increased by negotiating with ministers
+        self.assistant = assistant if assistant else Assistant("Assistant")
+        self.narrative = narrative
 
-    def get_value(self):
-        return {
-            "parameters": {
-                "primary": {name: param.value for name, param in self.parameters["primary"].items()},
-                "secondary": {name: param.value for name, param in self.parameters["secondary"].items()},
-                "tertiary": {name: param.value for name, param in self.parameters["tertiary"].items()}
-            }
-        }
-
-    def set_value(self, state):
-        for category in ["primary", "secondary", "tertiary"]:
-            for name, value in state["parameters"][category].items():
-                self.parameters[category][name].value = value
-    
-    def set_parameters(self, parameters: Dict[str, Dict[str, Parameter]]):
+    def set_parameters(self, parameters: dict):
         self.parameters = parameters
-    
-    def apply_decision(self, decision: Decision):
-        # Update the state based on the decision
-        for category in ["primary", "secondary", "tertiary"]:
-            if decision.parameter_name in self.parameters[category]:
-                param = self.parameters[category][decision.parameter_name]
-                param.update_value(decision)
 
-    def to_json(self):
-        return json.dumps(self.get_value())
+    def set_decisions(self, decisions: dict):
+        self.decisions = decisions
 
-    @classmethod
-    def from_json(cls, json_str):
-        state = cls()
-        state.set_value(json.loads(json_str))
-        return state
+    def get_parameter(self, name: str):
+        return self.parameters.get(name)
 
-class Transition(ABC):
-    @abstractmethod
-    async def apply(self, state: State) -> State:
-        pass
+    def get_decision(self, name: str):
+        return self.decisions.get(name)
 
-    def to_dict(self):
-        return {
-            "class": self.__class__.__name__,
-            # Include any other attributes that should be serialized here.
-            # For example, if the Transition has an 'action' attribute, you could include it like this:
-            # "action": self.action,
-        }
-
-class ParameterTransition(Transition):
-    def __init__(self, decision: Decision):
-        self.decision = decision
-
-    async def apply(self, state: State) -> State:
-        new_state = copy.deepcopy(state)  # Create a copy of the current state
-        # Get the parameter that the decision applies to
-        param = new_state.parameters[self.decision.parameter_name]
-        # Update the value of the parameter based on the decision
-        param.update_value(self.decision)
-        return new_state  # Return the new state
-
-class NarrativeTemplate:
-    def generate_narrative_element(self, state: State, decision: Decision):
-        # This method generates a narrative element based on the current state and decision
-        narrative_element = ""
-        return narrative_element
-
-class SimulationError(Exception):
-    pass
-
-class Simulation:
-    def __init__(self, initial_state: State, assistant: Assistant):
-        self.current_state = initial_state
-        self.assistant = assistant
-        self.running = False
-        self.success_metrics = []
-        self.narratives = {}
-        self.simulation_success = False
-        self.logger = logging.getLogger(__name__)
-    
-    async def start_simulation(self, saved_state_id=None):
-        self.running = True
-        if saved_state_id is not None:
-            # Load the saved state
-            await self.load_state(saved_state_id)
+    def negotiate_with_minister(self, minister_name: str):
+        minister = self.ministers.get(minister_name)
+        if minister is not None:
+            self.influence += minister.loyalty * 10
         else:
-            # Load the default state
-            self.current_state = self.initial_state
-        # The simulation is now ready to start running
+            print(f"No minister named '{minister_name}' exists.")
 
-    async def stop_simulation(self):
-        self.running = False
+    def make_public_statement(self, citizen_group_name: str, statement: str):
+        citizen_group = self.citizen_groups.get(citizen_group_name)
+        if citizen_group is not None:
+            self.influence += len(statement) / 100
+        else:
+            print(f"No citizen group named '{citizen_group_name}' exists.")
     
-    async def get_state(self):
-        self.current_state.get_value()
-
-    async def update_state(self, transition: Transition):
-        try:
-            self.current_state = await transition.apply(self.current_state)
-        except Exception as e:
-            self.logger.error(f"Error applying transition: {e}")
-            raise SimulationError(f"Error applying transition: {e}")
+    def calculate_metrics(self, metrics: List[Metric]):
+        return {metric.name: metric.calculate(self) for metric in metrics}
     
-    def setup_narrative(self, narrative_name):
-        narrative = self.narratives[narrative_name]
-        self.current_state.set_parameters(narrative['initial_conditions'])
-        self.success_metrics = narrative['success_metrics']
+    def ask_assistant(self):
+        print(self.assistant.generate_response(self))
 
-    def check_success(self):
-        for parameter, target_value in self.success_metrics.items():
-            if self.current_state.parameters[parameter] < target_value:
-                return False
-        return True
+    def save_game(self, file_path: str):
+        with open(file_path, 'wb') as f:
+            pickle.dump(self, f)
+
+    @staticmethod
+    def load_game(file_path: str):
+        with open(file_path, 'rb') as f:
+            return pickle.load(f)
     
-    async def save_state(self):
-        save_state(self, SessionLocal)
-
-    async def load_state(self, id: int):
-        load_state(id, self, SessionLocal)
-
-    async def load_parameters(self, filename: str):
-        parameters = load_parameters(filename)
-        self.current_state.parameters = parameters
-    
-
