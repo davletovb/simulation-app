@@ -102,7 +102,7 @@ class State:
         self.citizen_groups = citizen_groups if citizen_groups else {}
         self.economic_sectors = economic_sectors if economic_sectors else {}
         self.influence = 0  # Player's influence, to be increased by negotiating with ministers
-        self.assistant = assistant if assistant else Assistant("Assistant")
+        self.assistant = assistant
         self.narrative = narrative
 
     def set_parameters(self, parameters: dict):
@@ -110,12 +110,43 @@ class State:
 
     def set_decisions(self, decisions: dict):
         self.decisions = decisions
+    
+    def set_citizen_groups(self, citizen_groups: dict):
+        self.citizen_groups = citizen_groups
+    
+    def set_ministers(self, ministers: dict):
+        self.ministers = ministers
+
+    def set_economic_sectors(self, economic_sectors: dict):
+        self.economic_sectors = economic_sectors
+    
+    def set_narrative(self, narrative):
+        self.narrative = narrative
+        # Apply narrative effects to the game state
+        for parameter_name, effect in narrative['effects'].items():
+            self.parameters[parameter_name].value += effect
 
     def get_parameter(self, name: str):
         return self.parameters.get(name)
 
     def get_decision(self, name: str):
         return self.decisions.get(name)
+    
+    def apply_decision(self, decision):
+        # Decrease the influence score by the decision's influence cost
+        self.influence -= decision.influence_cost
+
+        # Apply the effects of the decision to the relevant parameters
+        for parameter, effect in decision.effects.items():
+            self.parameters[parameter].value += effect
+            #self.parameters[parameter].adjust_for_dependency()  # adjust for dependency immediately after the decision, no delay
+
+        # You might also have effects on ministers, citizen groups, etc.
+        # For example:
+        for minister, effect in decision.minister_effects.items():
+            self.ministers[minister].status += effect
+        for citizen_group, effect in decision.citizen_group_effects.items():
+            self.citizen_groups[citizen_group].opinion += effect
 
     def negotiate_with_minister(self, minister_name: str):
         minister = self.ministers.get(minister_name)
