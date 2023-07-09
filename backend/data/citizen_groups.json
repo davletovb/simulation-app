@@ -1,0 +1,52 @@
+[
+    {
+        "name": "Workers Union",
+        "size": 1000000,
+        "political_view": "left"
+    },
+    {
+        "name": "Business Owners Association",
+        "size": 500000,
+        "political_view": "right"
+    },
+    {
+        "name": "Student Activists",
+        "size": 250000,
+        "political_view": "left"
+    },
+    {
+        "name": "Retirees Association",
+        "size": 800000,
+        "political_view": "right"
+    },
+    {
+        "name": "Environmentalists",
+        "size": 300000,
+        "political_view": "left"
+    },
+    {
+        "name": "Tech Industry Workers",
+        "size": 200000,
+        "political_view": "right"
+    },
+    {
+        "name": "Healthcare Workers Union",
+        "size": 400000,
+        "political_view": "left"
+    },
+    {
+        "name": "Religious Organization",
+        "size": 700000,
+        "political_view": "right"
+    },
+    {
+        "name": "Minority Rights Group",
+        "size": 350000,
+        "political_view": "left"
+    },
+    {
+        "name": "Farmers Association",
+        "size": 500000,
+        "political_view": "right"
+    }
+]

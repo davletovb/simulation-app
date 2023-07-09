@@ -1,0 +1,42 @@
+[
+    {
+        "name": "Agriculture",
+        "importance": 0.9
+    },
+    {
+        "name": "Manufacturing",
+        "importance": 0.85
+    },
+    {
+        "name": "Services",
+        "importance": 0.8
+    },
+    {
+        "name": "Technology",
+        "importance": 0.75
+    },
+    {
+        "name": "Healthcare",
+        "importance": 0.7
+    },
+    {
+        "name": "Education",
+        "importance": 0.65
+    },
+    {
+        "name": "Energy",
+        "importance": 0.6
+    },
+    {
+        "name": "Transportation",
+        "importance": 0.55
+    },
+    {
+        "name": "Tourism",
+        "importance": 0.5
+    },
+    {
+        "name": "Construction",
+        "importance": 0.45
+    }
+]

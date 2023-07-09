@@ -7,20 +7,24 @@ import json
 
 class SimulationController:
     def __init__(self):
-        self.assistant = self.load_assistant("assistant.json")
+        self.assistant = self.load_assistant("data/assistants.json")
         # Load all default entities into the state
         self.state = State(assistant=self.assistant)
-        self.load_parameters("parameters.json")  # replace with your actual filenames
-        self.load_ministers("ministers.json")
-        self.load_decisions("decisions.json")
-        self.load_citizen_groups("citizen_groups.json")
-        self.load_economic_sectors("economic_sectors.json")
+        self.load_parameters("data/parameters.json")  # replace with your actual filenames
+        self.load_ministers("data/ministers.json")
+        self.load_decisions("data/decisions.json")
+        self.load_citizen_groups("data/citizen_groups.json")
+        self.load_economic_sectors("data/economic_sectors.json")
     
     def load_assistant(self, filename):
         # Load assistant attributes from a file
         with open(filename, 'r') as f:
-            assistant_attributes = json.load(f)
-        assistant = Assistant(**assistant_attributes)
+            assistant_list = json.load(f)
+        # Print all assistants and let the user choose one
+        for i, assistant_attributes in enumerate(assistant_list):
+            print(f"{i+1}. {assistant_attributes['name']}")
+        choice = int(input("Choose an assistant by entering its number: "))
+        assistant = Assistant(**assistant_list[choice-1])
         return assistant
 
     def load_parameters(self, parameters_file):
@@ -102,11 +106,11 @@ class SimulationController:
         while True:
             # Load a saved game if the player wants to
             if input("Do you want to load a saved game? (yes/no) ") == 'yes':
-                filename = input("Enter the filename of the saved game: ")
+                filename = 'data/game_state.pkl' #input("Enter the filename of the saved game: ")
                 self.load_game(filename)
             else:
                 # If not loading a saved game, allow the player to choose a narrative
-                narratives = self.load_narratives('narratives.json')
+                narratives = self.load_narratives('data/narratives.json')
                 self.choose_narrative(narratives)
 
             # Print the current state of the game
@@ -131,7 +135,7 @@ class SimulationController:
 
             # Ask the player if they want to save the game
             if input("Do you want to save the game? (yes/no) ") == 'yes':
-                self.state.save_game('game_state.pkl')
+                self.state.save_game('data/game_state.pkl')
 
             # End the game if the player wants to quit
             if input("Do you want to quit the game? (yes/no) ") == 'yes':

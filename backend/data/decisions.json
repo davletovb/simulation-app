@@ -1,0 +1,195 @@
+[
+    {
+        "name": "Increase Defense Spending",
+        "effects": {
+            "Defense": 20,
+            "Economy": -10,
+            "Public Unrest": 5
+        },
+        "influence_cost": 15,
+        "economic_cost": 100
+    },
+    {
+        "name": "Implement Green Energy Policies",
+        "effects": {
+            "Environment": 20,
+            "Economy": -5
+        },
+        "influence_cost": 10,
+        "economic_cost": 75
+    },
+    {
+        "name": "Invest in Education",
+        "effects": {
+            "Education": 20,
+            "Economy": 10,
+            "Quality of Life": 5
+        },
+        "influence_cost": 15,
+        "economic_cost": 150
+    },
+    {
+        "name": "Lower Taxes",
+        "effects": {
+            "Economy": 10,
+            "Public Unrest": -5,
+            "Healthcare": -5,
+            "Education": -5
+        },
+        "influence_cost": 10,
+        "economic_cost": -50
+    },
+    {
+        "name": "Introduce Universal Healthcare",
+        "effects": {
+            "Healthcare": 20,
+            "Quality of Life": 10,
+            "Economy": -10
+        },
+        "influence_cost": 15,
+        "economic_cost": 200
+    },
+    {
+        "name": "Initiate Infrastructure Development",
+        "effects": {
+            "Infrastructure": 20,
+            "Economy": 10,
+            "Public Unrest": -5
+        },
+        "influence_cost": 15,
+        "economic_cost": 150
+    },
+    {
+        "name": "Implement Social Welfare Programs",
+        "effects": {
+            "Economy": -10,
+            "Public Unrest": -10,
+            "Quality of Life": 10
+        },
+        "influence_cost": 10,
+        "economic_cost": 150
+    },
+    {
+        "name": "Enforce Strict Immigration Policies",
+        "effects": {
+            "Economy": 5,
+            "Public Unrest": 5,
+            "Diplomacy": -5
+        },
+        "influence_cost": 5,
+        "economic_cost": 25
+    },
+    {
+        "name": "Promote Scientific Research",
+        "effects": {
+            "Technology": 20,
+            "Economy": 10
+        },
+        "influence_cost": 15,
+        "economic_cost": 100
+    },
+    {
+        "name": "Implement Strict Law Enforcement",
+        "effects": {
+            "Public Unrest": 5,
+            "Crime Rate": -20
+        },
+        "influence_cost": 10,
+        "economic_cost": 50
+    },
+    {
+        "name": "Promote Freedom of Press",
+        "effects": {
+            "Media": 20,
+            "Public Unrest": -5,
+            "Political Participation": 10
+        },
+        "influence_cost": 10,
+        "economic_cost": 25
+    },
+    {
+        "name": "Increase Diplomatic Relations",
+        "effects": {
+            "Diplomacy": 20,
+            "Economy": 10
+        },
+        "influence_cost": 10,
+        "economic_cost": 25
+    },
+    {
+        "name": "Promote Religious Freedom",
+        "effects": {
+            "Religion": 10,
+            "Public Unrest": -5,
+            "Social Cohesion": 5
+        },
+        "influence_cost": 10,
+        "economic_cost": 10
+    },
+    {
+        "name": "Promote Free Trade Agreements",
+        "effects": {
+            "Economy": 15,
+            "Diplomacy": 10
+        },
+        "influence_cost": 10,
+        "economic_cost": 25
+    },
+    {
+        "name": "Invest in Renewable Energy",
+        "effects": {
+            "Environment": 20,
+            "Economy": -5,
+            "Research and Development": 5
+        },
+        "influence_cost": 15,
+        "economic_cost": 125
+    },
+    {
+        "name": "Enforce Anti-Corruption Laws",
+        "effects": {
+            "Economy": 10,
+            "Public Unrest": -5
+        },
+        "influence_cost": 10,
+        "economic_cost": 50
+    },
+    {
+        "name": "Promote Tourism",
+        "effects": {
+            "Economy": 15,
+            "Cultural Diversity": 10
+        },
+        "influence_cost": 10,
+        "economic_cost": 50
+    },
+    {
+        "name": "Implement Public Health Campaigns",
+        "effects": {
+            "Healthcare": 10,
+            "Public Unrest": -5,
+            "Quality of Life": 5
+        },
+        "influence_cost": 10,
+        "economic_cost": 50
+    },
+    {
+        "name": "Enforce Environmental Regulations",
+        "effects": {
+            "Environment": 20,
+            "Economy": -10
+        },
+        "influence_cost": 10,
+        "economic_cost": 75
+    },
+    {
+        "name": "Promote Women's Rights",
+        "effects": {
+            "Social Cohesion": 10,
+            "Public Unrest": -5,
+            "Quality of Life": 5
+        },
+        "influence_cost": 10,
+        "economic_cost": 50
+    }
+]

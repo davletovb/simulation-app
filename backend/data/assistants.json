@@ -1,0 +1,32 @@
+[
+    {
+        "name": "Ava",
+        "age": 23,
+        "status": "Active",
+        "traits": "Intelligent, Analytical, Empathetic"
+    },
+    {
+        "name": "Leo",
+        "age": 22,
+        "status": "Active",
+        "traits": "Creative, Intuitive, Helpful"
+    },
+    {
+        "name": "Mia",
+        "age": 25,
+        "status": "Active",
+        "traits": "Efficient, Logical, Observant"
+    },
+    {
+        "name": "Noah",
+        "age": 21,
+        "status": "Active",
+        "traits": "Adaptive, Quick, Methodical"
+    },
+    {
+        "name": "Sophia",
+        "age": 24,
+        "status": "Active",
+        "traits": "Insightful, Patient, Rational"
+    }
+]

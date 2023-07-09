@@ -1,0 +1,52 @@
+[
+    {
+        "name": "Minister of Economy",
+        "loyalty": 0.75,
+        "influence": 0.95
+    },
+    {
+        "name": "Minister of Defense",
+        "loyalty": 0.85,
+        "influence": 0.9
+    },
+    {
+        "name": "Minister of Healthcare",
+        "loyalty": 0.9,
+        "influence": 0.85
+    },
+    {
+        "name": "Minister of Education",
+        "loyalty": 0.8,
+        "influence": 0.8
+    },
+    {
+        "name": "Minister of Environment",
+        "loyalty": 0.7,
+        "influence": 0.75
+    },
+    {
+        "name": "Minister of Technology",
+        "loyalty": 0.65,
+        "influence": 0.7
+    },
+    {
+        "name": "Minister of Infrastructure",
+        "loyalty": 0.6,
+        "influence": 0.65
+    },
+    {
+        "name": "Minister of Diplomacy",
+        "loyalty": 0.55,
+        "influence": 0.6
+    },
+    {
+        "name": "Minister of Media",
+        "loyalty": 0.5,
+        "influence": 0.55
+    },
+    {
+        "name": "Minister of Religion",
+        "loyalty": 0.45,
+        "influence": 0.5
+    }
+]
