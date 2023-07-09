@@ -7,14 +7,8 @@ import json
 
 class SimulationController:
     def __init__(self):
-        self.assistant = self.load_assistant("data/assistants.json")
-        # Load all default entities into the state
-        self.state = State(assistant=self.assistant)
-        self.load_parameters("data/parameters.json")  # replace with your actual filenames
-        self.load_ministers("data/ministers.json")
-        self.load_decisions("data/decisions.json")
-        self.load_citizen_groups("data/citizen_groups.json")
-        self.load_economic_sectors("data/economic_sectors.json")
+        self.assistant = None
+        self.state = None
     
     def load_assistant(self, filename):
         # Load assistant attributes from a file
@@ -26,6 +20,41 @@ class SimulationController:
         choice = int(input("Choose an assistant by entering its number: "))
         assistant = Assistant(**assistant_list[choice-1])
         return assistant
+    
+    def start_game(self):
+        # Here, you would typically start a new game, perhaps by initializing or resetting your state.
+        self.assistant = self.load_assistant("data/assistants.json")
+        self.state = State(assistant=self.assistant)
+        # Load all default entities into the state
+        self.load_parameters("data/parameters.json")  # replace with your actual filenames
+        self.load_ministers("data/ministers.json")
+        self.load_decisions("data/decisions.json")
+        self.load_citizen_groups("data/citizen_groups.json")
+        self.load_economic_sectors("data/economic_sectors.json")
+        narratives = self.load_narratives('data/narratives.json')
+        self.choose_narrative(narratives)
+        return self.get_state()
+
+    def make_decision(self, decision_name: str):
+        # Here, you would apply the given decision and return the new state of the game.
+        decision = self.state.get_decision(decision_name)
+        if decision:
+            self.state.apply_decision(decision)
+            return self.get_state()
+        else:
+            raise ValueError(f"No decision named '{decision_name}' exists.")
+
+    def get_state(self):
+        # Here, you would return a representation of the current state of the game.
+        return {
+            "parameters": {name: param.value for name, param in self.state.parameters.items()},
+            "decisions": [decision.name for decision in self.state.decisions.values()],
+            "ministers": [minister.name for minister in self.state.ministers.values()],
+            "citizen_groups": [group.name for group in self.state.citizen_groups.values()],
+            "economic_sectors": [sector.name for sector in self.state.economic_sectors.values()],
+            "influence": self.state.influence,
+            "narrative": self.state.narrative.name if self.state.narrative else None
+        }
 
     def load_parameters(self, parameters_file):
         # Load parameters from a local file into the state
@@ -108,10 +137,10 @@ class SimulationController:
             if input("Do you want to load a saved game? (yes/no) ") == 'yes':
                 filename = 'data/game_state.pkl' #input("Enter the filename of the saved game: ")
                 self.load_game(filename)
-            else:
-                # If not loading a saved game, allow the player to choose a narrative
-                narratives = self.load_narratives('data/narratives.json')
-                self.choose_narrative(narratives)
+            #else:
+            #    # If not loading a saved game, allow the player to choose a narrative
+            #    narratives = self.load_narratives('data/narratives.json')
+            #    self.choose_narrative(narratives)
 
             # Print the current state of the game
             print(f"Current influence: {self.state.influence}")

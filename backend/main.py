@@ -6,23 +6,19 @@ from sqlalchemy.orm import Session
 from pydantic import BaseModel
 import uvicorn
 
-from .simulation_logic import SimulationLogic
+from .simulation_logic import SimulationController
 from .database import Session, User, engine, SessionLocal, Base
 from .auth import create_access_token, get_password_hash, verify_password, Token, TokenData, ACCESS_TOKEN_EXPIRE_MINUTES, ALGORITHM, SECRET_KEY
 
 app = FastAPI()
 
-simulation_logic = SimulationLogic()
+simulation_controller = SimulationController()
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
-class Decision(BaseModel):
-    parameter: str
-    action: str
-    command: str
-
-class Command(BaseModel):
-    command: str
+# Define a Pydantic model for Decision
+class DecisionModel(BaseModel):
+    decision_name: str
 
 class UserIn(BaseModel):
     username: str
@@ -109,48 +105,50 @@ async def read_users(current_user: User = Depends(get_current_superuser)):
 
 @app.post("/simulation/start")
 async def start_simulation(current_user: User = Depends(get_current_user)):
-    await simulation_logic.start_simulation()
+    await simulation_controller.start_game()
     return {"status": "Simulation started"}
 
 
 @app.post("/simulation/stop")
 async def stop_simulation(current_user: User = Depends(get_current_user)):
-    await simulation_logic.stop_simulation()
+    await simulation_controller.stop_simulation()
     return {"status": "Simulation stopped"}
 
 
 @app.get("/simulation/state")
 async def get_simulation_state(current_user: User = Depends(get_current_user)):
-    state = await simulation_logic.get_simulation_state()
+    state = simulation_controller.get_state()
     return {"state": state}
-
-
-@app.post("/simulation/update")
-async def update_simulation(decision: Decision, current_user: User = Depends(get_current_user)):
-    await simulation_logic.update_simulation(decision)
-    return {"message": "Simulation updated"}
 
 
 @app.post("/simulation/decision")
-async def make_decision(decision: Decision, current_user: User = Depends(get_current_user)):
-    # Here you would update the simulation based on the decision
-    transition = await simulation_logic.simulation.assistant.make_decision(simulation_logic.simulation)
-    return {"status": f"Decision made: {decision.parameter} - {decision.action}", "transition": transition.to_dict()}
+async def make_decision(decision: DecisionModel, current_user: User = Depends(get_current_user)):
+    decision_name = decision.decision_name
+    simulation_controller.make_decision(decision_name)
+    return {"message": f"Decision {decision_name} made"}
 
 
-@app.get("/assistant/state")
-async def get_assistant_state(current_user: User = Depends(get_current_user)):
-    state = await simulation_logic.get_assistant_state()
-    return {"state": state}
+@app.get("/simulation/news")
+async def fetch_news():
+    news_event = await simulation_controller.fetch_news()
+    return {"news_event": news_event}
 
 
-@app.post("/assistant/command")
-async def send_command_to_assistant(command: Command, current_user: User = Depends(get_current_user)):
-    try:
-        response = await simulation_logic.interact_with_assistant(command.command)
-        return {"response": response}
-    except ValueError as e:
-        return {"error": str(e)}
+# Route to generate a decision based on news
+@app.get("/simulation/generate_decision")
+async def generate_decision():
+    news_event = await simulation_controller.fetch_news()
+    decision = await simulation_controller.assistant.generate_decision(news_event)
+    return {"decision": decision}
+
+
+# Route to generate assistant's response
+@app.get("/simulation/generate_response")
+async def generate_response():
+    news_event = await simulation_controller.fetch_news()
+    decision = await simulation_controller.assistant.generate_decision(news_event)
+    response = await simulation_controller.assistant.generate_response(simulation_controller.state, news_event)
+    return {"response": response}
 
 
 if __name__ == "__main__":
