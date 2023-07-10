@@ -94,7 +94,7 @@ class Narrative2:
 """    
 
 class State:
-    def __init__(self, parameters: Dict[str, Parameter] = None, decisions: Dict[str, Decision] = None, ministers: Dict[str, Minister] = None, citizen_groups: Dict[str, CitizenGroup] = None, economic_sectors: Dict[str, EconomicSector] = None, metrics: Dict[str, Metric] = None, assistant: Assistant = None, narrative: Narrative = None):
+    def __init__(self, parameters: Dict[str, Parameter] = None, decisions: Dict[str, Decision] = None, ministers: Dict[str, Minister] = None, citizen_groups: Dict[str, CitizenGroup] = None, economic_sectors: Dict[str, EconomicSector] = None, metrics: Dict[str, float] = None, assistant: Assistant = None, narrative: Narrative = None):
         self.parameters = parameters if parameters else {}
         self.decisions = decisions if decisions else {}
         self.ministers = ministers if ministers else {}
@@ -129,11 +129,8 @@ class State:
     def set_metrics(self, metrics: dict):
         self.metrics = metrics
     
-    def get_metrics_values(self):
-        metrics = {}
-        for metric in self.metrics.values():
-            metrics[metric.name] = metric.calculate(self)
-        return metrics
+    def get_metrics(self):
+        return self.metrics
 
     def get_parameter(self, name: str):
         return self.parameters.get(name)
@@ -170,10 +167,6 @@ class State:
             self.influence += len(statement) / 100
         else:
             print(f"No citizen group named '{citizen_group_name}' exists.")
-    
-    def update_metrics(self):
-        for metric in self.metrics.values():
-            self.metrics[metric.name] = metric.calculate(self)
     
     def ask_assistant(self):
         print(self.assistant.generate_response(self))

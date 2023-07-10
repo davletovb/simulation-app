@@ -1,5 +1,5 @@
 from simulation import State, Parameter, ParameterType, Narrative, Decision, Minister, CitizenGroup, EconomicSector
-from metrics import set_metrics_values
+from metrics import set_metrics_values, update_metrics_values
 from assistant import Assistant
 import logging
 import json
@@ -41,6 +41,7 @@ class SimulationController:
         decision = self.state.get_decision(decision_name)
         if decision:
             self.state.apply_decision(decision)
+            update_metrics_values(self.state)
             return self.get_state()
         else:
             raise ValueError(f"No decision named '{decision_name}' exists.")
@@ -53,7 +54,7 @@ class SimulationController:
             "ministers": [minister.name for minister in self.state.ministers.values()],
             "citizen_groups": [group.name for group in self.state.citizen_groups.values()],
             "economic_sectors": [sector.name for sector in self.state.economic_sectors.values()],
-            "metrics": self.state.get_metrics_values(),
+            "metrics": self.state.get_metrics(),
             "influence": self.state.influence,
             "narrative": self.state.narrative.name if self.state.narrative else None
         }
@@ -149,8 +150,7 @@ class SimulationController:
         choice = int(input("Choose a narrative by number: ")) - 1
         chosen_narrative = narratives[choice]
         self.state.set_narrative(chosen_narrative)
-        self.state.update_metrics()
-        print(self.state.metrics)
+        update_metrics_values(self.state)
         print(f"You have chosen the {chosen_narrative.name} narrative.")
 
     def fetch_news(self):
@@ -185,7 +185,7 @@ class SimulationController:
 
             # Apply the decision to the state
             self.state.apply_decision(decision)
-            self.state.update_metrics()
+            update_metrics_values(self.state)
 
             # Generate the assistant's response
             response = self.assistant.generate_response(self.state, news_event)

@@ -90,7 +90,38 @@ metric_objects = [
     Metric("Air and Water Quality", calculate_air_and_water_quality)
 ]
 
+metric_calculation_functions = {
+    "Overall Country Health": calculate_overall_country_health,
+    "Economic Stability": calculate_economic_stability,
+    "Public Welfare": calculate_public_welfare,
+    "Defense Readiness": calculate_defense_readiness,
+    "Educational Quality": calculate_educational_quality,
+    "Infrastructure Development": calculate_infrastructure_development,
+    "Environmental Health": calculate_environmental_health,
+    "Technological Progress": calculate_technological_progress,
+    "Diplomatic Relations": calculate_diplomatic_relations,
+    "Public Sentiment": calculate_public_sentiment,
+    "Religious Harmony": calculate_religious_harmony,
+    "Media Influence": calculate_media_influence,
+    "Social Cohesion": calculate_social_cohesion,
+    "Quality of Life": calculate_quality_of_life,
+    "Income Equality": calculate_income_equality,
+    "Health Index": calculate_health_index,
+    "Literacy Rate": calculate_literacy_rate,
+    "Internet Access": calculate_internet_access,
+    "Research and Development": calculate_research_and_development,
+    "Air and Water Quality": calculate_air_and_water_quality
+}
+
 def set_metrics_values(state):
-    state.set_metrics({metric.name: metric for metric in metric_objects})
+    state.set_metrics({
+        metric_name: calculate_func(state) 
+        for metric_name, calculate_func in metric_calculation_functions.items()
+    })
+
+def update_metrics_values(state):
+    for metric_name in state.metrics.keys():
+        calculation_function = metric_calculation_functions[metric_name]
+        state.metrics[metric_name] = calculation_function(state)
 
 
