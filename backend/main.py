@@ -122,7 +122,7 @@ async def index():
 
 @app.get("/simulation/start")
 async def start_simulation():
-    simulation_controller.start_game()
+    simulation_controller.start_simulation()
     return {"status": "Simulation started"}
 
 
@@ -131,6 +131,29 @@ async def stop_simulation():
     simulation_controller.stop_simulation()
     return {"status": "Simulation stopped"}
 
+@app.get("/load_assistants")
+async def load_assistants():
+    assistants = simulation_controller.load_assistants()
+    # Convert the assistants to a form that can be sent as JSON
+    assistant_dicts = [{"name": assistant.name, "age": assistant.age, "status": assistant.status, "traits": assistant.traits} for assistant in assistants]
+    return {"assistants": assistant_dicts}
+
+@app.get("/load_narratives")
+async def load_narratives():
+    narratives = simulation_controller.load_narratives()
+    # Convert the narratives to a form that can be sent as JSON
+    narrative_dicts = [{"name": narrative.name, "effects": narrative.effects} for narrative in narratives]
+    return {"narratives": narrative_dicts}
+
+@app.get("/set_assistant/{assistant_choice}")
+async def set_assistant(assistant_choice: int):
+    simulation_controller.set_assistant(assistant_choice)
+    return {"message": "Assistant set"}
+
+@app.get("/set_narrative/{narrative_choice}")
+async def set_narrative(narrative_choice: int):
+    simulation_controller.set_narrative(narrative_choice)
+    return {"message": "Narrative set"}
 
 @app.get("/simulation/state")
 async def get_simulation_state():

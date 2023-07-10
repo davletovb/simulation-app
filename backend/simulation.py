@@ -47,6 +47,9 @@ class Parameter:
             total_dependency_value = sum(dep.value for dep in self.dependencies)
             average_dependency_value = total_dependency_value / len(self.dependencies)
             self.value += average_dependency_value
+        
+    def to_dict(self):
+        return {"name": self.name, "value": self.value}
 
 class Decision:
     def __init__(self, name: str, effects: Dict[Parameter, float], economic_cost: int, influence_cost: int):
@@ -54,28 +57,43 @@ class Decision:
         self.effects = effects
         self.economic_cost = economic_cost
         self.influence_cost = influence_cost
+    
+    def to_dict(self):
+        return {"name": self.name, "economic_cost": self.economic_cost, "influence_cost": self.influence_cost}
 
 class Minister:
     def __init__(self, name: str, loyalty: float, influence: float):
         self.name = name
         self.loyalty = loyalty
         self.influence = influence
+    
+    def to_dict(self):
+        return {"name": self.name, "loyalty": self.loyalty, "influence": self.influence}
 
 class CitizenGroup:
     def __init__(self, name: str, size: int, political_view: str):
         self.name = name
         self.size = size
         self.political_view = political_view
+    
+    def to_dict(self):
+        return {"name": self.name, "size": self.size, "political_view": self.political_view}
 
 class EconomicSector:
     def __init__(self, name: str, importance: float):
         self.name = name
         self.importance = importance
+    
+    def to_dict(self):
+        return {"name": self.name, "importance": self.importance}
 
 class Narrative:
     def __init__(self, name: str, effects: dict):
         self.name = name
         self.effects = effects
+    
+    def to_dict(self):
+        return {"name": self.name}
 
 """
 Narrative class will be changed to this definition later
@@ -179,4 +197,30 @@ class State:
     def load_game(file_path: str):
         with open(file_path, 'rb') as f:
             return pickle.load(f)
+    
+    def to_dict(self):
+        # Create a dictionary with the same attributes as the State object
+        state_dict = self.__dict__.copy()
+
+        # If State object contains other custom objects, it will need to convert these to dictionaries as well
+        # For example, if State object contains an Assistant object:
+        if hasattr(self, 'assistant') and self.assistant is not None:
+            state_dict['assistant'] = self.assistant.to_dict()
+
+        return state_dict
+        
+    @classmethod
+    def from_dict(cls, state_dict):
+        # create a new instance of the class
+        state = cls()
+
+        # populate the attributes of the state object from the dictionary
+        for key, value in state_dict.items():
+            if key == 'assistant':
+                # create an Assistant object from the dictionary
+                state.assistant = Assistant.from_dict(value)
+            else:
+                setattr(state, key, value)
+
+        return state
     

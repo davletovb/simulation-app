@@ -57,4 +57,22 @@ class Assistant:
 
     def __repr__(self) -> str:
         return str(self.agent.get_summary())
+    
+    def to_dict(self):
+        # Create a dictionary with the same attributes as the State object
+        state_dict = self.__dict__.copy()
+
+        return state_dict
+    
+    @classmethod
+    def from_dict(cls, assistant_dict):
+        # create a new instance of the class
+        assistant = cls()
+
+        # populate the attributes of the assistant object from the dictionary
+        # this assumes that the keys in the dictionary match the attribute names of the Assistant object
+        for key, value in assistant_dict.items():
+            setattr(assistant, key, value)
+
+        return assistant
 
