@@ -1,6 +1,3 @@
-from .simulation import State
-
-
 from langchain import OpenAI
 from langchain.chat_models import ChatOpenAI
 from langchain.experimental.generative_agents import GenerativeAgent, GenerativeAgentMemory
@@ -47,13 +44,13 @@ class Assistant:
 
         return decision
 
-    def generate_response(self, state: State, news_event: str = None):
+    def generate_response(self, news_event: str = None):
         # Generate a different response based on the current narrative
         response = self.agent.generate_dialogue_response(news_event)[1]
 
         return response
 
-    def process_input(self, input_text: str, state: State):
+    def process_input(self, input_text: str):
         # Use the agent to process the input
         _, response = self.agent.generate_dialogue_response(input_text)
         print(response)

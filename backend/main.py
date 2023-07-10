@@ -1,24 +1,36 @@
 from fastapi import FastAPI, Depends, HTTPException, status
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from jose import JWTError, jwt
 from datetime import timedelta
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 import uvicorn
+import logging
+import os
 
-from .simulation_logic import SimulationController
-from .database import Session, User, engine, SessionLocal, Base
-from .auth import create_access_token, get_password_hash, verify_password, Token, TokenData, ACCESS_TOKEN_EXPIRE_MINUTES, ALGORITHM, SECRET_KEY
+from simulation_logic import SimulationController
+from database import Session, User, engine, SessionLocal, Base
+from auth import create_access_token, get_password_hash, verify_password, Token, TokenData, ACCESS_TOKEN_EXPIRE_MINUTES, ALGORITHM, SECRET_KEY
 
 app = FastAPI()
 
-simulation_controller = SimulationController()
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Allows all origins
+    allow_credentials=True,
+    allow_methods=["*"],  # Allows all methods
+    allow_headers=["*"],  # Allows all headers
+)
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
+simulation_controller = SimulationController()
 
 # Define a Pydantic model for Decision
 class DecisionModel(BaseModel):
     decision_name: str
+
+"""
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
 class UserIn(BaseModel):
     username: str
@@ -101,28 +113,33 @@ def get_current_superuser(current_user: User = Depends(get_current_user)):
 async def read_users(current_user: User = Depends(get_current_superuser)):
     # returns a list of all users for admin
     pass
+"""
+
+@app.get("/")
+async def index():
+    return {"status": "ok"}
 
 
-@app.post("/simulation/start")
-async def start_simulation(current_user: User = Depends(get_current_user)):
-    await simulation_controller.start_game()
+@app.get("/simulation/start")
+async def start_simulation():
+    simulation_controller.start_game()
     return {"status": "Simulation started"}
 
 
 @app.post("/simulation/stop")
-async def stop_simulation(current_user: User = Depends(get_current_user)):
-    await simulation_controller.stop_simulation()
+async def stop_simulation():
+    simulation_controller.stop_simulation()
     return {"status": "Simulation stopped"}
 
 
 @app.get("/simulation/state")
-async def get_simulation_state(current_user: User = Depends(get_current_user)):
+async def get_simulation_state():
     state = simulation_controller.get_state()
     return {"state": state}
 
 
 @app.post("/simulation/decision")
-async def make_decision(decision: DecisionModel, current_user: User = Depends(get_current_user)):
+async def make_decision(decision: DecisionModel):
     decision_name = decision.decision_name
     simulation_controller.make_decision(decision_name)
     return {"message": f"Decision {decision_name} made"}
@@ -130,27 +147,26 @@ async def make_decision(decision: DecisionModel, current_user: User = Depends(ge
 
 @app.get("/simulation/news")
 async def fetch_news():
-    news_event = await simulation_controller.fetch_news()
+    news_event = simulation_controller.fetch_news()
     return {"news_event": news_event}
 
 
 # Route to generate a decision based on news
 @app.get("/simulation/generate_decision")
 async def generate_decision():
-    news_event = await simulation_controller.fetch_news()
-    decision = await simulation_controller.assistant.generate_decision(news_event)
+    news_event = simulation_controller.fetch_news()
+    decision = simulation_controller.assistant.generate_decision(news_event)
     return {"decision": decision}
 
 
 # Route to generate assistant's response
 @app.get("/simulation/generate_response")
 async def generate_response():
-    news_event = await simulation_controller.fetch_news()
-    decision = await simulation_controller.assistant.generate_decision(news_event)
-    response = await simulation_controller.assistant.generate_response(simulation_controller.state, news_event)
+    news_event = simulation_controller.fetch_news()
+    response = simulation_controller.assistant.generate_response(simulation_controller.state, news_event)
     return {"response": response}
 
 
 if __name__ == "__main__":
-    Base.metadata.create_all(bind=engine)
+    #Base.metadata.create_all(bind=engine)
     uvicorn.run(app, host="localhost", port=8000)

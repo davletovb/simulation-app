@@ -3,8 +3,6 @@ from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy.ext.declarative import declarative_base
 from typing import Dict
 
-from .simulation import Simulation, Parameter, ParameterType
-
 import logging
 import csv
 import json
@@ -42,26 +40,27 @@ class User(Base):
     is_superuser = Column(Boolean, default=False)
 
 
-def save_state(simulation: Simulation, db: Session):
+"""
+def save_state(state: State, db: Session):
     try:
         state_dict = {
-            "simulation_state": simulation.current_state.get_value(),
-            "assistant_state": simulation.assistant.get_state(),
+            "simulation_state": state,
+            "assistant_state": state.assistant.get_state(),
         }
         state_record = SimulationState(state=state_dict)
         db.add(state_record)
         db.commit()
     except Exception as e:
-        simulation.logger.error(f"Error saving state: {e}")
+        state.logger.error(f"Error saving state: {e}")
 
-def load_state(id: int, simulation: Simulation, db: Session):
+def load_state(id: int, state: State, db: Session):
     try:
         state_record = db.query(SimulationState).get(id)
         state_dict = state_record.get_state()
-        simulation.current_state.set_value(state_dict["simulation_state"])
-        simulation.assistant.set_state(state_dict["assistant_state"])
+        state.current_state.set_value(state_dict["simulation_state"])
+        state.assistant.set_state(state_dict["assistant_state"])
     except Exception as e:
-        simulation.logger.error(f"Error loading state: {e}")
+        state.logger.error(f"Error loading state: {e}")
 
 
 def load_parameters(filename: str) -> Dict[str, Dict[str, Parameter]]:
@@ -93,3 +92,4 @@ def save_parameters(parameters: Dict[str, Parameter], filename: str):
         writer.writerow(["name", "value", "type", "initial_value"])  # Write the header row
         for name, parameter in parameters.items():
             writer.writerow([name, parameter.value, parameter.type.name, parameter.initial_value])
+"""

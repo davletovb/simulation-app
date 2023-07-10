@@ -1,5 +1,5 @@
-{
-    "Rise from the Ashes": {
+[
+    {
         "name": "Rise from the Ashes",
         "effects": {
             "Economy": -30,
@@ -9,7 +9,7 @@
             "Diplomacy": 10
         }
     },
-    "The Green Revolution": {
+    {
         "name": "The Green Revolution",
         "effects": {
             "Environment": 50,
@@ -19,7 +19,7 @@
             "Public Unrest": -10
         }
     },
-    "The Technological Frontier": {
+    {
         "name": "The Technological Frontier",
         "effects": {
             "Technology": 50,
@@ -28,7 +28,7 @@
             "Infrastructure": 20
         }
     },
-    "The Balancing Act": {
+    {
         "name": "The Balancing Act",
         "effects": {
             "Public Unrest": 20,
@@ -37,7 +37,7 @@
             "Diplomacy": 20
         }
     },
-    "The Health Crusade": {
+    {
         "name": "The Health Crusade",
         "effects": {
             "Healthcare": 50,
@@ -46,7 +46,7 @@
             "Environment": 20
         }
     },
-    "The Age of Enlightenment": {
+    {
         "name": "The Age of Enlightenment",
         "effects": {
             "Education": 50,
@@ -55,7 +55,7 @@
             "Religion": -10
         }
     },
-    "The Economic Miracle": {
+    {
         "name": "The Economic Miracle",
         "effects": {
             "Economy": 50,
@@ -65,7 +65,7 @@
             "Technology": 10
         }
     },
-    "The Peace Broker": {
+    {
         "name": "The Peace Broker",
         "effects": {
             "Diplomacy": 50,
@@ -74,7 +74,7 @@
             "Media": 20
         }
     },
-    "The Cultural Beacon": {
+    {
         "name": "The Cultural Beacon",
         "effects": {
             "Education": 20,
@@ -83,7 +83,7 @@
             "Public Unrest": -10
         }
     },
-    "The Social Innovator": {
+    {
         "name": "The Social Innovator",
         "effects": {
             "Education": 30,
@@ -93,7 +93,7 @@
             "Infrastructure": 10
         }
     },
-    "The Iron Fist": {
+    {
         "name": "The Iron Fist",
         "effects": {
             "Defense": 50,
@@ -102,7 +102,7 @@
             "Diplomacy": -30
         }
     },
-    "The Corrupt Regime": {
+    {
         "name": "The Corrupt Regime",
         "effects": {
             "Economy": -30,
@@ -111,7 +111,7 @@
             "Infrastructure": -20
         }
     },
-    "The Warmonger": {
+    {
         "name": "The Warmonger",
         "effects": {
             "Defense": 50,
@@ -120,7 +120,7 @@
             "Economy": -20
         }
     },
-    "The Propagandist": {
+    {
         "name": "The Propagandist",
         "effects": {
             "Media": 50,
@@ -129,7 +129,7 @@
             "Diplomacy": -10
         }
     },
-    "The Isolationist": {
+    {
         "name": "The Isolationist",
         "effects": {
             "Economy": -30,
@@ -138,4 +138,4 @@
             "Technology": -20
         }
     }
-}
+]

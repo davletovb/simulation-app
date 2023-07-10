@@ -1,5 +1,6 @@
-from .database import SimulationState, SessionLocal, save_state, load_state, load_parameters
-from .assistant import Assistant
+from database import SessionLocal
+from assistant import Assistant
+from metrics import Metric
 
 from enum import Enum
 from typing import Union, List, Dict
@@ -48,9 +49,10 @@ class Parameter:
             self.value += average_dependency_value
 
 class Decision:
-    def __init__(self, name: str, effects: Dict[Parameter, float], influence_cost: int):
+    def __init__(self, name: str, effects: Dict[Parameter, float], economic_cost: int, influence_cost: int):
         self.name = name
         self.effects = effects
+        self.economic_cost = economic_cost
         self.influence_cost = influence_cost
 
 class Minister:
@@ -70,8 +72,14 @@ class EconomicSector:
         self.name = name
         self.importance = importance
 
-
 class Narrative:
+    def __init__(self, name: str, effects: dict):
+        self.name = name
+        self.effects = effects
+
+"""
+Narrative class will be changed to this definition later
+class Narrative2:
     def __init__(self, name: str, initial_parameters: Dict[str, Parameter], initial_decisions: Dict[str, Decision], initial_ministers: Dict[str, Minister], initial_citizen_groups: Dict[str, CitizenGroup], initial_economic_sectors: Dict[str, EconomicSector]):
         self.name = name
         self.initial_parameters = initial_parameters
@@ -83,24 +91,16 @@ class Narrative:
     def start(self):
         # Create a state with the initial entities defined by this narrative
         return State(parameters=self.initial_parameters, decisions=self.initial_decisions, ministers=self.initial_ministers, citizen_groups=self.initial_citizen_groups, economic_sectors=self.initial_economic_sectors)
-
-
-class Metric:
-    def __init__(self, name: str, calculation_function):
-        self.name = name
-        self.calculation_function = calculation_function
-
-    def calculate(self, state):
-        return self.calculation_function(state)
-    
+"""    
 
 class State:
-    def __init__(self, parameters: Dict[str, Parameter] = None, decisions: Dict[str, Decision] = None, ministers: Dict[str, Minister] = None, citizen_groups: Dict[str, CitizenGroup] = None, economic_sectors: Dict[str, EconomicSector] = None, assistant: Assistant = None, narrative: Narrative = None):
+    def __init__(self, parameters: Dict[str, Parameter] = None, decisions: Dict[str, Decision] = None, ministers: Dict[str, Minister] = None, citizen_groups: Dict[str, CitizenGroup] = None, economic_sectors: Dict[str, EconomicSector] = None, metrics: Dict[str, Metric] = None, assistant: Assistant = None, narrative: Narrative = None):
         self.parameters = parameters if parameters else {}
         self.decisions = decisions if decisions else {}
         self.ministers = ministers if ministers else {}
         self.citizen_groups = citizen_groups if citizen_groups else {}
         self.economic_sectors = economic_sectors if economic_sectors else {}
+        self.metrics = metrics if metrics else {}
         self.influence = 0  # Player's influence, to be increased by negotiating with ministers
         self.assistant = assistant
         self.narrative = narrative
@@ -123,8 +123,17 @@ class State:
     def set_narrative(self, narrative):
         self.narrative = narrative
         # Apply narrative effects to the game state
-        for parameter_name, effect in narrative['effects'].items():
+        for parameter_name, effect in narrative.effects.items():
             self.parameters[parameter_name].value += effect
+    
+    def set_metrics(self, metrics: dict):
+        self.metrics = metrics
+    
+    def get_metrics_values(self):
+        metrics = {}
+        for metric in self.metrics.values():
+            metrics[metric.name] = metric.calculate(self)
+        return metrics
 
     def get_parameter(self, name: str):
         return self.parameters.get(name)
@@ -162,8 +171,9 @@ class State:
         else:
             print(f"No citizen group named '{citizen_group_name}' exists.")
     
-    def calculate_metrics(self, metrics: List[Metric]):
-        return {metric.name: metric.calculate(self) for metric in metrics}
+    def update_metrics(self):
+        for metric in self.metrics.values():
+            self.metrics[metric.name] = metric.calculate(self)
     
     def ask_assistant(self):
         print(self.assistant.generate_response(self))
