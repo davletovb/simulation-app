@@ -177,7 +177,6 @@ class SimulationController:
         if decision:
             self.state.apply_decision(decision)
             update_metrics_values(self.state)
-            return self.get_state()
         else:
             raise ValueError(f"No decision named '{decision_name}' exists.")
     

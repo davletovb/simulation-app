@@ -1,7 +1,11 @@
 import streamlit as st
+import openai
 import pandas as pd
 import httpx
 import asyncio
+import os
+
+openai.api_key = os.environ["OPENAI_API_KEY"]
 
 def run_async(func):
     loop = asyncio.new_event_loop()
@@ -52,7 +56,6 @@ async def submit_decision(decision):
         return response.json() if response.status_code == 200 else None
 
 # Streamlit code
-#st.title("Simulation")
 
 # Load and display the lists of assistants and narratives
 assistants = run_async(load_assistants())
@@ -60,8 +63,21 @@ narratives = run_async(load_narratives())
 
 # Check if the simulation has started
 if "simulation_started" not in st.session_state:
-    st.session_state.simulation_started = False
+    try:
+        st.session_state.simulation_started
+    except AttributeError:
+        st.session_state.simulation_started = False
 
+if "openai_model" not in st.session_state:
+    st.session_state["openai_model"] = "gpt-3.5-turbo"
+
+if "messages" not in st.session_state:
+    st.session_state.messages = []
+
+for message in st.session_state.messages:
+    with st.chat_message(message["role"]):
+        st.markdown(message["content"])
+    
 def button_start_callback():
     st.session_state.simulation_started=True
 
@@ -86,12 +102,12 @@ if not st.session_state.simulation_started:
         chosen_narrative = next((narrative for narrative in narratives if narrative["name"] == chosen_narrative_name), None)
 
         # Set the assistant and narrative when the user presses the "Start Simulation" button
-        if st.button("Start Simulation", on_click=button_start_callback):
+        if st.button("Start Simulation"):
             assistant_choice = assistant_names.index(chosen_assistant_name) + 1
             narrative_choice = narrative_names.index(chosen_narrative_name) if chosen_narrative_name else ""
             if run_async(set_assistant(assistant_choice)) and (narrative_choice == '' or run_async(set_narrative(narrative_choice))):
                 st.write(run_async(start_simulation()))
-                #st.session_state.simulation_started = True
+                st.session_state.simulation_started = True
             else:
                 st.write("Error starting simulation")
     else:
@@ -107,10 +123,10 @@ if st.session_state.simulation_started:
         # show a sidebar with the app title and description
         st.sidebar.title('AImpact')
         st.sidebar.markdown('This is a demo political simulation for modeling the impact of decision making.')
-        if st.sidebar.button("Stop Simulation", on_click=button_stop_callback):
+        if st.sidebar.button("Stop Simulation"):
             st.sidebar.write(run_async(stop_simulation()))
-        #st.session_state.simulation_started = False
-        #st.sidebar.markdown('---')
+            st.session_state.simulation_started = False
+
         # Sidebar for Assistant, Narrative, and Influence
         st.sidebar.markdown('### Simulation')
         if 'assistant' in simulation_state:
@@ -121,12 +137,14 @@ if st.session_state.simulation_started:
             st.sidebar.text(f"Influence: {simulation_state['influence']}")
         
         #st.json(simulation_state)
+
         # Sidebar
         st.sidebar.markdown('### Dashboards')
         view = st.sidebar.radio(
             'Select a view',
-            ('Ministers', 'Citizen Groups', 'Economic Sectors', 'Parameters', 'Metrics', 'Policies')
+            ('Assistant','Ministers', 'Citizen Groups', 'Economic Sectors', 'Parameters', 'Metrics', 'Policies')
         )
+            
 
     # Main Area
     if simulation_state:
@@ -147,17 +165,35 @@ if st.session_state.simulation_started:
             st.write(simulation_state['metrics'])
         elif view == 'Policies':
             st.subheader('Policies')
-            st.write(simulation_state['decisions'])
-            decision = st.text_input("Make a Decision")
-            if st.button("Submit Decision"):
-                decision_response = run_async(submit_decision(decision))
+            decisions = simulation_state['decisions']
+            selected_decision = st.selectbox("Choose a decision to implement:", decisions)
+            if st.button("Implement Selected Policy"):
+                decision_response = run_async(submit_decision(selected_decision))
                 if decision_response:
                     st.write(decision_response)
+        elif view == 'Assistant':
+            if prompt := st.chat_input("Hello 👋"):
+                st.session_state.messages.append({"role": "user", "content": prompt})
+                with st.chat_message("user"):
+                    st.markdown(prompt)
+
+                with st.chat_message(simulation_state['assistant']['name']):
+                    message_placeholder = st.empty()
+                    full_response = ""
+                    for response in openai.ChatCompletion.create(
+                        model=st.session_state["openai_model"],
+                        messages=[
+                            {"role": m["role"], "content": m["content"]}
+                            for m in st.session_state.messages
+                        ],
+                        stream=True,
+                    ):
+                        full_response += response.choices[0].delta.get("content", "")
+                        message_placeholder.markdown(full_response + "▌")
+                    message_placeholder.markdown(full_response)
+                st.session_state.messages.append({"role": "assistant", "content": full_response})
     else:
         st.write("Error loading simulation state. Please check the backend service.")
-
-    
-
     
 
 

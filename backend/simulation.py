@@ -41,10 +41,10 @@ class Parameter:
         for decision in decisions:
             self.value += decision.effect
 
-    def adjust_for_dependency(self):
+    def adjust_for_dependency(self, parameters):
         """Adjust the value of the parameter based on the values of its dependencies."""
         if self.dependencies:
-            total_dependency_value = sum(dep.value for dep in self.dependencies)
+            total_dependency_value = sum(parameters[dep_name].value for dep_name in self.dependencies)
             average_dependency_value = total_dependency_value / len(self.dependencies)
             self.value += average_dependency_value
         
@@ -162,15 +162,17 @@ class State:
 
         # Apply the effects of the decision to the relevant parameters
         for parameter, effect in decision.effects.items():
-            self.parameters[parameter].value += effect
-            #self.parameters[parameter].adjust_for_dependency()  # adjust for dependency immediately after the decision, no delay
+            self.parameters[parameter.name].value += effect
+            self.parameters[parameter.name].adjust_for_dependency(self.parameters)  # adjust for dependency immediately after the decision, no delay
 
-        # You might also have effects on ministers, citizen groups, etc.
+        """
+        # It may also have effects on ministers, citizen groups, etc.
         # For example:
         for minister, effect in decision.minister_effects.items():
             self.ministers[minister].status += effect
         for citizen_group, effect in decision.citizen_group_effects.items():
             self.citizen_groups[citizen_group].opinion += effect
+        """
 
     def negotiate_with_minister(self, minister_name: str):
         minister = self.ministers.get(minister_name)
