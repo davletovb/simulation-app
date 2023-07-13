@@ -13,11 +13,13 @@ CHROMA_SETTINGS = Settings(
     anonymized_telemetry=False)
 
 class Assistant:
-    def __init__(self, name: str, age: int, status: str, traits: str):
+    def __init__(self, name: str, age: int, style: str, traits: str, backstory: str):
         self.name = name
         self.age = age
-        self.status = status
+        self.style = style
         self.traits = traits
+        self.backstory = backstory
+        """
         self.llm = OpenAI(model="text-davinci-003",max_tokens=1500)
         self.embeddings = OpenAIEmbeddings()
         self.vectorstore = Chroma(embedding_function=self.embeddings, client_settings=CHROMA_SETTINGS, persist_directory="db")
@@ -31,6 +33,7 @@ class Assistant:
             llm=self.llm,
             memory=self.memory
         )
+        """
 
     def fetch_news(self):
         # Fetch news from the agent's memory
@@ -56,7 +59,8 @@ class Assistant:
         print(response)
 
     def __repr__(self) -> str:
-        return str(self.agent.get_summary())
+        #return str(self.agent.get_summary())
+        return self.name
     
     def to_dict(self):
         # Create a dictionary with the same attributes as the State object

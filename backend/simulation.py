@@ -1,4 +1,3 @@
-from database import SessionLocal
 from assistant import Assistant
 from metrics import Metric
 
@@ -7,6 +6,7 @@ from typing import Union, List, Dict
 import json
 import logging
 import pickle
+import uuid
 
 class ParameterValueType(Enum):
     INTEGER = "integer"
@@ -49,7 +49,12 @@ class Parameter:
             self.value += average_dependency_value
         
     def to_dict(self):
-        return {"name": self.name, "value": self.value}
+        return {
+            'name': self.name,
+            'value': self.value,
+            'parameter_type': self.parameter_type.value,
+            'dependencies': self.dependencies
+        }
 
 class Decision:
     def __init__(self, name: str, effects: Dict[Parameter, float], economic_cost: int, influence_cost: int):
@@ -59,16 +64,27 @@ class Decision:
         self.influence_cost = influence_cost
     
     def to_dict(self):
-        return {"name": self.name, "economic_cost": self.economic_cost, "influence_cost": self.influence_cost}
+        return {
+            'name': self.name,
+            'effects': {param.name: effect for param, effect in self.effects.items()},  # Convert Parameter objects to their names (strings)
+            'economic_cost': self.economic_cost,
+            'influence_cost': self.influence_cost
+        }
 
 class Minister:
-    def __init__(self, name: str, loyalty: float, influence: float):
-        self.name = name
+    def __init__(self, title: str, personal_name: str, loyalty: float, influence: float, backstory: str):
+        self.title = title
+        self.personal_name = personal_name
         self.loyalty = loyalty
         self.influence = influence
+        self.backstory = backstory
     
     def to_dict(self):
-        return {"name": self.name, "loyalty": self.loyalty, "influence": self.influence}
+        return {"title": self.title, 
+                "personal_name": self.personal_name, 
+                "loyalty": self.loyalty, 
+                "influence": self.influence, 
+                "backstory": self.backstory}
 
 class CitizenGroup:
     def __init__(self, name: str, size: int, political_view: str):
@@ -88,12 +104,15 @@ class EconomicSector:
         return {"name": self.name, "importance": self.importance}
 
 class Narrative:
-    def __init__(self, name: str, effects: dict):
+    def __init__(self, name: str, description: str, effects: dict):
         self.name = name
+        self.description = description
         self.effects = effects
-    
+
     def to_dict(self):
-        return {"name": self.name}
+        return {"name": self.name, 
+                "description": self.description,
+                "effects": self.effects.copy()}
 
 """
 Narrative class will be changed to this definition later
@@ -109,10 +128,11 @@ class Narrative2:
     def start(self):
         # Create a state with the initial entities defined by this narrative
         return State(parameters=self.initial_parameters, decisions=self.initial_decisions, ministers=self.initial_ministers, citizen_groups=self.initial_citizen_groups, economic_sectors=self.initial_economic_sectors)
-"""    
+""" 
 
 class State:
     def __init__(self, parameters: Dict[str, Parameter] = None, decisions: Dict[str, Decision] = None, ministers: Dict[str, Minister] = None, citizen_groups: Dict[str, CitizenGroup] = None, economic_sectors: Dict[str, EconomicSector] = None, metrics: Dict[str, float] = None, assistant: Assistant = None, narrative: Narrative = None):
+        self.id = str(uuid.uuid4())  # generate a unique ID for each simulation
         self.parameters = parameters if parameters else {}
         self.decisions = decisions if decisions else {}
         self.ministers = ministers if ministers else {}
@@ -122,6 +142,39 @@ class State:
         self.influence = 0  # Player's influence, to be increased by negotiating with ministers
         self.assistant = assistant
         self.narrative = narrative
+        self.cycle = 0  # start at cycle 0
+        self.decisions_to_apply = []
+        self.changes = {}  # dictionary to keep track of changes
+    
+    def next_cycle(self):
+        # Apply the decisions
+        for decision in self.decisions_to_apply:
+            self.apply_decision(decision)
+
+        # Increment the cycle number
+        self.cycle += 1
+
+        # Save the changes and clear them
+        changes = self.changes.copy()
+        self.changes.clear()
+
+        # Clear the decisions to apply
+        self.decisions_to_apply.clear()
+
+        # Return the changes
+        return changes
+        
+        """
+        # Update any other state information based on the game rules
+        # This could involve calling methods on the other objects in the state
+        # For example, you might have a method on the Minister class that adjusts their loyalty based on the decisions made
+        for minister in self.ministers.values():
+            minister.update_loyalty(self)
+
+        # You could also update the influence, economic state, or other metrics here
+        self.update_influence()
+        self.update_economic_state()
+        """
 
     def set_parameters(self, parameters: dict):
         self.parameters = parameters
@@ -162,8 +215,13 @@ class State:
 
         # Apply the effects of the decision to the relevant parameters
         for parameter, effect in decision.effects.items():
+            # Before updating the value, store the change in self.changes
+            old_value = self.parameters[parameter.name].value
             self.parameters[parameter.name].value += effect
-            self.parameters[parameter.name].adjust_for_dependency(self.parameters)  # adjust for dependency immediately after the decision, no delay
+            new_value = self.parameters[parameter.name].value
+            self.changes[parameter.name] = new_value - old_value
+
+            self.parameters[parameter.name].adjust_for_dependency(self.parameters)  # adjust for dependency immediately after the decision
 
         """
         # It may also have effects on ministers, citizen groups, etc.
@@ -173,6 +231,9 @@ class State:
         for citizen_group, effect in decision.citizen_group_effects.items():
             self.citizen_groups[citizen_group].opinion += effect
         """
+    
+    def add_decision_to_apply(self, decision: Decision):
+        self.decisions_to_apply.append(decision)
 
     def negotiate_with_minister(self, minister_name: str):
         minister = self.ministers.get(minister_name)
@@ -194,6 +255,21 @@ class State:
     def save_game(self, file_path: str):
         with open(file_path, 'wb') as f:
             pickle.dump(self, f)
+    
+    def get_state(self):
+        # Create a dictionary with the same attributes as the State object
+        state_dict = self.__dict__.copy()
+        # Convert custom objects to dictionaries
+        state_dict["parameters"] = {name: param.to_dict() for name, param in self.parameters.items()}
+        state_dict["decisions"] = {name: decision.to_dict() for name, decision in self.decisions.items()}
+        state_dict["ministers"] = {name: minister.to_dict() for name, minister in self.ministers.items()}
+        state_dict["citizen_groups"] = {name: group.to_dict() for name, group in self.citizen_groups.items()}
+        state_dict["economic_sectors"] = {name: sector.to_dict() for name, sector in self.economic_sectors.items()}
+        state_dict["assistant"] = self.assistant.to_dict()
+        state_dict["narrative"] = self.narrative.to_dict()
+
+        # Do the same for other custom objects in the state
+        return state_dict
 
     @staticmethod
     def load_game(file_path: str):
@@ -204,10 +280,15 @@ class State:
         # Create a dictionary with the same attributes as the State object
         state_dict = self.__dict__.copy()
 
-        # If State object contains other custom objects, it will need to convert these to dictionaries as well
-        # For example, if State object contains an Assistant object:
-        if hasattr(self, 'assistant') and self.assistant is not None:
-            state_dict['assistant'] = self.assistant.to_dict()
+        # If State object contains other custom objects, convert these to dictionaries as well
+        for attr, value in state_dict.items():
+            if isinstance(value, dict):
+                # Convert the values of the dictionary to dictionaries if they are custom objects
+                # If they are not objects, keep the original value
+                state_dict[attr] = {k: v.to_dict() if hasattr(v, 'to_dict') else v for k, v in value.items()}
+            elif hasattr(value, 'to_dict'):
+                # If the value is a custom object, convert it to a dictionary
+                state_dict[attr] = value.to_dict()
 
         return state_dict
         
@@ -219,8 +300,21 @@ class State:
         # populate the attributes of the state object from the dictionary
         for key, value in state_dict.items():
             if key == 'assistant':
-                # create an Assistant object from the dictionary
                 state.assistant = Assistant.from_dict(value)
+            if key == "parameters":
+                state.parameters = {name: Parameter.from_dict(param_dict) for name, param_dict in value.items()}
+            elif key == "decisions":
+                state.decisions = {name: Decision.from_dict(decision_dict) for name, decision_dict in value.items()}
+            if key == "ministers":
+                state.ministers = {name: Minister.from_dict(minister_dict) for name, minister_dict in value.items()}
+            if key == "citizen_groups":
+                state.citizen_groups = {name: CitizenGroup.from_dict(group_dict) for name, group_dict in value.items()}
+            if key == "economic_sectors":       
+                state.economic_sectors = {name: EconomicSector.from_dict(sector_dict) for name, sector_dict in value.items()}
+            if key == "narrative":         
+                state.narrative = Narrative.from_dict(value)
+            if key == "cycle":        
+                state.cycle = value
             else:
                 setattr(state, key, value)
 

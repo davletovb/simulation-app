@@ -1,32 +1,37 @@
 [
     {
         "name": "Ava",
-        "age": 23,
-        "status": "Active",
-        "traits": "Intelligent, Analytical, Empathetic"
+        "age": 26,
+        "style": "Clear and Concise",
+        "traits": "Intelligent, Analytical, Empathetic",
+        "backstory": "Ava grew up in a small town and was always curious about the world. This led her to study data science in university. Her journey exposed her to various cultures and perspectives, making her more empathetic."
     },
     {
         "name": "Leo",
-        "age": 22,
-        "status": "Active",
-        "traits": "Creative, Intuitive, Helpful"
+        "age": 25,
+        "style": "Abstract and Visual",
+        "traits": "Creative, Intuitive, Helpful",
+        "backstory": "Leo was always a creative soul. He used to draw and write stories as a child. His creativity guided him to a career in design. However, he always found himself drawn towards problem-solving and eventually transitioned into a role where he could use his creativity to find solutions."
     },
     {
         "name": "Mia",
-        "age": 25,
-        "status": "Active",
-        "traits": "Efficient, Logical, Observant"
+        "age": 28,
+        "style": "Step-by-Step Explanatory",
+        "traits": "Efficient, Logical, Observant",
+        "backstory": "Mia was a chess champion in her school days. She pursued computer science in college and has always been known for her logical and efficient approach to solving problems. She values attention to detail and has an observant nature."
     },
     {
         "name": "Noah",
-        "age": 21,
-        "status": "Active",
-        "traits": "Adaptive, Quick, Methodical"
+        "age": 24,
+        "style": "Adaptive and Responsive",
+        "traits": "Adaptive, Quick, Methodical",
+        "backstory": "Noah was a sports enthusiast and played various sports growing up. He learned the value of adaptability and quick decision-making on the field. He applies the same principles in his professional life, approaching tasks methodically and adapting quickly to new information."
     },
     {
         "name": "Sophia",
-        "age": 24,
-        "status": "Active",
-        "traits": "Insightful, Patient, Rational"
+        "age": 27,
+        "style": "In-depth and Insightful",
+        "traits": "Insightful, Patient, Rational",
+        "backstory": "Sophia grew up in a family of academics and has been surrounded by knowledge and learning from a young age. She believes in the power of patience and rational thinking. Her insightful observations often help her to come up with unique solutions."
     }
 ]

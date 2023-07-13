@@ -4,6 +4,7 @@ import pandas as pd
 import httpx
 import asyncio
 import os
+import json
 
 openai.api_key = os.environ["OPENAI_API_KEY"]
 
@@ -55,6 +56,15 @@ async def submit_decision(decision):
         response = await client.post("http://localhost:8000/simulation/decision", json={"decision_name": decision})
         return response.json() if response.status_code == 200 else None
 
+async def next_cycle():
+    async with httpx.AsyncClient() as client:
+        return await client.get("http://localhost:8000/simulation/next_cycle")
+
+async def load_states():
+    async with httpx.AsyncClient() as client:
+        resp = await client.get(f"http://localhost:8000/simulation/load/{simulation_state['id']}")
+        return resp.json() if resp.status_code == 200 else None
+
 # Streamlit code
 
 # Load and display the lists of assistants and narratives
@@ -85,6 +95,9 @@ def button_stop_callback():
     st.session_state.simulation_started=False
 
 if not st.session_state.simulation_started:
+    st.markdown("<h1 style='text-align: center; color: grey;'>Myth Maker</h1>", unsafe_allow_html=True)
+
+    st.markdown("<h6 style='text-align: center; color: black;'>This is a demo political simulation for modeling the impact of decision making.</h2>", unsafe_allow_html=True)
     if assistants is not None and narratives is not None:
         assistant_names = [assistant["name"] for assistant in assistants]
         narrative_names = [""] + [narrative["name"] for narrative in narratives]
@@ -95,11 +108,15 @@ if not st.session_state.simulation_started:
         if chosen_assistant:
             st.text("Assistant Details:")
             st.text(f"Age: {chosen_assistant['age']}")
-            st.text(f"Status: {chosen_assistant['status']}")
+            st.text(f"Style: {chosen_assistant['style']}")
             st.text(f"Traits: {chosen_assistant['traits']}")
+            st.text(f"Backstory: {chosen_assistant['backstory']}")
         
         chosen_narrative_name = st.selectbox("Choose a narrative:", narrative_names)
         chosen_narrative = next((narrative for narrative in narratives if narrative["name"] == chosen_narrative_name), None)
+
+        if chosen_narrative:
+            st.text(f"Narrative: {chosen_narrative['description']}")
 
         # Set the assistant and narrative when the user presses the "Start Simulation" button
         if st.button("Start Simulation"):
@@ -121,7 +138,7 @@ if st.session_state.simulation_started:
     # Sidebar
     if simulation_state:
         # show a sidebar with the app title and description
-        st.sidebar.title('AImpact')
+        st.sidebar.title('Myth Maker')
         st.sidebar.markdown('This is a demo political simulation for modeling the impact of decision making.')
         if st.sidebar.button("Stop Simulation"):
             st.sidebar.write(run_async(stop_simulation()))
@@ -135,6 +152,10 @@ if st.session_state.simulation_started:
             st.sidebar.text(f"Narrative: {simulation_state['narrative']}")
         if 'influence' in simulation_state:
             st.sidebar.text(f"Influence: {simulation_state['influence']}")
+        if 'cycle' in simulation_state:
+            st.sidebar.text(f"Cycle: {simulation_state['cycle']}")
+        if st.sidebar.button("Next Cycle"):
+            st.sidebar.write(run_async(next_cycle()))
         
         #st.json(simulation_state)
 
@@ -142,7 +163,7 @@ if st.session_state.simulation_started:
         st.sidebar.markdown('### Dashboards')
         view = st.sidebar.radio(
             'Select a view',
-            ('Assistant','Ministers', 'Citizen Groups', 'Economic Sectors', 'Parameters', 'Metrics', 'Policies')
+            ('Assistant','Ministers', 'Citizen Groups', 'Economic Sectors', 'Parameters', 'Metrics', 'Policies', 'Progression')
         )
             
 
@@ -171,6 +192,41 @@ if st.session_state.simulation_started:
                 decision_response = run_async(submit_decision(selected_decision))
                 if decision_response:
                     st.write(decision_response)
+        elif view == 'Progression':
+            state_history = run_async(load_states())
+            #st.json(state_history)
+            
+            # Serializing json
+            #json_object = json.dumps(state_history, indent=4)
+            
+            # Writing to simulation.json
+            #with open("simulation.json", "w") as outfile:
+            #    outfile.write(json_object)
+
+            # Initialize the dictionary
+            data_dict = {"Cycle": [], "Economy": [], "Education": [], "Healthcare": [], "Quality of Life": [], "Public Unrest": [], "Overall Country Health": []}
+
+            # Iterate over cycles
+            for cycle in range(len(state_history['status'])):
+                # Add cycle number
+                data_dict["Cycle"].append(cycle)
+                
+                # Extract parameter values for each cycle
+                parameters = state_history['status'][cycle][1]['parameters']
+                metrics = state_history['status'][cycle][1]['metrics']
+                data_dict["Economy"].append(parameters["Economy"]["value"])
+                data_dict["Education"].append(parameters["Education"]["value"])
+                data_dict["Healthcare"].append(parameters["Healthcare"]["value"])
+                data_dict["Quality of Life"].append(parameters["Quality of Life"]["value"])
+                data_dict["Public Unrest"].append(parameters["Public Unrest"]["value"])
+                data_dict["Overall Country Health"].append(metrics["Overall Country Health"])
+
+            # Convert the dictionary to a pandas DataFrame
+            df = pd.DataFrame(data_dict)
+
+            # create a line chart with cycle on the x-axis and the metrics on the y-axis
+            st.line_chart(df.set_index("Cycle"))
+
         elif view == 'Assistant':
             if prompt := st.chat_input("Hello 👋"):
                 st.session_state.messages.append({"role": "user", "content": prompt})

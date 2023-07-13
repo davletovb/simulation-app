@@ -1,6 +1,7 @@
 [
     {
         "name": "Rise from the Ashes",
+	"description": "The country has recently emerged from a devastating war. As the new leader, the leader's goal is to rebuild the nation, restore its economy, heal its people, and establish peaceful relations with other countries. The user will face challenges such as dealing with the aftermath of the war, managing limited resources, and navigating complex international politics.",
         "effects": {
             "Economy": -30,
             "Healthcare": -30,
@@ -11,6 +12,7 @@
     },
     {
         "name": "The Green Revolution",
+	"description": "The country is facing severe environmental challenges. The leader's goal is to transform the country into a sustainable, green nation. This involves making tough decisions about the economy, investing in renewable energy, promoting sustainable practices among the population, and dealing with pushback from industries and individuals resistant to change.",
         "effects": {
             "Environment": 50,
             "Economy": -10,
@@ -21,6 +23,7 @@
     },
     {
         "name": "The Technological Frontier",
+	"description": "The country is a developing nation with the opportunity to leapfrog traditional development paths and become a leader in technology. The leader must balance the need for rapid technological advancement with issues like education, infrastructure, and social equality. The user will face challenges like creating an educated workforce, attracting tech industries, and dealing with the societal changes brought about by rapid technological advancement.",
         "effects": {
             "Technology": 50,
             "Economy": 10,
@@ -30,6 +33,7 @@
     },
     {
         "name": "The Balancing Act",
+	"description": "The country is a diverse nation with various religious, ethnic, and cultural groups. The leader's goal is to maintain harmony among these different groups, promote social cohesion, and ensure equal development and opportunities for all. The user will face challenges like managing conflicts between different groups, ensuring fair representation, and dealing with external influences.",
         "effects": {
             "Public Unrest": 20,
             "Religion": 10,
@@ -39,6 +43,7 @@
     },
     {
         "name": "The Health Crusade",
+	"description": "The country is facing a health crisis, with a high rate of disease and a struggling healthcare system. The leader's goal is to improve the health of the nation by improving healthcare services, promoting healthy lifestyles, and dealing with social and economic factors contributing to poor health. The user will face challenges like managing limited healthcare resources, dealing with social and cultural barriers to health, and improving other factors like education and economy that influence health.",
         "effects": {
             "Healthcare": 50,
             "Public Unrest": 10,
@@ -48,6 +53,7 @@
     },
     {
         "name": "The Age of Enlightenment",
+	"description": "The country has been historically closed off, with limited access to education and strict control over information. As the new leader, the leader's goal is to usher in an age of enlightenment, improving education, promoting freedom of speech, and opening up the country to the world. Challenges include managing the societal changes brought about by this opening up, dealing with resistance from conservative factions, and ensuring that the benefits of enlightenment reach all parts of the country.",
         "effects": {
             "Education": 50,
             "Media": 30,
@@ -57,6 +63,7 @@
     },
     {
         "name": "The Economic Miracle",
+	"description": "The country is economically underdeveloped and poverty-stricken. The leader's goal is to bring about an economic miracle, transforming the country into a prosperous and economically powerful nation. This involves making strategic economic decisions, attracting investment, improving infrastructure, and dealing with issues like corruption and income inequality.",
         "effects": {
             "Economy": 50,
             "Public Unrest": -20,
@@ -67,6 +74,7 @@
     },
     {
         "name": "The Peace Broker",
+	"description": "The country is located in a region fraught with conflicts. The leader's goal is to transform the country into a peace broker, mediating in regional conflicts and promoting peace and cooperation. Challenges include managing diplomatic relations with conflicting parties, dealing with internal factions supporting different sides, and maintaining the country's neutrality and security.",
         "effects": {
             "Diplomacy": 50,
             "Defense": -10,
@@ -76,6 +84,7 @@
     },
     {
         "name": "The Cultural Beacon",
+	"description": "The country has a rich cultural heritage that has been suppressed or forgotten. The leader's goal is to revive and promote this cultural heritage, making the country a beacon of culture in the world. This involves balancing modernization with preservation, managing relations with groups having differing views on culture, and promoting cultural understanding and appreciation both domestically and internationally.",
         "effects": {
             "Education": 20,
             "Religion": 20,
@@ -85,6 +94,7 @@
     },
     {
         "name": "The Social Innovator",
+	"description": "The country has traditional social structures that are causing inequality and hindering progress. The leader's goal is to bring about social innovation, transforming social structures to be more equitable and progressive. Challenges include dealing with resistance to social change, managing the societal impacts of these changes, and ensuring that the benefits of social innovation reach all groups.",
         "effects": {
             "Education": 30,
             "Media": 30,
@@ -95,6 +105,7 @@
     },
     {
         "name": "The Iron Fist",
+	"description": "The leader's goal is to maintain power at all costs. This involves suppressing opposition, controlling the media, and dealing with international condemnation. Challenges include managing unrest, maintaining loyalty among the military and government officials, and dealing with economic sanctions.",
         "effects": {
             "Defense": 50,
             "Public Unrest": 50,
@@ -104,6 +115,7 @@
     },
     {
         "name": "The Corrupt Regime",
+	"description": "The country is rife with corruption, and the leader's goal is to enrich themselves and their allies. This involves making deals with businesses, embezzling public funds, and avoiding detection and prosecution. Challenges include managing public opinion, avoiding international legal issues, and dealing with potential uprisings.",
         "effects": {
             "Economy": -30,
             "Public Unrest": 50,
@@ -113,6 +125,7 @@
     },
     {
         "name": "The Warmonger",
+	"description": "The country is militaristic, and the leader's goal is to expand their territory through warfare. This involves building up the military, planning and executing military campaigns, and dealing with the consequences of war. Challenges include managing resources, dealing with international relations, and maintaining morale at home and in the military.",
         "effects": {
             "Defense": 50,
             "Public Unrest": 30,
@@ -122,6 +135,7 @@
     },
     {
         "name": "The Propagandist",
+	"description": "The leader's goal is to control the population through misinformation. This involves controlling the media, spreading propaganda, and suppressing the truth. Challenges include managing dissent, maintaining the effectiveness of propaganda, and dealing with international condemnation and sanctions.",
         "effects": {
             "Media": 50,
             "Public Unrest": 30,
@@ -131,6 +145,7 @@
     },
     {
         "name": "The Isolationist",
+	"description": "The leader's goal is to cut off the country from the rest of the world. This involves limiting foreign trade, restricting travel, and avoiding international cooperation. Challenges include managing the economy, dealing with the lack of foreign goods and services, and handling potential internal dissatisfaction.",
         "effects": {
             "Economy": -30,
             "Defense": 20,

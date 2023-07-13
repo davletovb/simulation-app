@@ -1,5 +1,6 @@
 from simulation import State, Parameter, ParameterType, Narrative, Decision, Minister, CitizenGroup, EconomicSector
 from metrics import set_metrics_values, update_metrics_values
+from database import DatabaseManager
 from assistant import Assistant
 import logging
 import json
@@ -10,6 +11,7 @@ class SimulationController:
         self.assistant = None
         self.state = None
         self.narrative = None
+        self.db_manager = DatabaseManager('simulation.db')  # specify the name of database
     
     def start_simulation(self):
         # Check if an assistant has been set
@@ -41,7 +43,8 @@ class SimulationController:
         try:
             # If the state is not None, return a representation of the current state of the game
             return {
-                "assistant": {"name": self.state.assistant.name, "age": self.state.assistant.age, "traits": self.state.assistant.traits} if self.state.assistant else None,
+                "id": self.state.id,
+                "assistant": {"name": self.state.assistant.name, "age": self.state.assistant.age, "style": self.state.assistant.style, "traits": self.state.assistant.traits, "backstory": self.state.assistant.backstory} if self.state.assistant else None,
                 "narrative": self.state.narrative.name if self.state.narrative else None,
                 "influence": self.state.influence,
                 "parameters": {name: param.value for name, param in self.state.parameters.items()},
@@ -80,7 +83,7 @@ class SimulationController:
             narratives_data = json.load(f)
 
         # Create Narrative objects
-        narratives = [Narrative(narrative['name'], narrative['effects']) for narrative in narratives_data]
+        narratives = [Narrative(narrative['name'], narrative['description'], narrative['effects']) for narrative in narratives_data]
         return narratives
     
     def set_narrative(self, narrative_choice):
@@ -133,7 +136,7 @@ class SimulationController:
             ministers_data = json.load(f)
         
         ministers_instances = {
-            minister['name']: Minister(minister['name'], minister['loyalty'], minister['influence'])
+            minister['name']: Minister(minister['title'], minister['personal_name'], minister['loyalty'], minister['influence'], minister['backstory'])
             for minister in ministers_data
         }
 
@@ -175,23 +178,34 @@ class SimulationController:
         # Here, you would apply the given decision and return the new state of the game.
         decision = self.state.get_decision(decision_name)
         if decision:
-            self.state.apply_decision(decision)
-            update_metrics_values(self.state)
+            self.state.add_decision_to_apply(decision)
         else:
             raise ValueError(f"No decision named '{decision_name}' exists.")
     
-    def save_game_state(self, filename="data/game_state.json"):
+    def next_cycle(self):
+        changes = self.state.next_cycle()
+        self.save_state(self.state, changes)
+        # Update the metrics in the state
+        update_metrics_values(self.state)
+    
+    def save_state(self, state, changes):
+        self.db_manager.save_state(state, changes)
+
+    def load_states(self, simulation_id):
+        return self.db_manager.load_states(simulation_id)
+    
+    def save_game_state_to_json(self, filename="data/game_state.json"):
         if self.state is None:
             raise ValueError("No game in progress")
         with open(filename, 'w') as f:
             json.dump(self.state.to_dict(), f)
 
-    def load_game_state(self, filename="data/game_state.json"):
+    def load_game_state_from_json(self, filename="data/game_state.json"):
         with open(filename, 'r') as f:
             state_dict = json.load(f)
         self.state = State.from_dict(state_dict)
     
-    def load_game(self, filename):
+    def load_game_from_file(self, filename):
         # Load game from saved file
         self.state = State.load_game(filename)
     

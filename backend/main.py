@@ -119,12 +119,10 @@ async def read_users(current_user: User = Depends(get_current_superuser)):
 async def index():
     return {"status": "ok"}
 
-
 @app.get("/simulation/start")
 async def start_simulation():
     simulation_controller.start_simulation()
     return {"status": "Simulation started"}
-
 
 @app.post("/simulation/stop")
 async def stop_simulation():
@@ -135,14 +133,14 @@ async def stop_simulation():
 async def load_assistants():
     assistants = simulation_controller.load_assistants()
     # Convert the assistants to a form that can be sent as JSON
-    assistant_dicts = [{"name": assistant.name, "age": assistant.age, "status": assistant.status, "traits": assistant.traits} for assistant in assistants]
+    assistant_dicts = [{"name": assistant.name, "age": assistant.age, "style": assistant.style, "traits": assistant.traits, "backstory": assistant.backstory} for assistant in assistants]
     return {"assistants": assistant_dicts}
 
 @app.get("/load_narratives")
 async def load_narratives():
     narratives = simulation_controller.load_narratives()
     # Convert the narratives to a form that can be sent as JSON
-    narrative_dicts = [{"name": narrative.name, "effects": narrative.effects} for narrative in narratives]
+    narrative_dicts = [{"name": narrative.name, "description": narrative.description, "effects": narrative.effects} for narrative in narratives]
     return {"narratives": narrative_dicts}
 
 @app.get("/set_assistant/{assistant_choice}")
@@ -160,19 +158,31 @@ async def get_simulation_state():
     state = simulation_controller.get_state()
     return {"state": state}
 
-
 @app.post("/simulation/decision")
 async def make_decision(decision: DecisionModel):
     decision_name = decision.decision_name
     simulation_controller.make_decision(decision_name)
-    return {"message": f"Decision {decision_name} made"}
+    return {"message": f"Decision {decision_name} submitted"}
 
+@app.post("/simulation/save")
+async def save_state():
+    simulation_controller.save_game_state()
+    return {"status": "Simulation state saved"}
+
+@app.get("/simulation/load/{state_id}")
+async def load_states(state_id: str):
+    state_history = simulation_controller.load_states(state_id)
+    return {"status": state_history}
+
+@app.get("/simulation/next_cycle")
+async def next_cycle():
+    simulation_controller.next_cycle()
+    return {"status": "Next cycle started"}
 
 @app.get("/simulation/news")
 async def fetch_news():
     news_event = simulation_controller.fetch_news()
     return {"news_event": news_event}
-
 
 # Route to generate a decision based on news
 @app.get("/simulation/generate_decision")
@@ -181,14 +191,12 @@ async def generate_decision():
     decision = simulation_controller.assistant.generate_decision(news_event)
     return {"decision": decision}
 
-
 # Route to generate assistant's response
 @app.get("/simulation/generate_response")
 async def generate_response():
     news_event = simulation_controller.fetch_news()
     response = simulation_controller.assistant.generate_response(simulation_controller.state, news_event)
     return {"response": response}
-
 
 if __name__ == "__main__":
     #Base.metadata.create_all(bind=engine)
