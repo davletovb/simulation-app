@@ -143,6 +143,12 @@ async def load_narratives():
     narrative_dicts = [{"name": narrative.name, "description": narrative.description, "effects": narrative.effects} for narrative in narratives]
     return {"narratives": narrative_dicts}
 
+@app.get("/load_countries")
+async def load_countries():
+    countries = simulation_controller.load_countries()
+    countries_dict =[{"name": country.name} for country in countries]
+    return {"countries": countries_dict}
+
 @app.get("/set_assistant/{assistant_choice}")
 async def set_assistant(assistant_choice: int):
     simulation_controller.set_assistant(assistant_choice)
@@ -152,6 +158,11 @@ async def set_assistant(assistant_choice: int):
 async def set_narrative(narrative_choice: int):
     simulation_controller.set_narrative(narrative_choice)
     return {"message": "Narrative set"}
+
+@app.get("/set_country/{country_choice}")
+async def set_country(country_choice: int):
+    simulation_controller.set_narrative(country_choice)
+    return {"message": "Country set"}
 
 @app.get("/simulation/state")
 async def get_simulation_state():

@@ -11,6 +11,7 @@ class SimulationController:
         self.assistant = None
         self.state = None
         self.narrative = None
+        self.country = None
         self.db_manager = DatabaseManager('simulation.db')  # specify the name of database
     
     def start_simulation(self):
@@ -49,15 +50,34 @@ class SimulationController:
                 "influence": self.state.influence,
                 "parameters": {name: param.value for name, param in self.state.parameters.items()},
                 "decisions": [decision.name for decision in self.state.decisions.values()],
-                "ministers": [minister.name for minister in self.state.ministers.values()],
+                "ministers": [minister.title for minister in self.state.ministers.values()],
                 "citizen_groups": [group.name for group in self.state.citizen_groups.values()],
                 "economic_sectors": [sector.name for sector in self.state.economic_sectors.values()],
-                "metrics": self.state.get_metrics()
+                "metrics": self.state.get_metrics(),
+                "country": self.state.country
             }
         except AttributeError:
             # This will catch the error when trying to access an attribute of None
             return None
     
+    def load_countries(self, filename="data/countries.json"):
+        # Load countries from a file
+        with open(filename, 'r') as f:
+            countries_list = json.load(f)
+        countries = [country for country in countries_list]
+        return countries
+    
+    def set_country(self, choice):
+        # Load countries
+        countries = self.load_countries()
+
+        # Check if the choice is valid
+        if choice < 1 or choice > len(countries):
+            raise ValueError("Invalid country number")
+
+        # Set the chosen country
+        self.state.country = countries[choice-1]
+
     def load_assistants(self, filename="data/assistants.json"):
         # Load assistant attributes from a file
         with open(filename, 'r') as f:
@@ -136,7 +156,7 @@ class SimulationController:
             ministers_data = json.load(f)
         
         ministers_instances = {
-            minister['name']: Minister(minister['title'], minister['personal_name'], minister['loyalty'], minister['influence'], minister['backstory'])
+            minister['title']: Minister(minister['title'], minister['personal_name'], minister['loyalty'], minister['influence'], minister['backstory'])
             for minister in ministers_data
         }
 

@@ -131,7 +131,7 @@ class Narrative2:
 """ 
 
 class State:
-    def __init__(self, parameters: Dict[str, Parameter] = None, decisions: Dict[str, Decision] = None, ministers: Dict[str, Minister] = None, citizen_groups: Dict[str, CitizenGroup] = None, economic_sectors: Dict[str, EconomicSector] = None, metrics: Dict[str, float] = None, assistant: Assistant = None, narrative: Narrative = None):
+    def __init__(self, parameters: Dict[str, Parameter] = None, decisions: Dict[str, Decision] = None, ministers: Dict[str, Minister] = None, citizen_groups: Dict[str, CitizenGroup] = None, economic_sectors: Dict[str, EconomicSector] = None, metrics: Dict[str, float] = None, country: str = None, assistant: Assistant = None, narrative: Narrative = None):
         self.id = str(uuid.uuid4())  # generate a unique ID for each simulation
         self.parameters = parameters if parameters else {}
         self.decisions = decisions if decisions else {}
@@ -139,9 +139,10 @@ class State:
         self.citizen_groups = citizen_groups if citizen_groups else {}
         self.economic_sectors = economic_sectors if economic_sectors else {}
         self.metrics = metrics if metrics else {}
-        self.influence = 0  # Player's influence, to be increased by negotiating with ministers
+        self.influence = 1000  # Player's influence, to be increased by negotiating with ministers
         self.assistant = assistant
         self.narrative = narrative
+        self.country = country
         self.cycle = 0  # start at cycle 0
         self.decisions_to_apply = []
         self.changes = {}  # dictionary to keep track of changes
@@ -313,8 +314,10 @@ class State:
                 state.economic_sectors = {name: EconomicSector.from_dict(sector_dict) for name, sector_dict in value.items()}
             if key == "narrative":         
                 state.narrative = Narrative.from_dict(value)
-            if key == "cycle":        
+            if key == "cycle": 
                 state.cycle = value
+            if key == "country":
+                state.country = value
             else:
                 setattr(state, key, value)
 

@@ -1,69 +1,69 @@
 [
     {
-        "name": "Minister of Economy",
+        "title": "Minister of Economy",
         "personal_name": "James",
         "loyalty": 0.75,
         "influence": 0.95,
         "backstory": "James worked for several years in the private sector before turning to public service. His deep understanding of the economy and markets is a valuable asset to the cabinet."
     },
     {
-        "name": "Minister of Defense",
+        "title": "Minister of Defense",
         "personal_name": "Maria",
         "loyalty": 0.85,
         "influence": 0.9,
         "backstory": "Maria is a former military officer who transitioned into politics. Her experience on the field provides her with the expertise needed to lead the defense department."
     },
     {
-        "name": "Minister of Healthcare",
+        "title": "Minister of Healthcare",
         "personal_name": "Harold",
         "loyalty": 0.9,
         "influence": 0.85,
         "backstory": "Harold, a former surgeon, has first-hand experience with the healthcare system. He's passionate about improving healthcare services for all citizens."
     },
     {
-        "name": "Minister of Education",
+        "title": "Minister of Education",
         "personal_name": "Linda",
         "loyalty": 0.8,
         "influence": 0.8,
         "backstory": "Linda, a former school principal, is dedicated to improving the country's education system. She believes that everyone should have access to quality education."
     },
     {
-        "name": "Minister of Environment",
+        "title": "Minister of Environment",
         "personal_name": "David",
         "loyalty": 0.7,
         "influence": 0.75,
         "backstory": "David is a long-time environmental activist who transitioned into politics. His goal is to ensure the country's natural resources are protected and used sustainably."
     },
     {
-        "name": "Minister of Technology",
+        "title": "Minister of Technology",
         "personal_name": "Emily",
         "loyalty": 0.65,
         "influence": 0.7,
         "backstory": "Emily is a tech entrepreneur who decided to bring her expertise to the government. She's dedicated to promoting technological advancement and digital literacy."
     },
     {
-        "name": "Minister of Infrastructure",
+        "title": "Minister of Infrastructure",
         "personal_name": "Robert",
         "loyalty": 0.6,
         "influence": 0.65,
         "backstory": "Robert, a civil engineer by training, has overseen several large infrastructure projects. He's committed to modernizing the country's infrastructure."
     },
     {
-        "name": "Minister of Diplomacy",
+        "title": "Minister of Diplomacy",
         "personal_name": "Angela",
         "loyalty": 0.55,
         "influence": 0.6,
         "backstory": "Angela, a career diplomat, has served in various embassies around the world. She's skilled at building and maintaining diplomatic relations."
     },
     {
-        "name": "Minister of Media",
+        "title": "Minister of Media",
         "personal_name": "Charles",
         "loyalty": 0.5,
         "influence": 0.55,
         "backstory": "Charles, a former journalist, understands the power of the media. He's focused on promoting transparency and effective communication."
     },
     {
-        "name": "Minister of Religious Affairs",
+        "title": "Minister of Religious Affairs",
         "personal_name": "Beatrice",
         "loyalty": 0.45,
         "influence": 0.5,

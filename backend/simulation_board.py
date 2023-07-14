@@ -23,6 +23,11 @@ async def load_narratives():
     async with httpx.AsyncClient() as client:
         response = await client.get("http://localhost:8000/load_narratives")
         return response.json()["narratives"] if response.status_code == 200 else None
+    
+async def load_countries():
+    async with httpx.AsyncClient() as client:
+        response = await client.get("http://localhost:8000/load_countries")
+        return response.json()["countries"] if response.status_code == 200 else None
 
 async def set_assistant(choice):
     async with httpx.AsyncClient() as client:
@@ -32,6 +37,11 @@ async def set_assistant(choice):
 async def set_narrative(choice):
     async with httpx.AsyncClient() as client:
         response = await client.get(f"http://localhost:8000/set_narrative/{choice}")
+        return response.status_code == 200
+
+async def set_country(choice):
+    async with httpx.AsyncClient() as client:
+        response = await client.get(f"http://localhost:8000/set_country/{choice}")
         return response.status_code == 200
 
 async def get_simulation_status():
@@ -70,6 +80,7 @@ async def load_states():
 # Load and display the lists of assistants and narratives
 assistants = run_async(load_assistants())
 narratives = run_async(load_narratives())
+countries = run_async(load_countries())
 
 # Check if the simulation has started
 if "simulation_started" not in st.session_state:
@@ -95,38 +106,55 @@ def button_stop_callback():
     st.session_state.simulation_started=False
 
 if not st.session_state.simulation_started:
-    st.markdown("<h1 style='text-align: center; color: grey;'>Myth Maker</h1>", unsafe_allow_html=True)
+    st.markdown("<h1 style='text-align: center; color: blue;'>Myth Maker</h1>", unsafe_allow_html=True)
 
-    st.markdown("<h6 style='text-align: center; color: black;'>This is a demo political simulation for modeling the impact of decision making.</h2>", unsafe_allow_html=True)
+    st.markdown("<h6 style='text-align: center; color: black;'>Make history. Become myth.</h6>", unsafe_allow_html=True)
     if assistants is not None and narratives is not None:
+        country_names = [country["name"] for country in countries]
         assistant_names = [assistant["name"] for assistant in assistants]
         narrative_names = [""] + [narrative["name"] for narrative in narratives]
+
+        chosen_country_name = st.selectbox("Choose country:", country_names)
+        chosen_country = next((country for country in countries if country["name"] == chosen_country_name), None)
 
         chosen_assistant_name = st.selectbox("Choose an assistant:", assistant_names)
         chosen_assistant = next((assistant for assistant in assistants if assistant["name"] == chosen_assistant_name), None)
 
         if chosen_assistant:
-            st.text("Assistant Details:")
-            st.text(f"Age: {chosen_assistant['age']}")
-            st.text(f"Style: {chosen_assistant['style']}")
-            st.text(f"Traits: {chosen_assistant['traits']}")
-            st.text(f"Backstory: {chosen_assistant['backstory']}")
+            col1, col2 = st.columns([1,2])
+            with col1:
+                st.image("../data/img/"+chosen_assistant['name']+".jpeg")
+            with col2:
+                st.write(f"Age: {chosen_assistant['age']}")
+                st.write(f"Style: {chosen_assistant['style']}")
+                st.write(f"Traits: {chosen_assistant['traits']}")
+                st.write(f"{chosen_assistant['backstory']}")
         
         chosen_narrative_name = st.selectbox("Choose a narrative:", narrative_names)
         chosen_narrative = next((narrative for narrative in narratives if narrative["name"] == chosen_narrative_name), None)
 
         if chosen_narrative:
-            st.text(f"Narrative: {chosen_narrative['description']}")
+            st.write(f"{chosen_narrative['description']}")
 
         # Set the assistant and narrative when the user presses the "Start Simulation" button
         if st.button("Start Simulation"):
+            country_choice = country_names.index(chosen_country_name) + 1
             assistant_choice = assistant_names.index(chosen_assistant_name) + 1
             narrative_choice = narrative_names.index(chosen_narrative_name) if chosen_narrative_name else ""
-            if run_async(set_assistant(assistant_choice)) and (narrative_choice == '' or run_async(set_narrative(narrative_choice))):
+            if run_async(set_assistant(assistant_choice)) and run_async(set_country(country_choice)) and (narrative_choice == '' or run_async(set_narrative(narrative_choice))):
                 st.write(run_async(start_simulation()))
                 st.session_state.simulation_started = True
             else:
                 st.write("Error starting simulation")
+        
+        st.write("---")
+        st.write("<h6 style='text-align: center; color: gray;'>'A myth is far truer than a history, for a history only gives a story of the shadows, whereas a myth gives a story of the substances that cast the shadows.' -Annie Besant</h6>", unsafe_allow_html=True)
+        # Most people live in a myth and grow violently angry if anyone dares to tell them the truth about themselves. Robert Anton Wilson
+        # The great enemy of the truth is very often not the lie, deliberate, contrived and dishonest, but the myth, persistent, persuasive and unrealistic. John F. Kennedy
+        # A myth is an image in terms of which we try to make sense of the world. Alan Watts
+        # A myth is a way of making sense in a senseless world. Myths are narrative patterns that give significance to our existence. Rollo May
+        # 'A myth is far truer than a history, for a history only gives a story of the shadows, whereas a myth gives a story of the substances that cast the shadows.' -Annie Besant
+        # Myths which are believed in tend to become true. -Geonge Orwell
     else:
         st.write("Error loading assistants or narratives. Please check the backend service.")
 
@@ -138,14 +166,12 @@ if st.session_state.simulation_started:
     # Sidebar
     if simulation_state:
         # show a sidebar with the app title and description
-        st.sidebar.title('Myth Maker')
-        st.sidebar.markdown('This is a demo political simulation for modeling the impact of decision making.')
-        if st.sidebar.button("Stop Simulation"):
-            st.sidebar.write(run_async(stop_simulation()))
-            st.session_state.simulation_started = False
+        st.sidebar.markdown("<h1 style='text-align: left; color: black;'>Myth Maker</h1>", unsafe_allow_html=True)
+        st.sidebar.markdown("<h5 style='text-align: left; color: gray;'>Most people live in a myth and grow violently angry if anyone dares to tell them the truth about themselves.<br>--Robert Anton Wilson</h5>", unsafe_allow_html=True)
+
 
         # Sidebar for Assistant, Narrative, and Influence
-        st.sidebar.markdown('### Simulation')
+        st.sidebar.markdown("### Simulation")
         if 'assistant' in simulation_state:
             st.sidebar.text(f"Assistant: {simulation_state['assistant']['name']}, {simulation_state['assistant']['age']}")
         if 'narrative' in simulation_state:
@@ -163,9 +189,12 @@ if st.session_state.simulation_started:
         st.sidebar.markdown('### Dashboards')
         view = st.sidebar.radio(
             'Select a view',
-            ('Assistant','Ministers', 'Citizen Groups', 'Economic Sectors', 'Parameters', 'Metrics', 'Policies', 'Progression')
+            ('Assistant', 'Policies', 'Ministers', 'Citizen Groups', 'Economic Sectors', 'Parameters', 'Metrics', 'Progression')
         )
-            
+
+    if st.sidebar.button("Stop Simulation"):
+        st.sidebar.write(run_async(stop_simulation()))
+        st.session_state.simulation_started = False  
 
     # Main Area
     if simulation_state:
@@ -194,7 +223,6 @@ if st.session_state.simulation_started:
                     st.write(decision_response)
         elif view == 'Progression':
             state_history = run_async(load_states())
-            #st.json(state_history)
             
             # Serializing json
             #json_object = json.dumps(state_history, indent=4)
@@ -204,28 +232,39 @@ if st.session_state.simulation_started:
             #    outfile.write(json_object)
 
             # Initialize the dictionary
-            data_dict = {"Cycle": [], "Economy": [], "Education": [], "Healthcare": [], "Quality of Life": [], "Public Unrest": [], "Overall Country Health": []}
+            data_metrics = {"Cycle": [], "Overall Country Health": []}
+            data_parameters = {"Cycle": [], "Economy": [], "Education": [], "Environment": [],"Healthcare": [], "Quality of Life": [], "Public Unrest": []}
 
             # Iterate over cycles
             for cycle in range(len(state_history['status'])):
                 # Add cycle number
-                data_dict["Cycle"].append(cycle)
+                data_metrics["Cycle"].append(cycle)
+                data_parameters["Cycle"].append(cycle)
+
+                # Extract metrics values for each cycle
+                metrics = state_history['status'][cycle][1]['metrics']
+                data_metrics["Overall Country Health"].append(metrics["Overall Country Health"])
                 
                 # Extract parameter values for each cycle
                 parameters = state_history['status'][cycle][1]['parameters']
-                metrics = state_history['status'][cycle][1]['metrics']
-                data_dict["Economy"].append(parameters["Economy"]["value"])
-                data_dict["Education"].append(parameters["Education"]["value"])
-                data_dict["Healthcare"].append(parameters["Healthcare"]["value"])
-                data_dict["Quality of Life"].append(parameters["Quality of Life"]["value"])
-                data_dict["Public Unrest"].append(parameters["Public Unrest"]["value"])
-                data_dict["Overall Country Health"].append(metrics["Overall Country Health"])
+                data_parameters["Economy"].append(parameters["Economy"]["value"])
+                data_parameters["Education"].append(parameters["Education"]["value"])
+                data_parameters["Healthcare"].append(parameters["Healthcare"]["value"])
+                data_parameters["Environment"].append(parameters["Environment"]["value"])
+                data_parameters["Quality of Life"].append(parameters["Quality of Life"]["value"])
+                data_parameters["Public Unrest"].append(parameters["Public Unrest"]["value"])
 
             # Convert the dictionary to a pandas DataFrame
-            df = pd.DataFrame(data_dict)
+            df_metrics = pd.DataFrame(data_metrics)
+            df_parameters = pd.DataFrame(data_parameters)
 
             # create a line chart with cycle on the x-axis and the metrics on the y-axis
-            st.line_chart(df.set_index("Cycle"))
+            st.write("<center>Overall Country Health</center>", unsafe_allow_html=True)
+            st.line_chart(df_metrics.set_index("Cycle"))
+            st.write("<center>Specific parameters</center>", unsafe_allow_html=True)
+            st.line_chart(df_parameters.set_index("Cycle"))
+
+            st.json(state_history)
 
         elif view == 'Assistant':
             if prompt := st.chat_input("Hello 👋"):

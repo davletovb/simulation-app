@@ -1,0 +1,22 @@
+[
+    {
+        "name": "United States of America",
+        "size": 1000000
+    },
+    {
+        "name": "Canada",
+        "size": 500000
+    },
+    {
+        "name": "United Kingdom",
+        "size": 250000
+    },
+    {
+        "name": "New Zealand",
+        "size": 800000
+    },
+    {
+        "name": "Australia",
+        "size": 300000
+    }
+]
