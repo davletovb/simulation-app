@@ -87,13 +87,21 @@ class Minister:
                 "backstory": self.backstory}
 
 class CitizenGroup:
-    def __init__(self, name: str, size: int, political_view: str):
+    def __init__(self, name: str, size: float, political_view: str, interests: List[str], sentiment: int):
         self.name = name
         self.size = size
         self.political_view = political_view
+        self.interests = interests
+        self.sentiment = sentiment
     
     def to_dict(self):
-        return {"name": self.name, "size": self.size, "political_view": self.political_view}
+        return {
+            "name": self.name,
+            "size": self.size,
+            "political_view": self.political_view,
+            "interests": self.interests,
+            "sentiment": self.sentiment
+        }
 
 class EconomicSector:
     def __init__(self, name: str, importance: float):
@@ -145,7 +153,7 @@ class State:
         self.country = country
         self.cycle = 0  # start at cycle 0
         self.decisions_to_apply = []
-        self.changes = {}  # dictionary to keep track of changes
+        self.changes = {}  # dictionary to keep track of policy changes
     
     def next_cycle(self):
         # Apply the decisions
@@ -224,6 +232,20 @@ class State:
 
             self.parameters[parameter.name].adjust_for_dependency(self.parameters)  # adjust for dependency immediately after the decision
 
+            # Adjust sentiment of citizen groups based on change in parameters
+            for citizen_group in self.citizen_groups.values():
+                if parameter.name in citizen_group.interests:
+                    # If parameter increased and it's in the group's interests, sentiment increases
+                    # If parameter decreased and it's in the group's interests, sentiment decreases
+                    sentiment_change = 10 if effect > 0 else -10
+                else:
+                    # If parameter increased and it's not in the group's interests, sentiment decreases
+                    # If parameter decreased and it's not in the group's interests, sentiment increases
+                    sentiment_change = -5 if effect > 0 else 5
+
+                # Adjust sentiment within bounds of 0 and 100
+                citizen_group.sentiment = max(0, min(100, citizen_group.sentiment + sentiment_change))
+
         """
         # It may also have effects on ministers, citizen groups, etc.
         # For example:
@@ -249,6 +271,24 @@ class State:
             self.influence += len(statement) / 100
         else:
             print(f"No citizen group named '{citizen_group_name}' exists.")
+    
+    def calculate_vote_share(self):
+        # Compute Public Sentiment as a weighted average of the sentiment of each citizen group
+        total_size = 40000000  # Total population is a known constant
+        public_sentiment = sum((group.sentiment * group.size / 100) for group in self.citizen_groups.values())
+
+        # Retrieve the relevant metrics and attributes
+        influence = self.influence/10
+        economic_stability = self.metrics["Economic Stability"]
+
+        # Calculate the vote share
+        vote_share_percentage = 0.5 * public_sentiment + 0.3 * influence + 0.2 * economic_stability
+        
+        # Convert the vote share into a percentage
+        vote_share = vote_share_percentage * total_size / 100
+
+        return {"Public sentiment": public_sentiment,"Vote share %": vote_share_percentage,"Vote numbers": vote_share}
+
     
     def ask_assistant(self):
         print(self.assistant.generate_response(self))

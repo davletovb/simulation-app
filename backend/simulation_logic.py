@@ -64,7 +64,7 @@ class SimulationController:
         # Load countries from a file
         with open(filename, 'r') as f:
             countries_list = json.load(f)
-        countries = [country for country in countries_list]
+        countries = [country["name"] for country in countries_list]
         return countries
     
     def set_country(self, choice):
@@ -168,11 +168,12 @@ class SimulationController:
             citizen_groups_data = json.load(f)
         
         citizen_groups_instances = {
-            group['name']: CitizenGroup(group['name'], group['size'], group['political_view'])
+            group['name']: CitizenGroup(**group)
             for group in citizen_groups_data
         }
 
         self.state.set_citizen_groups(citizen_groups_instances)
+
     
     def load_economic_sectors(self, economic_sectors_file):
         # Load economic sectors from a local file into the state
@@ -188,6 +189,10 @@ class SimulationController:
 
     def load_metrics(self):
         set_metrics_values(self.state)
+    
+    def generate_response(self, query):
+        respone = self.state.assistant.generate_decision(query)
+        return respone
 
     def fetch_news(self):
         # Fetch news and return it
@@ -207,6 +212,10 @@ class SimulationController:
         self.save_state(self.state, changes)
         # Update the metrics in the state
         update_metrics_values(self.state)
+
+    def get_vote_share(self):
+        result = self.state.calculate_vote_share()
+        return result
     
     def save_state(self, state, changes):
         self.db_manager.save_state(state, changes)

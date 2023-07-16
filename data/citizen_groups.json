@@ -1,52 +1,100 @@
 [
     {
         "name": "Workers Union",
-        "size": 1000000,
-        "political_view": "left"
+        "size": 20.0,
+        "political_view": "Social Democratic",
+        "interests": ["Income Inequality", "Job Satisfaction", "Employment Rate"],
+        "sentiment": 50
     },
     {
         "name": "Business Owners Association",
-        "size": 500000,
-        "political_view": "right"
+        "size": 10.0,
+        "political_view": "Libertarian Capitalist",
+        "interests": ["Economy", "Income Inequality", "Research and Development"],
+        "sentiment": 50
     },
     {
         "name": "Student Activists",
-        "size": 250000,
-        "political_view": "left"
+        "size": 5.0,
+        "political_view": "Progressive",
+        "interests": ["Education Level", "Environmental Quality", "Social Cohesion"],
+        "sentiment": 50
     },
     {
         "name": "Retirees Association",
-        "size": 800000,
-        "political_view": "right"
+        "size": 16.0,
+        "political_view": "Conservative",
+        "interests": ["Health Index", "Quality of Life", "Elderly Care Quality"],
+        "sentiment": 50
     },
     {
         "name": "Environmentalists",
-        "size": 300000,
-        "political_view": "left"
+        "size": 6.0,
+        "political_view": "Green Politics",
+        "interests": ["Environmental Quality", "Air and Water Quality", "Renewable Energy Usage"],
+        "sentiment": 50
     },
     {
         "name": "Tech Industry Workers",
-        "size": 200000,
-        "political_view": "right"
+        "size": 4.0,
+        "political_view": "Techno-Progressive",
+        "interests": ["Technology", "Research and Development", "Internet Speed"],
+        "sentiment": 50
     },
     {
         "name": "Healthcare Workers Union",
-        "size": 400000,
-        "political_view": "left"
+        "size": 8.0,
+        "political_view": "Social Democratic",
+        "interests": ["Health Index", "Job Satisfaction", "Vaccine Coverage"],
+        "sentiment": 50
     },
     {
         "name": "Religious Organization",
-        "size": 700000,
-        "political_view": "right"
+        "size": 14.0,
+        "political_view": "Religious Conservative",
+        "interests": ["Religious Harmony", "Quality of Life", "Social Cohesion"],
+        "sentiment": 50
     },
     {
         "name": "Minority Rights Group",
-        "size": 350000,
-        "political_view": "left"
+        "size": 7.0,
+        "political_view": "Social Liberal",
+        "interests": ["Social Cohesion", "Cultural Diversity", "Conflict Levels"],
+        "sentiment": 50
     },
     {
         "name": "Farmers Association",
-        "size": 500000,
-        "political_view": "right"
+        "size": 9.0,
+        "political_view": "Agrarian Populist",
+        "interests": ["Environmental Quality", "Food Security", "Income Inequality"],
+        "sentiment": 50
+    },
+    {
+        "name": "Academics and Educators",
+        "size": 6.0,
+        "political_view": "Liberal Intellectualism",
+        "interests": ["Education Level", "Research and Development", "Press Freedom Index"],
+        "sentiment": 50
+    },
+    {
+        "name": "Public Service Workers",
+        "size": 7.0,
+        "political_view": "Progressive Reformist",
+        "interests": ["Economy", "Job Satisfaction", "Quality of Life"],
+        "sentiment": 50
+    },
+    {
+        "name": "Arts and Culture Community",
+        "size": 6.0,
+        "political_view": "Cultural Liberal",
+        "interests": ["Cultural Practices", "Cultural Diversity", "Media"],
+        "sentiment": 50
+    },
+    {
+        "name": "Immigrant Rights Activists",
+        "size": 3.0,
+        "political_view": "Multiculturalist",
+        "interests": ["Social Cohesion", "Cultural Diversity", "International Relations"],
+        "sentiment": 50
     }
 ]

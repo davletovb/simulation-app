@@ -29,6 +29,9 @@ simulation_controller = SimulationController()
 class DecisionModel(BaseModel):
     decision_name: str
 
+class QueryModel(BaseModel):
+    query: str
+
 """
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
@@ -146,7 +149,7 @@ async def load_narratives():
 @app.get("/load_countries")
 async def load_countries():
     countries = simulation_controller.load_countries()
-    countries_dict =[{"name": country.name} for country in countries]
+    countries_dict = [{"name": country} for country in countries]
     return {"countries": countries_dict}
 
 @app.get("/set_assistant/{assistant_choice}")
@@ -202,11 +205,16 @@ async def generate_decision():
     decision = simulation_controller.assistant.generate_decision(news_event)
     return {"decision": decision}
 
+# Route to get calculated vote share
+@app.get("/simulation/get_vote_share")
+async def get_vote_share():
+    result = simulation_controller.get_vote_share()
+    return {"result": result}
+
 # Route to generate assistant's response
-@app.get("/simulation/generate_response")
-async def generate_response():
-    news_event = simulation_controller.fetch_news()
-    response = simulation_controller.assistant.generate_response(simulation_controller.state, news_event)
+@app.post("/simulation/generate_response")
+async def generate_response(query_model: QueryModel):
+    response = simulation_controller.generate_response(query_model.query)
     return {"response": response}
 
 if __name__ == "__main__":
