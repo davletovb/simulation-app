@@ -11,7 +11,7 @@ class Agent:
         self.assistant_details = assistant_details
 
         #self.llm_chain = LLMChain(llm=self.llm, prompt=self.prompt, memory=self.memory, verbose=True)
-        #self.db = SQLDatabase.from_uri("sqlite:///Users/user/Documents/simulation-app/simulation.db")
+        #self.db = SQLDatabase.from_uri("sqlite:///../simulation-app/simulation.db")
         #self.db_chain = SQLDatabaseChain.from_llm(self.llm, self.db, verbose=True)
     
     # Prompt the LLM to generate a response
