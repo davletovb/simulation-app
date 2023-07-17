@@ -4,6 +4,7 @@ import pandas as pd
 import httpx
 import asyncio
 import os
+import plotly.graph_objects as go
 import json
 
 openai.api_key = os.environ["OPENAI_API_KEY"]
@@ -106,12 +107,8 @@ if "messages" not in st.session_state:
     st.session_state.messages = []
 
 # Check if the chat visibility has been set in the session state
-if "show_chat" not in st.session_state:
-    st.session_state.show_chat = False
-
-for message in st.session_state.messages:
-    with st.chat_message(message["role"]):
-        st.markdown(message["content"])
+# if "show_chat" not in st.session_state:
+#    st.session_state.show_chat = False
     
 def button_start_callback():
     st.session_state.simulation_started=True
@@ -213,32 +210,95 @@ if st.session_state.simulation_started:
     # Main Area
     if simulation_state:
         if view == 'Ministers':
-            st.session_state.show_chat = False
+            #st.session_state.show_chat = False
             st.subheader('Ministers')
             st.write(simulation_state['ministers'])
         elif view == 'Citizen Groups':
-            st.session_state.show_chat = False
+            #st.session_state.show_chat = False
             st.subheader('Citizen Groups')
             st.write(simulation_state['citizen_groups'])
         elif view == 'Economic Sectors':
-            st.session_state.show_chat = False
+            #st.session_state.show_chat = False
             st.subheader('Economic Sectors')
             st.write(simulation_state['economic_sectors'])
         elif view == 'Parameters':
-            st.session_state.show_chat = False
+            #st.session_state.show_chat = False
             st.subheader('Parameters')
-            st.write(simulation_state['parameters'])
+            #st.write(simulation_state['parameters'])
+
+            # Convert dictionary to a Pandas Series for easier manipulation
+            parameters_series = pd.Series(simulation_state['parameters'])
+
+            # Create a grid layout with columns
+            cols = st.columns(4)
+
+            # Create a list of figures, one for each parameter
+            figures = []
+            for parameter_name, parameter_value in parameters_series.items():
+                color = "green" if parameter_value > 74 else "orange" if parameter_value > 24 else "red"
+                figure = go.Figure(
+                    go.Indicator(
+                        mode="number",
+                        value=parameter_value,
+                        number={"font": {"color": color}},
+                        title={"text": parameter_name, "font": {"color": color}},
+                    )
+                )
+
+                # Adjust the layout of the figure to decrease its size
+                figure.update_layout(height=200, width=250)
+
+                figures.append(figure)
+
+            # Display each figure in a grid
+            for i, figure in enumerate(figures):
+                with cols[i % 4]:
+                    st.plotly_chart(figure)
+
         elif view == 'Metrics':
-            st.session_state.show_chat = False
+            #st.session_state.show_chat = False
             st.subheader('Metrics')
-            st.write(simulation_state['metrics'])
+            #st.write(simulation_state['metrics'])
+
+            # Convert dictionary to a Pandas Series for easier manipulation
+            metrics_series = pd.Series(simulation_state['metrics'])
+
+            # Create a grid layout with columns
+            cols = st.columns(4)
+
+            #for i, metric in enumerate(metrics_series.items()):
+            #    metric_name, metric_value = metric
+            #    with cols[i % 4]:
+            #        st.metric(label=metric_name, value=int(metric_value))
+
+            # Create a list of figures, one for each metric
+            figures = []
+            for metric_name, metric_value in metrics_series.items():
+                color = "green" if metric_value > 74 else "orange" if metric_value > 24 else "red"
+                figure = go.Figure(
+                    go.Indicator(
+                        mode="number",
+                        value=metric_value,
+                        number={"suffix": " ", "font": {"color": color}},
+                        title={"text": metric_name, "font": {"color": color}},
+                    )
+                )
+
+                figure.update_layout(height=200, width=250)
+
+                figures.append(figure)
+
+            # Display each figure in a grid
+            for i, figure in enumerate(figures):
+                with cols[i % 4]:
+                    st.plotly_chart(figure)
 
             public_sentiment = run_async(get_vote_share())
             st.text("Public sentiment:")
             st.write(public_sentiment)
 
         elif view == 'Policies':
-            st.session_state.show_chat = False
+            #st.session_state.show_chat = False
             st.subheader('Policies')
             decisions = simulation_state['decisions']
             selected_decision = st.selectbox("Choose a policy to implement:", decisions)
@@ -247,7 +307,7 @@ if st.session_state.simulation_started:
                 if decision_response:
                     st.write(decision_response)
         elif view == 'Progression':
-            st.session_state.show_chat = False
+            #st.session_state.show_chat = False
             state_history = run_async(load_states())
             
             # Serializing json
@@ -293,17 +353,30 @@ if st.session_state.simulation_started:
             st.json(state_history)
 
         elif view == 'Assistant':
-            st.session_state.show_chat = True
-            if st.session_state.show_chat:
-                prompt = st.text_input("Enter your message:")
-                if prompt:
-                    st.session_state.messages.append({"role": "user", "content": prompt})
-                    #with st.chat_message("user"):
+            #st.session_state.show_chat = True
+            #if st.session_state.show_chat:
+                # Display all messages
+            for message in st.session_state['messages']:
+                with st.chat_message(message['role']):
+                    st.markdown(message['content'])
+            
+            if prompt := st.chat_input("👋 Hi," + simulation_state['assistant']['name']):
+                st.session_state.messages.append({"role": "user", "content": prompt})
+                with st.chat_message("user"):
                     st.markdown(prompt)
-                    #with st.chat_message(simulation_state['assistant']['name']):
-                    full_response = run_async(generate_response(prompt))
-                    st.markdown(full_response)
-                    st.session_state.messages.append({"role": "assistant", "content": full_response})
+
+                with st.chat_message(simulation_state['assistant']['name']):
+                    message_placeholder = st.empty()
+                    full_response = ""
+
+                    # Generate the assistant's response by calling your own API
+                    response = run_async(generate_response(prompt))
+                    if response:
+                        full_response = response
+                        message_placeholder.markdown(full_response)
+
+                st.session_state.messages.append({"role": "assistant", "content": full_response})
+
     else:
         st.write("Error loading simulation state. Please check the backend service.")
     
