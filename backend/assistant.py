@@ -25,9 +25,9 @@ class Assistant:
 
         return decision
 
-    def generate_response(self, query):
+    def generate_response(self, state_history, query):
         # Generate a different response based on the current narrative
-        response = self.agent.generate_response(query)
+        response = self.agent.generate_response(state_history, query)
         return response
 
     def process_input(self, input_text: str):

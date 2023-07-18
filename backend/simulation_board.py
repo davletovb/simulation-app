@@ -183,6 +183,8 @@ if st.session_state.simulation_started:
 
         # Sidebar for Assistant, Narrative, and Influence
         st.sidebar.markdown("### Simulation")
+        if 'country' in simulation_state:
+            st.sidebar.text(f"Country: {simulation_state['country']}")
         if 'assistant' in simulation_state:
             st.sidebar.text(f"Assistant: {simulation_state['assistant']['name']}, {simulation_state['assistant']['age']}")
         if 'narrative' in simulation_state:
@@ -216,11 +218,38 @@ if st.session_state.simulation_started:
         elif view == 'Citizen Groups':
             #st.session_state.show_chat = False
             st.subheader('Citizen Groups')
-            st.write(simulation_state['citizen_groups'])
+            #st.write(simulation_state['citizen_groups'])
+
+            # Convert the list of dictionaries into a pandas DataFrame
+            df = pd.DataFrame(simulation_state['citizen_groups'])
+            # Hide the index
+            #df.index.name = None
+
+            # Convert 'size' and 'sentiment' to percentages
+            df['size'] = df['size'].apply(lambda x: f"{x}%")
+            #df['sentiment'] = df['sentiment'].apply(lambda x: f"{x}%")
+            df['interests'] = df['interests'].apply(', '.join)
+
+            # Display the DataFrame as a table in Streamlit
+            st.dataframe(data=df,
+                        column_config={
+                            "sentiment": st.column_config.ProgressColumn(
+                                "sentiment %",
+                                help="sentiment towards the government",
+                                format="%f",
+                                min_value=0,
+                                max_value=100
+                            )
+                        },
+                        use_container_width=True,
+                        height=525,
+                        hide_index=True)
+            
         elif view == 'Economic Sectors':
             #st.session_state.show_chat = False
             st.subheader('Economic Sectors')
             st.write(simulation_state['economic_sectors'])
+
         elif view == 'Parameters':
             #st.session_state.show_chat = False
             st.subheader('Parameters')
@@ -232,28 +261,10 @@ if st.session_state.simulation_started:
             # Create a grid layout with columns
             cols = st.columns(4)
 
-            # Create a list of figures, one for each parameter
-            figures = []
-            for parameter_name, parameter_value in parameters_series.items():
-                color = "green" if parameter_value > 74 else "orange" if parameter_value > 24 else "red"
-                figure = go.Figure(
-                    go.Indicator(
-                        mode="number",
-                        value=parameter_value,
-                        number={"font": {"color": color}},
-                        title={"text": parameter_name, "font": {"color": color}},
-                    )
-                )
-
-                # Adjust the layout of the figure to decrease its size
-                figure.update_layout(height=200, width=250)
-
-                figures.append(figure)
-
-            # Display each figure in a grid
-            for i, figure in enumerate(figures):
+            for i, paramter in enumerate(parameters_series.items()):
+                parameter_name, parameter_value = paramter
                 with cols[i % 4]:
-                    st.plotly_chart(figure)
+                    st.metric(label=parameter_name, value=int(parameter_value))
 
         elif view == 'Metrics':
             #st.session_state.show_chat = False
@@ -266,36 +277,10 @@ if st.session_state.simulation_started:
             # Create a grid layout with columns
             cols = st.columns(4)
 
-            #for i, metric in enumerate(metrics_series.items()):
-            #    metric_name, metric_value = metric
-            #    with cols[i % 4]:
-            #        st.metric(label=metric_name, value=int(metric_value))
-
-            # Create a list of figures, one for each metric
-            figures = []
-            for metric_name, metric_value in metrics_series.items():
-                color = "green" if metric_value > 74 else "orange" if metric_value > 24 else "red"
-                figure = go.Figure(
-                    go.Indicator(
-                        mode="number",
-                        value=metric_value,
-                        number={"suffix": " ", "font": {"color": color}},
-                        title={"text": metric_name, "font": {"color": color}},
-                    )
-                )
-
-                figure.update_layout(height=200, width=250)
-
-                figures.append(figure)
-
-            # Display each figure in a grid
-            for i, figure in enumerate(figures):
+            for i, metric in enumerate(metrics_series.items()):
+                metric_name, metric_value = metric
                 with cols[i % 4]:
-                    st.plotly_chart(figure)
-
-            public_sentiment = run_async(get_vote_share())
-            st.text("Public sentiment:")
-            st.write(public_sentiment)
+                    st.metric(label=metric_name, value=int(metric_value))
 
         elif view == 'Policies':
             #st.session_state.show_chat = False
@@ -306,6 +291,7 @@ if st.session_state.simulation_started:
                 decision_response = run_async(submit_decision(selected_decision))
                 if decision_response:
                     st.write(decision_response)
+
         elif view == 'Progression':
             #st.session_state.show_chat = False
             state_history = run_async(load_states())
@@ -350,7 +336,7 @@ if st.session_state.simulation_started:
             st.write("<center>Specific parameters</center>", unsafe_allow_html=True)
             st.line_chart(df_parameters.set_index("Cycle"))
 
-            st.json(state_history)
+            #st.json(state_history)
 
         elif view == 'Assistant':
             #st.session_state.show_chat = True

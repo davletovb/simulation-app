@@ -3,19 +3,21 @@ from langchain.agents import initialize_agent, load_tools, AgentType, Tool, Zero
 from langchain.chat_models import ChatOpenAI
 from langchain.memory import ConversationBufferMemory, SQLiteEntityStore
 from langchain.prompts import PromptTemplate
-
+import pandas as pd
+import ast
+import json
 
 class Agent:
     def __init__(self, assistant_details={"name": "Ava", "age": "27", "style": "funny, excited, disciplined", "traits": "methodical, disciplined, concise", "backstory": "Ava was raised in a small town."}):
 
         self.assistant_details = assistant_details
-
+        
         #self.llm_chain = LLMChain(llm=self.llm, prompt=self.prompt, memory=self.memory, verbose=True)
         #self.db = SQLDatabase.from_uri("sqlite:///../simulation-app/simulation.db")
         #self.db_chain = SQLDatabaseChain.from_llm(self.llm, self.db, verbose=True)
     
     # Prompt the LLM to generate a response
-    def generate_response(self, query):
+    def generate_response(self, state_history, query):
 
         llm = OpenAI(model="text-davinci-003", temperature=0)
 
@@ -45,17 +47,17 @@ class Agent:
                                           ai_prefix=self.assistant_details["name"],
                                           human_prefix="Leader")
 
-        llm_chain = ConversationChain(llm=llm, prompt=prompt, memory=memory, output_key="output")
+        #llm_chain = ConversationChain(llm=llm, prompt=prompt, memory=memory, output_key="output")
 
-        """
+        
         tools.extend([
             Tool(
-                name="database",
-                func=self.db_chain.run,
-                description="useful for when you need to answer questions about simulation state, history and data."
+                name="simulation data",
+                func=self.get_state_dataframe(state_history),
+                description="Useful for when you need to answer questions about simulation state, history and data. It returns a dataframe."
             )
         ])
-        """
+        
 
         # initialise the agents & make all the tools and llm available to it
         agent = initialize_agent(tools=tools,
@@ -67,8 +69,34 @@ class Agent:
                                 handle_parsing_errors="Check your output and make sure it conforms!")
 
         try:
-            #answer = agent({"input": query})["output"]
-            answer = llm_chain({'input': query})["output"]
+            answer = agent({"input": query})["output"]
+            #answer = llm_chain({'input': query})["output"]
             return answer
         except Exception as e:
             return "An error occurred while generating the response. "+str(e)
+    
+    def get_state_dataframe(self, state_history):
+
+        data_metrics = {"Cycle": []}
+        data_parameters = {"Cycle": []}
+
+        for cycle in range(len(state_history)):
+            data_metrics["Cycle"].append(cycle+1)
+            data_parameters["Cycle"].append(cycle+1)
+            metrics = state_history[cycle][cycle+1]["state"]["metrics"]
+            parameters = state_history[cycle][cycle+1]["state"]["parameters"]
+
+            for metric, value in metrics.items():
+                if metric not in data_metrics:
+                    data_metrics[metric] = []
+                data_metrics[metric].append(value)
+
+            for param, value in parameters.items():
+                if param not in data_parameters:
+                    data_parameters[param] = []
+                data_parameters[param].append(value)
+
+        df_metrics = pd.DataFrame(data_metrics)
+        df_parameters = pd.DataFrame(data_parameters)
+
+        return df_parameters

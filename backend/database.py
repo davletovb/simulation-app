@@ -45,7 +45,8 @@ class DatabaseManager:
         self.cursor.execute("SELECT cycle, state, changes FROM simulations WHERE id = ? ORDER BY cycle", (simulation_id,))
         rows = self.cursor.fetchall()
         # Deserialize the state and changes from the JSON string
-        return [(cycle, json.loads(state_json), json.loads(changes_json)) for cycle, state_json, changes_json in rows]
+        states = [{cycle: {"state": json.loads(state_json), "changes": json.loads(changes_json)}} for cycle, state_json, changes_json in rows]
+        return states
 
 
 

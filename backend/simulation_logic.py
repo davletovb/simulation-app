@@ -32,6 +32,8 @@ class SimulationController:
 
         # If a narrative has been set, apply it to the state
         if self.narrative is not None:
+            self.state.country=self.country
+        if self.narrative is not None:
             self.state.set_narrative(self.narrative)
             update_metrics_values(self.state)
 
@@ -51,7 +53,7 @@ class SimulationController:
                 "parameters": {name: param.value for name, param in self.state.parameters.items()},
                 "decisions": [decision.name for decision in self.state.decisions.values()],
                 "ministers": [minister.title for minister in self.state.ministers.values()],
-                "citizen_groups": [group.name for group in self.state.citizen_groups.values()],
+                "citizen_groups": [vars(group) for group in self.state.citizen_groups.values()],
                 "economic_sectors": [sector.name for sector in self.state.economic_sectors.values()],
                 "metrics": self.state.get_metrics(),
                 "country": self.state.country
@@ -191,7 +193,8 @@ class SimulationController:
         set_metrics_values(self.state)
     
     def generate_response(self, query):
-        respone = self.state.assistant.generate_decision(query)
+        state_history = self.load_states(self.state.id)
+        respone = self.state.assistant.generate_response(state_history, query)
         return respone
 
     def fetch_news(self):
