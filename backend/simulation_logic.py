@@ -31,7 +31,7 @@ class SimulationController:
         self.load_metrics()
 
         # If a narrative has been set, apply it to the state
-        if self.narrative is not None:
+        if self.country is not None:
             self.state.country=self.country
         if self.narrative is not None:
             self.state.set_narrative(self.narrative)
@@ -52,7 +52,7 @@ class SimulationController:
                 "influence": self.state.influence,
                 "parameters": {name: param.value for name, param in self.state.parameters.items()},
                 "decisions": [decision.name for decision in self.state.decisions.values()],
-                "ministers": [minister.title for minister in self.state.ministers.values()],
+                "ministers": [vars(minister) for minister in self.state.ministers.values()],
                 "citizen_groups": [vars(group) for group in self.state.citizen_groups.values()],
                 "economic_sectors": [sector.name for sector in self.state.economic_sectors.values()],
                 "metrics": self.state.get_metrics(),
@@ -78,7 +78,7 @@ class SimulationController:
             raise ValueError("Invalid country number")
 
         # Set the chosen country
-        self.state.country = countries[choice-1]
+        self.country = countries[choice-1]
 
     def load_assistants(self, filename="data/assistants.json"):
         # Load assistant attributes from a file
@@ -193,7 +193,9 @@ class SimulationController:
         set_metrics_values(self.state)
     
     def generate_response(self, query):
-        state_history = self.load_states(self.state.id)
+        state_history = "Country: " + str(self.state.country) + ", Current narrative: " + str(self.state.narrative.name) 
+        state_metrics = ", ".join([f"{k}: {v}" for k, v in self.state.get_metrics().items()])
+        state_history = state_history +", Current state of the country: " + str(state_metrics)
         respone = self.state.assistant.generate_response(state_history, query)
         return respone
 

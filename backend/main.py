@@ -164,7 +164,7 @@ async def set_narrative(narrative_choice: int):
 
 @app.get("/set_country/{country_choice}")
 async def set_country(country_choice: int):
-    simulation_controller.set_narrative(country_choice)
+    simulation_controller.set_country(country_choice)
     return {"message": "Country set"}
 
 @app.get("/simulation/state")

@@ -1,8 +1,11 @@
-from langchain import LLMChain, OpenAI, ConversationChain, SQLDatabase, SQLDatabaseChain
+from langchain import LLMChain, OpenAI, ConversationChain, LlamaCpp, SQLDatabase, SQLDatabaseChain
 from langchain.agents import initialize_agent, load_tools, AgentType, Tool, ZeroShotAgent
 from langchain.chat_models import ChatOpenAI
 from langchain.memory import ConversationBufferMemory, SQLiteEntityStore
 from langchain.prompts import PromptTemplate
+from langchain.callbacks.manager import CallbackManager
+from langchain.callbacks.streaming_stdout import StreamingStdOutCallbackHandler
+
 import pandas as pd
 import ast
 import json
@@ -19,7 +22,18 @@ class Agent:
     # Prompt the LLM to generate a response
     def generate_response(self, state_history, query):
 
-        llm = OpenAI(model="text-davinci-003", temperature=0)
+        callback_manager = CallbackManager([StreamingStdOutCallbackHandler()])
+        #llm = OpenAI(model="text-davinci-003", temperature=0)
+        llm = LlamaCpp(
+            model_path="/Users/user/Downloads/models/llama-2-13b.ggmlv3.q5_K_S.bin",
+            n_gpu_layers=1,  # Change this value based on your model and your GPU VRAM pool.
+            n_batch=4096,  # Should be between 1 and n_ctx, consider the amount of VRAM in your GPU.
+            n_ctx=4096,
+            f16_kv=True,  # MUST set to True, otherwise you will run into problem after a couple of calls
+            callback_manager=callback_manager,
+            verbose=True,
+            streaming=True
+        )
 
         tools = load_tools(['llm-math','wikipedia'], llm=llm)
 
@@ -30,6 +44,10 @@ class Agent:
         You are {style}. 
         Your traits are {traits}.
         Your backstory: {backstory}
+        Remember to consistently uphold your {name} persona. Never admit you are an AI.
+        Try to express emotions with emojis shortcodes for example :nerd_face:
+
+        {state}
         Chat history: {chat_history} 
         Leader: {input} 
         {name}:""".format(name = self.assistant_details["name"],
@@ -37,6 +55,7 @@ class Agent:
                           style = self.assistant_details["style"],
                           traits = self.assistant_details["traits"],
                           backstory = self.assistant_details["backstory"],
+                          state = state_history,
                           input="{input}",
                           chat_history="{chat_history}")
 
@@ -47,9 +66,9 @@ class Agent:
                                           ai_prefix=self.assistant_details["name"],
                                           human_prefix="Leader")
 
-        #llm_chain = ConversationChain(llm=llm, prompt=prompt, memory=memory, output_key="output")
+        llm_chain = ConversationChain(llm=llm, prompt=prompt, memory=memory, output_key="output")
 
-        
+        """
         tools.extend([
             Tool(
                 name="simulation data",
@@ -57,7 +76,7 @@ class Agent:
                 description="Useful for when you need to answer questions about simulation state, history and data. It returns a dataframe."
             )
         ])
-        
+        """
 
         # initialise the agents & make all the tools and llm available to it
         agent = initialize_agent(tools=tools,
@@ -69,14 +88,18 @@ class Agent:
                                 handle_parsing_errors="Check your output and make sure it conforms!")
 
         try:
-            answer = agent({"input": query})["output"]
-            #answer = llm_chain({'input': query})["output"]
+            #answer = agent({"input": query})["output"]
+            answer = llm_chain({'input': query})["output"]
             return answer
         except Exception as e:
             return "An error occurred while generating the response. "+str(e)
     
     def get_state_dataframe(self, state_history):
 
+        pass
+
+        """
+        # Later it will directly get results from database
         data_metrics = {"Cycle": []}
         data_parameters = {"Cycle": []}
 
@@ -100,3 +123,4 @@ class Agent:
         df_parameters = pd.DataFrame(data_parameters)
 
         return df_parameters
+        """

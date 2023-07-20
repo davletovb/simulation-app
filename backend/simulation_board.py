@@ -190,7 +190,7 @@ if st.session_state.simulation_started:
         if 'narrative' in simulation_state:
             st.sidebar.text(f"Narrative: {simulation_state['narrative']}")
         if 'influence' in simulation_state:
-            st.sidebar.text(f"Influence: {simulation_state['influence']}")
+            st.sidebar.text(f"Political capital: {simulation_state['influence']} / 1000")
         if 'cycle' in simulation_state:
             st.sidebar.text(f"Cycle: {simulation_state['cycle']}")
         if st.sidebar.button("Next Cycle"):
@@ -202,7 +202,7 @@ if st.session_state.simulation_started:
         st.sidebar.markdown('### Dashboards')
         view = st.sidebar.radio(
             'Select a view',
-            ('Assistant', 'Policies', 'Ministers', 'Citizen Groups', 'Economic Sectors', 'Parameters', 'Metrics', 'Progression')
+            ('Assistant', 'Policies', 'Ministers', 'Public Sentiment', 'Economic Sectors', 'Reports')
         )
 
     if st.sidebar.button("Stop Simulation"):
@@ -214,10 +214,33 @@ if st.session_state.simulation_started:
         if view == 'Ministers':
             #st.session_state.show_chat = False
             st.subheader('Ministers')
-            st.write(simulation_state['ministers'])
-        elif view == 'Citizen Groups':
+            ministers = simulation_state['ministers']
+
+            # Divide into 3 columns
+            cols = st.columns(3)
+
+            for i, minister in enumerate(ministers):
+                col = cols[i % 3]
+                with col:
+                    st.markdown("#### " + minister['title'])
+                    st.markdown("##### " + minister['personal_name'])
+                    st.markdown("##### Backstory")
+                    st.write(minister['backstory'])
+                    st.markdown("##### Loyalty")
+                    st.progress(minister['loyalty'])
+                    st.markdown("##### Political Influence")
+                    st.progress(minister['influence'])
+            
+        elif view == 'Public Sentiment':
             #st.session_state.show_chat = False
-            st.subheader('Citizen Groups')
+
+            public_sentiment = run_async(get_vote_share())
+            st.subheader("Public sentiment:")
+            st.write("Public sentiment:", str(round(public_sentiment["result"]["Public sentiment"], 2)))
+            st.write("Vote share %:", str(public_sentiment["result"]["Vote share %"]))
+            st.write("Vote numbers:", format(int(public_sentiment["result"]["Vote numbers"]),","))
+
+            st.subheader('Interest Groups')
             #st.write(simulation_state['citizen_groups'])
 
             # Convert the list of dictionaries into a pandas DataFrame
@@ -266,7 +289,7 @@ if st.session_state.simulation_started:
                 with cols[i % 4]:
                     st.metric(label=parameter_name, value=int(parameter_value))
 
-        elif view == 'Metrics':
+        elif view == 'Reports':
             #st.session_state.show_chat = False
             st.subheader('Metrics')
             #st.write(simulation_state['metrics'])
@@ -281,21 +304,10 @@ if st.session_state.simulation_started:
                 metric_name, metric_value = metric
                 with cols[i % 4]:
                     st.metric(label=metric_name, value=int(metric_value))
-
-        elif view == 'Policies':
-            #st.session_state.show_chat = False
-            st.subheader('Policies')
-            decisions = simulation_state['decisions']
-            selected_decision = st.selectbox("Choose a policy to implement:", decisions)
-            if st.button("Implement Selected Policy"):
-                decision_response = run_async(submit_decision(selected_decision))
-                if decision_response:
-                    st.write(decision_response)
-
-        elif view == 'Progression':
-            #st.session_state.show_chat = False
-            state_history = run_async(load_states())
             
+            # Show the graphs for metrics and parameters
+            state_history = run_async(load_states())
+            #st.json(state_history)
             # Serializing json
             #json_object = json.dumps(state_history, indent=4)
             
@@ -304,7 +316,7 @@ if st.session_state.simulation_started:
             #    outfile.write(json_object)
 
             # Initialize the dictionary
-            data_metrics = {"Cycle": [], "Overall Country Health": []}
+            data_metrics = {"Cycle": [], "Overall Country Health": [], "Quality of Life": []}
             data_parameters = {"Cycle": [], "Economy": [], "Education": [], "Environment": [],"Healthcare": [], "Public Unrest": []}
 
             # Iterate over cycles
@@ -312,18 +324,17 @@ if st.session_state.simulation_started:
                 # Add cycle number
                 data_metrics["Cycle"].append(cycle)
                 data_parameters["Cycle"].append(cycle)
-
                 # Extract metrics values for each cycle
-                metrics = state_history['status'][cycle][1]['metrics']
+                metrics = state_history["status"][cycle][str(cycle+1)]["state"]["metrics"]
                 data_metrics["Overall Country Health"].append(metrics["Overall Country Health"])
-                
+
                 # Extract parameter values for each cycle
-                parameters = state_history['status'][cycle][1]['parameters']
+                parameters = state_history["status"][cycle][str(cycle+1)]["state"]['parameters']
                 data_parameters["Economy"].append(parameters["Economy"]["value"])
                 data_parameters["Education"].append(parameters["Education"]["value"])
                 data_parameters["Healthcare"].append(parameters["Healthcare"]["value"])
                 data_parameters["Environment"].append(parameters["Environment"]["value"])
-                #data_parameters["Quality of Life"].append(parameters["Quality of Life"]["value"])
+                data_metrics["Quality of Life"].append(parameters["Quality of Life"]["value"])
                 data_parameters["Public Unrest"].append(parameters["Public Unrest"]["value"])
 
             # Convert the dictionary to a pandas DataFrame
@@ -336,7 +347,15 @@ if st.session_state.simulation_started:
             st.write("<center>Specific parameters</center>", unsafe_allow_html=True)
             st.line_chart(df_parameters.set_index("Cycle"))
 
-            #st.json(state_history)
+        elif view == 'Policies':
+            #st.session_state.show_chat = False
+            st.subheader('Policies')
+            decisions = simulation_state['decisions']
+            selected_decision = st.selectbox("Choose a policy to implement:", decisions)
+            if st.button("Implement Selected Policy"):
+                decision_response = run_async(submit_decision(selected_decision))
+                if decision_response:
+                    st.write(decision_response)
 
         elif view == 'Assistant':
             #st.session_state.show_chat = True
