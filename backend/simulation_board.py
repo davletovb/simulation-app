@@ -224,7 +224,6 @@ if st.session_state.simulation_started:
                 with col:
                     st.markdown("#### " + minister['title'])
                     st.markdown("##### " + minister['personal_name'])
-                    st.markdown("##### Backstory")
                     st.write(minister['backstory'])
                     st.markdown("##### Loyalty")
                     st.progress(minister['loyalty'])
@@ -237,7 +236,7 @@ if st.session_state.simulation_started:
             public_sentiment = run_async(get_vote_share())
             st.subheader("Public sentiment:")
             st.write("Public sentiment:", str(round(public_sentiment["result"]["Public sentiment"], 2)))
-            st.write("Vote share %:", str(public_sentiment["result"]["Vote share %"]))
+            st.write("Vote share %:", format(int(public_sentiment["result"]["Vote share %"]),","))
             st.write("Vote numbers:", format(int(public_sentiment["result"]["Vote numbers"]),","))
 
             st.subheader('Interest Groups')

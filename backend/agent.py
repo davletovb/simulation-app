@@ -23,17 +23,24 @@ class Agent:
     def generate_response(self, state_history, query):
 
         callback_manager = CallbackManager([StreamingStdOutCallbackHandler()])
-        #llm = OpenAI(model="text-davinci-003", temperature=0)
+        llm = OpenAI(model="text-davinci-003", 
+                     temperature=0, 
+                     max_tokens=3000,
+                     callback_manager=callback_manager, 
+                     streaming=True)
+        """
         llm = LlamaCpp(
-            model_path="/Users/user/Downloads/models/llama-2-13b.ggmlv3.q5_K_S.bin",
+            model_path="/Users/user/Downloads/models/llama-2-7b.ggmlv3.q4_K_S.bin",
+            temperature=0,
             n_gpu_layers=1,  # Change this value based on your model and your GPU VRAM pool.
-            n_batch=4096,  # Should be between 1 and n_ctx, consider the amount of VRAM in your GPU.
-            n_ctx=4096,
+            n_batch=2048,  # Should be between 1 and n_ctx, consider the amount of VRAM in your GPU.
+            n_ctx=2048,
             f16_kv=True,  # MUST set to True, otherwise you will run into problem after a couple of calls
             callback_manager=callback_manager,
             verbose=True,
             streaming=True
         )
+        """
 
         tools = load_tools(['llm-math','wikipedia'], llm=llm)
 
@@ -66,7 +73,7 @@ class Agent:
                                           ai_prefix=self.assistant_details["name"],
                                           human_prefix="Leader")
 
-        llm_chain = ConversationChain(llm=llm, prompt=prompt, memory=memory, output_key="output")
+        llm_chain = LLMChain(llm=llm, prompt=prompt, memory=memory, output_key="output")
 
         """
         tools.extend([
