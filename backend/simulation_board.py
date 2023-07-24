@@ -103,8 +103,8 @@ if "simulation_started" not in st.session_state:
 if "openai_model" not in st.session_state:
     st.session_state["openai_model"] = "gpt-3.5-turbo"
 
-if "messages" not in st.session_state:
-    st.session_state.messages = []
+if "messages" not in st.session_state.keys():
+    st.session_state.messages = [{"role": "assistant", "content": "Hello, how may I assist you today?"}]
 
 # Check if the chat visibility has been set in the session state
 # if "show_chat" not in st.session_state:
@@ -359,27 +359,34 @@ if st.session_state.simulation_started:
         elif view == 'Assistant':
             #st.session_state.show_chat = True
             #if st.session_state.show_chat:
-                # Display all messages
-            for message in st.session_state['messages']:
-                with st.chat_message(message['role']):
-                    st.markdown(message['content'])
-            
-            if prompt := st.chat_input("👋 Hi," + simulation_state['assistant']['name']):
+            # Display or clear chat messages
+            for message in st.session_state.messages:
+                if message["role"] == "assistant":
+                    with st.chat_message(name=simulation_state["assistant"]["name"], avatar="../data/img/"+simulation_state["assistant"]["name"]+".jpeg"):
+                        st.write(message["content"])
+                else:
+                    with st.chat_message(message["role"]):
+                        st.write(message["content"])
+
+            # Display all messages
+            if prompt := st.chat_input():
                 st.session_state.messages.append({"role": "user", "content": prompt})
                 with st.chat_message("user"):
-                    st.markdown(prompt)
+                    st.write(prompt)
 
-                with st.chat_message(simulation_state['assistant']['name']):
-                    message_placeholder = st.empty()
-                    full_response = ""
-
-                    # Generate the assistant's response by calling your own API
-                    response = run_async(generate_response(prompt))
-                    if response:
-                        full_response = response
-                        message_placeholder.markdown(full_response)
-
-                st.session_state.messages.append({"role": "assistant", "content": full_response})
+            # Generate a new response if last message is not from assistant
+            if st.session_state.messages[-1]["role"] != "assistant":
+                with st.chat_message(name=simulation_state["assistant"]["name"], avatar="../data/img/"+simulation_state["assistant"]["name"]+".jpeg"):
+                    with st.spinner("Thinking..."):
+                        response = run_async(generate_response(prompt))
+                        placeholder = st.empty()
+                        full_response = ''
+                        for item in response:
+                            full_response += item
+                            placeholder.markdown(full_response)
+                        placeholder.markdown(full_response)
+                message = {"role": "assistant", "content": full_response}
+                st.session_state.messages.append(message)
 
     else:
         st.write("Error loading simulation state. Please check the backend service.")

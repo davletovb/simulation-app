@@ -23,6 +23,7 @@ class Agent:
     def generate_response(self, state_history, query):
 
         callback_manager = CallbackManager([StreamingStdOutCallbackHandler()])
+        
         llm = OpenAI(model="text-davinci-003", 
                      temperature=0, 
                      max_tokens=3000,
@@ -34,7 +35,6 @@ class Agent:
             temperature=0,
             n_gpu_layers=1,  # Change this value based on your model and your GPU VRAM pool.
             n_batch=2048,  # Should be between 1 and n_ctx, consider the amount of VRAM in your GPU.
-            n_ctx=2048,
             f16_kv=True,  # MUST set to True, otherwise you will run into problem after a couple of calls
             callback_manager=callback_manager,
             verbose=True,
@@ -86,6 +86,7 @@ class Agent:
         """
 
         # initialise the agents & make all the tools and llm available to it
+        """
         agent = initialize_agent(tools=tools,
                                 llm=llm, 
                                 agent=AgentType.CONVERSATIONAL_REACT_DESCRIPTION, 
@@ -93,6 +94,7 @@ class Agent:
                                 prompt=prompt,
                                 memory=memory,
                                 handle_parsing_errors="Check your output and make sure it conforms!")
+        """
 
         try:
             #answer = agent({"input": query})["output"]
