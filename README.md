@@ -1,10 +1,5 @@
 # About 
 Simulation invites players to immerse themselves in the world of political strategy. Don the mantle of a national leader, balance the nuanced demands of various demographic groups, design impactful policies, and respond to intricate narratives. With the aid of your AI assistant, make decisions that will determine the fate of your nation. Can you preserve your grip on power?
-![image](https://github.com/davletovb/simulation-app/assets/43503037/61f09b9a-19b1-4f8c-b859-53de9e6d0d6c)
-![image](https://github.com/davletovb/simulation-app/assets/43503037/96307140-7530-4d15-8687-ba99ad96dac7)
-![image](https://github.com/davletovb/simulation-app/assets/43503037/486f4531-394c-4353-aec1-f6463341b37c)
-![image](https://github.com/davletovb/simulation-app/assets/43503037/7f343e21-4ae3-410c-baff-7f796b589872)
-![image](https://github.com/davletovb/simulation-app/assets/43503037/ab0aa3df-de17-467e-a3af-a1fb4283c957)
 
 # Features
 - Dynamic Decision Making: Make real-time decisions in response to crises, policy challenges, and shifting public opinion.
@@ -23,3 +18,10 @@ Simulation invites players to immerse themselves in the world of political strat
 - Improve metrics and modeling calculations
 - Add forecasting based on various parameters and decisions
 - Add a multi-agent system, ministers and citizen groups will become agents with their own interests
+
+# Screenshots
+![image](https://github.com/davletovb/simulation-app/assets/43503037/61f09b9a-19b1-4f8c-b859-53de9e6d0d6c)
+![image](https://github.com/davletovb/simulation-app/assets/43503037/96307140-7530-4d15-8687-ba99ad96dac7)
+![image](https://github.com/davletovb/simulation-app/assets/43503037/486f4531-394c-4353-aec1-f6463341b37c)
+![image](https://github.com/davletovb/simulation-app/assets/43503037/7f343e21-4ae3-410c-baff-7f796b589872)
+![image](https://github.com/davletovb/simulation-app/assets/43503037/ab0aa3df-de17-467e-a3af-a1fb4283c957)
