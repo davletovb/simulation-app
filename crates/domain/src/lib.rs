@@ -76,12 +76,30 @@ pub struct CohortId {
 }
 
 pub const COHORT_ORDER: [CohortId; 6] = [
-    CohortId { residence: Residence::Urban, income: IncomeBand::Low },
-    CohortId { residence: Residence::Urban, income: IncomeBand::Middle },
-    CohortId { residence: Residence::Urban, income: IncomeBand::High },
-    CohortId { residence: Residence::Rural, income: IncomeBand::Low },
-    CohortId { residence: Residence::Rural, income: IncomeBand::Middle },
-    CohortId { residence: Residence::Rural, income: IncomeBand::High },
+    CohortId {
+        residence: Residence::Urban,
+        income: IncomeBand::Low,
+    },
+    CohortId {
+        residence: Residence::Urban,
+        income: IncomeBand::Middle,
+    },
+    CohortId {
+        residence: Residence::Urban,
+        income: IncomeBand::High,
+    },
+    CohortId {
+        residence: Residence::Rural,
+        income: IncomeBand::Low,
+    },
+    CohortId {
+        residence: Residence::Rural,
+        income: IncomeBand::Middle,
+    },
+    CohortId {
+        residence: Residence::Rural,
+        income: IncomeBand::High,
+    },
 ];
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -111,10 +129,17 @@ impl Allocation {
     // Deliberately permits an over-budget *draft* (e.g. 60/40/10);
     // ratification performs a separate affordability check.
     pub fn draft(staffing: u16, repairs: u16, access: u16) -> Result<Self, ContractError> {
-        if [staffing, repairs, access].iter().any(|v| *v > PILOT_CREDITS) {
+        if [staffing, repairs, access]
+            .iter()
+            .any(|v| *v > PILOT_CREDITS)
+        {
             return Err(ContractError::InvalidCreditAmount);
         }
-        Ok(Self { staffing, repairs, access })
+        Ok(Self {
+            staffing,
+            repairs,
+            access,
+        })
     }
 
     pub fn total(self) -> u32 {
@@ -191,8 +216,8 @@ impl DeliveryProgress {
             .checked_mul(u32::from(effective_effort_permille))
             .and_then(|v| v.checked_add(u32::from(self.carry_permille)))
             .ok_or(ContractError::ArithmeticOverflow)?;
-        let delivered_u32 = (work_permille / u32::from(EFFORT_DENOMINATOR))
-            .min(u32::from(remaining_units));
+        let delivered_u32 =
+            (work_permille / u32::from(EFFORT_DENOMINATOR)).min(u32::from(remaining_units));
         let delivered =
             u16::try_from(delivered_u32).map_err(|_| ContractError::ArithmeticOverflow)?;
         self.carry_permille = if delivered == remaining_units {
@@ -300,18 +325,37 @@ impl CapacityCaps {
         if staffing > 12 || repairs > 10 || access > 4 {
             return Err(ContractError::InvalidCreditAmount);
         }
-        Ok(Self { staffing, repairs, access })
+        Ok(Self {
+            staffing,
+            repairs,
+            access,
+        })
     }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum PlayerCommand {
-    Propose { allocation: Allocation },
-    Amend { proposal_version: u64, allocation: Allocation },
-    Ratify { proposal_version: u64 },
-    RequestCapacityCaps { caps: CapacityCaps },
-    OrderAudit { family: PolicyFamily, inspected_quarter: Quarter },
-    DiscloseEvidence { evidence_id: String, to: Ministry },
+    Propose {
+        allocation: Allocation,
+    },
+    Amend {
+        proposal_version: u64,
+        allocation: Allocation,
+    },
+    Ratify {
+        proposal_version: u64,
+    },
+    RequestCapacityCaps {
+        caps: CapacityCaps,
+    },
+    OrderAudit {
+        family: PolicyFamily,
+        inspected_quarter: Quarter,
+    },
+    DiscloseEvidence {
+        evidence_id: String,
+        to: Ministry,
+    },
     Defer,
     AdvanceQuarter,
 }
@@ -411,9 +455,19 @@ mod tests {
     fn draft_can_be_over_budget_but_not_funded() {
         let over = Allocation::draft(60, 40, 10).unwrap();
         assert_eq!(over.total(), 110);
-        assert_eq!(Treasury::initial().can_fund(over), Err(ContractError::InsufficientAvailableFunds));
-        assert!(Treasury::initial().can_fund(Allocation::draft(50, 40, 10).unwrap()).is_ok());
-        assert_eq!(Allocation::draft(101, 0, 0), Err(ContractError::InvalidCreditAmount));
+        assert_eq!(
+            Treasury::initial().can_fund(over),
+            Err(ContractError::InsufficientAvailableFunds)
+        );
+        assert!(
+            Treasury::initial()
+                .can_fund(Allocation::draft(50, 40, 10).unwrap())
+                .is_ok()
+        );
+        assert_eq!(
+            Allocation::draft(101, 0, 0),
+            Err(ContractError::InvalidCreditAmount)
+        );
     }
 
     #[test]
@@ -426,7 +480,11 @@ mod tests {
         };
         assert_eq!(valid.validate(), Ok(()));
         assert_eq!(
-            Treasury { available: 10, ..valid }.validate(),
+            Treasury {
+                available: 10,
+                ..valid
+            }
+            .validate(),
             Err(ContractError::InvalidTreasury)
         );
     }
@@ -451,7 +509,10 @@ mod tests {
         let mut progress = DeliveryProgress::default();
         assert_eq!(progress.step(4, 4, 0), Ok(0));
         assert_eq!(progress.step(4, 0, 1_000), Ok(0));
-        assert_eq!(progress.step(1, 1, 1_001), Err(ContractError::InvalidEffort));
+        assert_eq!(
+            progress.step(1, 1, 1_001),
+            Err(ContractError::InvalidEffort)
+        );
     }
 
     #[test]
@@ -460,7 +521,10 @@ mod tests {
         assert_eq!(WireU64::from_decimal(&max), Ok(WireU64(u64::MAX)));
         assert_eq!(WireU64(u64::MAX).to_decimal(), max);
         for noncanonical in ["", "-1", "01", "1.0", " 1", "18446744073709551616"] {
-            assert_eq!(WireU64::from_decimal(noncanonical), Err(ContractError::InvalidDecimal));
+            assert_eq!(
+                WireU64::from_decimal(noncanonical),
+                Err(ContractError::InvalidDecimal)
+            );
         }
     }
 
