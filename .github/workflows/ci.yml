@@ -1,0 +1,46 @@
+name: Essential offline checks
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: essential-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  offline-rust:
+    name: Offline Rust foundation
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.99.1
+          components: rustfmt, clippy
+      - name: Format
+        run: cargo fmt --all -- --check
+      - name: Core deterministic-source guard
+        shell: bash
+        run: |
+          if grep -R -n -E 'HashMap|HashSet|\.exp\(|\.ln\(|\.powf\(' crates/domain/src --include='*.rs'; then
+            echo "Nondeterministic collection or platform transcendental in domain source" >&2
+            exit 1
+          fi
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - name: Test
+        run: cargo test --workspace --locked
+      - name: Coarse offline credential pattern scan
+        shell: bash
+        run: |
+          if grep -R -n -E 'sk-or-v1-[A-Za-z0-9]{16,}|OPENROUTER_API_KEY=[^[:space:]]+' crates .github --include='*.rs' --include='*.yml'; then
+            echo "Credential-like literal detected" >&2
+            exit 1
+          fi
+          # A full tracked-tree and compiled-assets secret scan is P1-05 follow-up.
