@@ -34,6 +34,18 @@ jobs:
         with:
           toolchain: 1.99.1
           components: rustfmt, clippy
+      - name: Verify pinned toolchain and generated lockfile
+        if: steps.workspace.outputs.present == 'true'
+        shell: bash
+        run: |
+          pinned=$(sed -n 's/^channel = "\([^"]*\)"/\1/p' rust-toolchain.toml)
+          active=$(rustc --version | awk '{print $2}')
+          if [ -z "$pinned" ] || [ "$pinned" != "$active" ]; then
+            echo "Rust toolchain mismatch: file=$pinned active=$active" >&2
+            exit 1
+          fi
+          cargo generate-lockfile --offline
+          git diff --exit-code -- Cargo.lock
       - name: Format
         if: steps.workspace.outputs.present == 'true'
         run: cargo fmt --all -- --check
