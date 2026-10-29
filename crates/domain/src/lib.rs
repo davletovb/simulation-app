@@ -871,6 +871,18 @@ pub struct CountryPack {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RoleObservationInput {
+    pub campaign_id: String,
+    pub meeting_id: String,
+    pub proposal_version: WireU64,
+    pub ministry: Ministry,
+    pub quarter: Quarter,
+    pub allocation: Allocation,
+    pub available_credits: u16,
+    pub belief_ppm: BeliefPpm,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RoleObservation {
     schema_version: u16,
     pub campaign_id: String,
@@ -886,29 +898,20 @@ pub struct RoleObservation {
     // Deliberately no private effort field on this public/view-safe type.
 }
 impl RoleObservation {
-    pub fn new(
-        campaign_id: String,
-        meeting_id: String,
-        proposal_version: WireU64,
-        ministry: Ministry,
-        quarter: Quarter,
-        allocation: Allocation,
-        available_credits: u16,
-        belief_ppm: BeliefPpm,
-    ) -> Result<Self, ContractError> {
-        if available_credits > PILOT_CREDITS {
+    pub fn new(input: RoleObservationInput) -> Result<Self, ContractError> {
+        if input.available_credits > PILOT_CREDITS {
             return Err(ContractError::InvalidCreditAmount);
         }
         Ok(Self {
             schema_version: SCHEMA_VERSION,
-            campaign_id,
-            meeting_id,
-            proposal_version,
-            ministry,
-            quarter,
-            allocation,
-            available_credits,
-            belief_ppm,
+            campaign_id: input.campaign_id,
+            meeting_id: input.meeting_id,
+            proposal_version: input.proposal_version,
+            ministry: input.ministry,
+            quarter: input.quarter,
+            allocation: input.allocation,
+            available_credits: input.available_credits,
+            belief_ppm: input.belief_ppm,
             owned_commitments: vec![],
             visible_evidence_ids: vec![],
         })
@@ -1166,16 +1169,16 @@ mod tests {
         assert!(
             PrivateEffortDeclaration::new("m".to_string(), Ministry::Finance, effort(5)).is_err()
         );
-        let pub_view = RoleObservation::new(
-            "c".into(),
-            "m".into(),
-            WireU64::new(1),
-            Ministry::Education,
-            Quarter::new(1).unwrap(),
-            Allocation::draft(50, 40, 10).unwrap(),
-            0,
-            BeliefPpm::new(500_000).unwrap(),
-        )
+        let pub_view = RoleObservation::new(RoleObservationInput {
+            campaign_id: "c".into(),
+            meeting_id: "m".into(),
+            proposal_version: WireU64::new(1),
+            ministry: Ministry::Education,
+            quarter: Quarter::new(1).unwrap(),
+            allocation: Allocation::draft(50, 40, 10).unwrap(),
+            available_credits: 0,
+            belief_ppm: BeliefPpm::new(500_000).unwrap(),
+        })
         .unwrap();
         let other =
             PrivateEffortDeclaration::new("m".into(), Ministry::Infrastructure, effort(800))
