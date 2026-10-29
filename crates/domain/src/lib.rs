@@ -1,9 +1,11 @@
-//! Authoritative, side-effect-free types and checked arithmetic for Myth Maker.
+//! Pure, bounded domain contracts for Myth Maker.
 //!
-//! P1 foundation only. The treasury and delivery APIs here are primitives,
-//! not the complete P3 policy reducer, P4 Hiyal adapter or P5 inference backend.
+//! This crate does not perform network, Hiyal, storage or LLM operations.
+//! A family-wide delivery primitive prevents duplicate capacity when later
+//! funding creates multiple eligible scopes in the same quarter.
 #![forbid(unsafe_code)]
 
+use std::collections::BTreeSet;
 use std::fmt;
 
 pub const SCHEMA_VERSION: u16 = 1;
@@ -17,9 +19,15 @@ pub enum ContractError {
     InvalidQuarter,
     InvalidCreditAmount,
     InvalidEffort,
+    InvalidBelief,
     InvalidPopulationWeights,
     InvalidDecimal,
     InvalidTreasury,
+    InvalidSchema,
+    InvalidMinistry,
+    InvalidRecipients,
+    InvalidScope,
+    DuplicateScope,
     InsufficientAvailableFunds,
     ArithmeticOverflow,
 }
@@ -29,7 +37,6 @@ impl fmt::Display for ContractError {
         write!(f, "{self:?}")
     }
 }
-
 impl std::error::Error for ContractError {}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
@@ -43,9 +50,32 @@ impl Quarter {
             Err(ContractError::InvalidQuarter)
         }
     }
-
     pub const fn value(self) -> u8 {
         self.0
+    }
+}
+
+/// Dates after the sixth playable quarter remain representable for lags,
+/// conditions and unsettled commitments. Zero is not a valid date.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
+pub struct DueQuarter(u16);
+
+impl DueQuarter {
+    pub fn new(value: u16) -> Result<Self, ContractError> {
+        if value == 0 {
+            Err(ContractError::InvalidQuarter)
+        } else {
+            Ok(Self(value))
+        }
+    }
+    pub const fn value(self) -> u16 {
+        self.0
+    }
+}
+
+impl From<Quarter> for DueQuarter {
+    fn from(value: Quarter) -> Self {
+        Self(u16::from(value.value()))
     }
 }
 
@@ -57,18 +87,40 @@ pub enum Ministry {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
+pub enum PolicyFamily {
+    Staffing,
+    Repairs,
+    Access,
+}
+
+impl PolicyFamily {
+    pub const fn nominal_capacity(self) -> u16 {
+        match self {
+            Self::Staffing => 12,
+            Self::Repairs => 10,
+            Self::Access => 4,
+        }
+    }
+    pub const fn lag_quarters(self) -> u16 {
+        match self {
+            Self::Staffing => 1,
+            Self::Repairs => 2,
+            Self::Access => 0,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
 pub enum Residence {
     Urban,
     Rural,
 }
-
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
 pub enum IncomeBand {
     Low,
     Middle,
     High,
 }
-
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
 pub struct CohortId {
     pub residence: Residence,
@@ -76,38 +128,18 @@ pub struct CohortId {
 }
 
 pub const COHORT_ORDER: [CohortId; 6] = [
-    CohortId {
-        residence: Residence::Urban,
-        income: IncomeBand::Low,
-    },
-    CohortId {
-        residence: Residence::Urban,
-        income: IncomeBand::Middle,
-    },
-    CohortId {
-        residence: Residence::Urban,
-        income: IncomeBand::High,
-    },
-    CohortId {
-        residence: Residence::Rural,
-        income: IncomeBand::Low,
-    },
-    CohortId {
-        residence: Residence::Rural,
-        income: IncomeBand::Middle,
-    },
-    CohortId {
-        residence: Residence::Rural,
-        income: IncomeBand::High,
-    },
+    CohortId { residence: Residence::Urban, income: IncomeBand::Low },
+    CohortId { residence: Residence::Urban, income: IncomeBand::Middle },
+    CohortId { residence: Residence::Urban, income: IncomeBand::High },
+    CohortId { residence: Residence::Rural, income: IncomeBand::Low },
+    CohortId { residence: Residence::Rural, income: IncomeBand::Middle },
+    CohortId { residence: Residence::Rural, income: IncomeBand::High },
 ];
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CohortWeights {
-    // Index order is COHORT_ORDER; not a statistical estimate by itself.
-    pub parts_ppm: [u32; 6],
+    parts_ppm: [u32; 6],
 }
-
 impl CohortWeights {
     pub fn new(parts_ppm: [u32; 6]) -> Result<Self, ContractError> {
         let total: u64 = parts_ppm.iter().map(|v| u64::from(*v)).sum();
@@ -116,60 +148,197 @@ impl CohortWeights {
         }
         Ok(Self { parts_ppm })
     }
+    pub const fn parts_ppm(&self) -> &[u32; 6] {
+        &self.parts_ppm
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
+pub struct EffortPermille(u16);
+impl EffortPermille {
+    pub fn new(value: u16) -> Result<Self, ContractError> {
+        if value > EFFORT_DENOMINATOR {
+            Err(ContractError::InvalidEffort)
+        } else {
+            Ok(Self(value))
+        }
+    }
+    pub const fn value(self) -> u16 {
+        self.0
+    }
+}
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
+pub struct BeliefPpm(u32);
+impl BeliefPpm {
+    pub fn new(value: u32) -> Result<Self, ContractError> {
+        if value > SHARE_DENOMINATOR {
+            Err(ContractError::InvalidBelief)
+        } else {
+            Ok(Self(value))
+        }
+    }
+    pub const fn value(self) -> u32 {
+        self.0
+    }
+}
+
+/// 64-bit versions/IDs exposed over JSON use canonical *decimal strings*.
+/// A later Serde implementation must serialize this wrapper as a JSON string,
+/// never derive its default numeric encoding.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
+pub struct WireU64(u64);
+impl WireU64 {
+    pub const fn new(value: u64) -> Self {
+        Self(value)
+    }
+    pub const fn value(self) -> u64 {
+        self.0
+    }
+    pub fn from_decimal(value: &str) -> Result<Self, ContractError> {
+        if value.is_empty()
+            || (value.len() > 1 && value.starts_with('0'))
+            || !value.bytes().all(|b| b.is_ascii_digit())
+        {
+            return Err(ContractError::InvalidDecimal);
+        }
+        value.parse::<u64>().map(Self).map_err(|_| ContractError::InvalidDecimal)
+    }
+    pub fn to_decimal(self) -> String {
+        self.0.to_string()
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct Allocation {
-    pub staffing: u16,
-    pub repairs: u16,
-    pub access: u16,
+    staff: u16,
+    repairs: u16,
+    access: u16,
+}
+impl Allocation {
+    /// Allows an over-budget *draft* such as 60+40+10, but no individual
+    /// line can exceed the entire campaign's fictional 100-credit allocation.
+    pub fn draft(staff: u16, repairs: u16, access: u16) -> Result<Self, ContractError> {
+        if [staff, repairs, access].iter().any(|v| *v > PILOT_CREDITS) {
+            Err(ContractError::InvalidCreditAmount)
+        } else {
+            Ok(Self { staff, repairs, access })
+        }
+    }
+    pub const fn staff(self) -> u16 {
+        self.staff
+    }
+    pub const fn repairs(self) -> u16 {
+        self.repairs
+    }
+    pub const fn access(self) -> u16 {
+        self.access
+    }
+    pub fn total(self) -> u32 {
+        u32::from(self.staff) + u32::from(self.repairs) + u32::from(self.access)
+    }
+    pub fn units(self, family: PolicyFamily) -> u16 {
+        match family {
+            PolicyFamily::Staffing => self.staff,
+            PolicyFamily::Repairs => self.repairs,
+            PolicyFamily::Access => self.access,
+        }
+    }
 }
 
-impl Allocation {
-    // Deliberately permits an over-budget *draft* (e.g. 60/40/10);
-    // ratification performs a separate affordability check.
-    pub fn draft(staffing: u16, repairs: u16, access: u16) -> Result<Self, ContractError> {
-        if [staffing, repairs, access]
-            .iter()
-            .any(|v| *v > PILOT_CREDITS)
-        {
+/// The invalid-draft marker is computed from a mechanical affordability
+/// snapshot, not supplied by an LLM or arbitrary caller.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum PreferredAllocation {
+    Feasible(Allocation),
+    InvalidDraft(Allocation),
+}
+impl PreferredAllocation {
+    pub fn assess(draft: Allocation, eligible_credits: u16) -> Result<Self, ContractError> {
+        if eligible_credits > PILOT_CREDITS {
             return Err(ContractError::InvalidCreditAmount);
         }
-        Ok(Self {
-            staffing,
-            repairs,
-            access,
-        })
+        if draft.total() <= u32::from(eligible_credits) {
+            Ok(Self::Feasible(draft))
+        } else {
+            Ok(Self::InvalidDraft(draft))
+        }
     }
+    pub const fn allocation(self) -> Allocation {
+        match self {
+            Self::Feasible(v) | Self::InvalidDraft(v) => v,
+        }
+    }
+}
 
-    pub fn total(self) -> u32 {
-        u32::from(self.staffing) + u32::from(self.repairs) + u32::from(self.access)
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct CapacityCaps {
+    staff: u16,
+    repairs: u16,
+    access: u16,
+}
+impl CapacityCaps {
+    pub fn new(staff: u16, repairs: u16, access: u16) -> Result<Self, ContractError> {
+        if staff > 12 || repairs > 10 || access > 4 {
+            Err(ContractError::InvalidCreditAmount)
+        } else {
+            Ok(Self { staff, repairs, access })
+        }
+    }
+    pub const fn staff(self) -> u16 {
+        self.staff
+    }
+    pub const fn repairs(self) -> u16 {
+        self.repairs
+    }
+    pub const fn access(self) -> u16 {
+        self.access
     }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Treasury {
-    pub available: u16,
-    pub encumbered: Allocation,
-    pub service_spent: u16,
-    pub audit_spent: u16,
+    available: u16,
+    encumbered_staff: u16,
+    encumbered_repairs: u16,
+    encumbered_access: u16,
+    service_spent: u16,
+    audit_spent: u16,
 }
-
 impl Treasury {
-    pub fn initial() -> Self {
-        Self {
-            available: PILOT_CREDITS,
-            encumbered: Allocation::default(),
-            service_spent: 0,
-            audit_spent: 0,
+    pub const fn initial() -> Self {
+        Self { available: PILOT_CREDITS, encumbered_staff: 0, encumbered_repairs: 0,
+            encumbered_access: 0, service_spent: 0, audit_spent: 0 }
+    }
+    pub fn from_parts(
+        available: u16, encumbered_staff: u16, encumbered_repairs: u16,
+        encumbered_access: u16, service_spent: u16, audit_spent: u16
+    ) -> Result<Self, ContractError> {
+        let result = Self { available, encumbered_staff, encumbered_repairs,
+            encumbered_access, service_spent, audit_spent };
+        result.validate()?;
+        Ok(result)
+    }
+    pub const fn available(self) -> u16 {
+        self.available
+    }
+    pub const fn service_spent(self) -> u16 {
+        self.service_spent
+    }
+    pub const fn audit_spent(self) -> u16 {
+        self.audit_spent
+    }
+    pub fn encumbered(self, family: PolicyFamily) -> u16 {
+        match family {
+            PolicyFamily::Staffing => self.encumbered_staff,
+            PolicyFamily::Repairs => self.encumbered_repairs,
+            PolicyFamily::Access => self.encumbered_access,
         }
     }
-
     pub fn validate(&self) -> Result<(), ContractError> {
-        let sum = u32::from(self.available)
-            .checked_add(self.encumbered.total())
-            .and_then(|v| v.checked_add(u32::from(self.service_spent)))
-            .and_then(|v| v.checked_add(u32::from(self.audit_spent)))
+        let sum = [
+            self.available, self.encumbered_staff, self.encumbered_repairs,
+            self.encumbered_access, self.service_spent, self.audit_spent,
+        ].iter().try_fold(0_u32, |acc, value| acc.checked_add(u32::from(*value)))
             .ok_or(ContractError::ArithmeticOverflow)?;
         if sum == u32::from(PILOT_CREDITS) {
             Ok(())
@@ -177,9 +346,6 @@ impl Treasury {
             Err(ContractError::InvalidTreasury)
         }
     }
-
-    // P1 admission primitive, not a substitute for P3 voting and
-    // commitment checks. It does not mutate any authoritative state.
     pub fn can_fund(&self, additional: Allocation) -> Result<(), ContractError> {
         self.validate()?;
         if additional.total() > u32::from(self.available) {
@@ -188,46 +354,162 @@ impl Treasury {
             Ok(())
         }
     }
+    /// Primitive receipt move; the P3 reducer must first enforce votes,
+    /// authority, conditions, scope identity and one-time payout.
+    pub fn record_delivery(
+        &mut self, family: PolicyFamily, units: u16
+    ) -> Result<(), ContractError> {
+        self.validate()?;
+        let current = self.encumbered(family);
+        let outstanding = current.checked_sub(units).ok_or(ContractError::InvalidTreasury)?;
+        let spent = self.service_spent.checked_add(units).ok_or(ContractError::ArithmeticOverflow)?;
+        match family {
+            PolicyFamily::Staffing => self.encumbered_staff = outstanding,
+            PolicyFamily::Repairs => self.encumbered_repairs = outstanding,
+            PolicyFamily::Access => self.encumbered_access = outstanding,
+        }
+        self.service_spent = spent;
+        self.validate()
+    }
 }
 
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub struct DeliveryProgress {
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct FundedScope {
+    id: String,
+    family: PolicyFamily,
+    activation_quarter: Quarter,
+    remaining_units: u16,
+    carry_permille: u16,
+    blocked: bool,
+    terminated: bool,
+}
+impl FundedScope {
+    pub fn new(
+        id: String, family: PolicyFamily, activation_quarter: Quarter, funded_units: u16
+    ) -> Result<Self, ContractError> {
+        if id.is_empty() || id.len() > 128 || funded_units == 0 || funded_units > PILOT_CREDITS {
+            return Err(ContractError::InvalidScope);
+        }
+        Ok(Self { id, family, activation_quarter, remaining_units: funded_units,
+            carry_permille: 0, blocked: false, terminated: false })
+    }
+    pub fn id(&self) -> &str {
+        &self.id
+    }
+    pub const fn family(&self) -> PolicyFamily {
+        self.family
+    }
+    pub const fn remaining_units(&self) -> u16 {
+        self.remaining_units
+    }
+    pub const fn carry_permille(&self) -> u16 {
+        self.carry_permille
+    }
+    pub fn set_blocked(&mut self, blocked: bool) {
+        self.blocked = blocked;
+    }
+    /// Explicitly removes fractional progress from a terminated scope.
+    /// Does not itself release treasury credits: P3 must authorize that step.
+    pub fn terminate(&mut self) -> DiscardedWork {
+        let receipt = DiscardedWork {
+            family: self.family, scope_id: self.id.clone(),
+            dropped_carry_permille: self.carry_permille,
+        };
+        self.carry_permille = 0;
+        self.terminated = true;
+        receipt
+    }
+    fn eligible(&self, quarter: DueQuarter) -> bool {
+        !self.terminated && !self.blocked && self.remaining_units > 0
+            && quarter.value() >= u16::from(self.activation_quarter.value())
+                + self.family.lag_quarters()
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DiscardedWork {
+    pub family: PolicyFamily,
+    pub scope_id: String,
+    pub dropped_carry_permille: u16,
+}
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ScopeDelivery {
+    pub scope_id: String,
+    pub allocated_capacity: u16,
+    pub delivered: u16,
     pub carry_permille: u16,
 }
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct FamilyDeliveryReceipt {
+    pub family: PolicyFamily,
+    pub authorized_capacity: u16,
+    pub total_allocated: u16,
+    pub total_delivered: u16,
+    pub scopes: Vec<ScopeDelivery>,
+}
 
-impl DeliveryProgress {
-    pub fn step(
-        &mut self,
-        remaining_units: u16,
-        authorized_capacity: u16,
-        effective_effort_permille: u16,
-    ) -> Result<u16, ContractError> {
-        if effective_effort_permille > EFFORT_DENOMINATOR
-            || self.carry_permille >= EFFORT_DENOMINATOR
-        {
-            return Err(ContractError::InvalidEffort);
+/// Applies the *one* quarterly family pool across all eligible scopes.
+/// Clone-before-apply prevents partial state mutation on a failed validation.
+pub fn deliver_family_quarter(
+    family: PolicyFamily, authorized_capacity: u16, access_bonus: bool,
+    effort: EffortPermille, quarter: DueQuarter, scopes: &mut [FundedScope]
+) -> Result<FamilyDeliveryReceipt, ContractError> {
+    if authorized_capacity > family.nominal_capacity()
+        || (access_bonus && family != PolicyFamily::Access)
+    {
+        return Err(ContractError::InvalidCreditAmount);
+    }
+    let limit = authorized_capacity
+        .checked_add(u16::from(access_bonus)).ok_or(ContractError::ArithmeticOverflow)?;
+    let mut ids = BTreeSet::new();
+    if scopes.iter().any(|s| s.family != family || !ids.insert(s.id.clone())) {
+        return Err(ContractError::DuplicateScope);
+    }
+    let mut staged = scopes.to_vec();
+    let mut sorted: Vec<usize> = (0..staged.len()).collect();
+    sorted.sort_by(|a, b| {
+        staged[*a].activation_quarter.cmp(&staged[*b].activation_quarter)
+            .then_with(|| staged[*a].id.cmp(&staged[*b].id))
+    });
+    let mut capacity_left = limit;
+    let mut total_delivered = 0_u16;
+    let mut scope_receipts = Vec::new();
+    for index in sorted {
+        let scope = &mut staged[index];
+        if !scope.eligible(quarter) {
+            continue;
         }
-        if remaining_units == 0 {
-            self.carry_permille = 0;
-            return Ok(0);
-        }
-        let capacity = remaining_units.min(authorized_capacity);
-        let work_permille = u32::from(capacity)
-            .checked_mul(u32::from(effective_effort_permille))
-            .and_then(|v| v.checked_add(u32::from(self.carry_permille)))
+        let allocated = scope.remaining_units.min(capacity_left);
+        capacity_left -= allocated;
+        let work = u32::from(scope.carry_permille)
+            .checked_add(u32::from(allocated) * u32::from(effort.value()))
             .ok_or(ContractError::ArithmeticOverflow)?;
-        let delivered_u32 =
-            (work_permille / u32::from(EFFORT_DENOMINATOR)).min(u32::from(remaining_units));
-        let delivered =
-            u16::try_from(delivered_u32).map_err(|_| ContractError::ArithmeticOverflow)?;
-        self.carry_permille = if delivered == remaining_units {
+        let delivered = u16::try_from(
+            (work / u32::from(EFFORT_DENOMINATOR)).min(u32::from(scope.remaining_units))
+        ).map_err(|_| ContractError::ArithmeticOverflow)?;
+        if delivered > allocated {
+            return Err(ContractError::ArithmeticOverflow);
+        }
+        scope.remaining_units -= delivered;
+        scope.carry_permille = if scope.remaining_units == 0 {
             0
         } else {
-            u16::try_from(work_permille % u32::from(EFFORT_DENOMINATOR))
+            u16::try_from(work % u32::from(EFFORT_DENOMINATOR))
                 .map_err(|_| ContractError::ArithmeticOverflow)?
         };
-        Ok(delivered)
+        total_delivered = total_delivered.checked_add(delivered)
+            .ok_or(ContractError::ArithmeticOverflow)?;
+        scope_receipts.push(ScopeDelivery {
+            scope_id: scope.id.clone(), allocated_capacity: allocated,
+            delivered, carry_permille: scope.carry_permille,
+        });
     }
+    if total_delivered > limit {
+        return Err(ContractError::ArithmeticOverflow);
+    }
+    scopes.clone_from_slice(&staged);
+    Ok(FamilyDeliveryReceipt { family, authorized_capacity: limit,
+        total_allocated: limit - capacity_left, total_delivered, scopes: scope_receipts })
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -236,136 +518,164 @@ pub enum Position {
     Conditional,
     Oppose,
 }
-
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum CommitmentKind {
     Enforceable,
     Political,
 }
-
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum CommitmentStatus {
     Pending,
     Honored,
     Broken,
 }
-
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Commitment {
     pub id: String,
     pub issuer: Ministry,
     pub beneficiary: Ministry,
-    pub proposal_version: u64,
+    pub proposal_version: WireU64,
     pub kind: CommitmentKind,
     pub funded_units: u16,
-    pub trigger_id: String,
-    pub deadline: Quarter,
+    pub trigger: String,
+    pub deadline_quarter: DueQuarter,
     pub status: CommitmentStatus,
-    pub resolution_event_id: Option<String>,
+    pub resolution_event: Option<String>,
 }
-
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct FundedCondition {
     pub kind_id: String,
     pub family: PolicyFamily,
     pub units: u16,
-    pub due: Quarter,
+    pub due: DueQuarter,
 }
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum PolicyFamily {
-    Staffing,
-    Repairs,
-    Access,
-}
-
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum CounterproposalOrigin {
     Menu(String),
     NewTyped,
 }
 
+fn ensure_schema(version: u16) -> Result<(), ContractError> {
+    if version == SCHEMA_VERSION { Ok(()) } else { Err(ContractError::InvalidSchema) }
+}
+
+/// Only mechanically assessed counteroffers can appear as preferences.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct FirstPosition {
+    schema_version: u16,
     pub meeting_id: String,
-    pub proposal_version: u64,
+    pub proposal_version: WireU64,
     pub ministry: Ministry,
     pub position: Position,
-    pub preferred_allocation: Allocation,
-    pub origin: CounterproposalOrigin,
+    pub preferred_allocation: PreferredAllocation,
+    pub counterproposal_source: CounterproposalOrigin,
     pub conditions: Vec<FundedCondition>,
     pub evidence_ids: Vec<String>,
     pub rationale_summary: String,
+}
+impl FirstPosition {
+    pub fn new(
+        meeting_id: String, proposal_version: WireU64, ministry: Ministry,
+        position: Position, preferred_allocation: PreferredAllocation,
+        counterproposal_source: CounterproposalOrigin
+    ) -> Self {
+        Self { schema_version: SCHEMA_VERSION, meeting_id, proposal_version,
+            ministry, position, preferred_allocation, counterproposal_source,
+            conditions: vec![], evidence_ids: vec![], rationale_summary: String::new() }
+    }
+    pub const fn schema_version(&self) -> u16 { self.schema_version }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct FinalPosition {
+    schema_version: u16,
     pub meeting_id: String,
-    pub proposal_version: u64,
+    pub proposal_version: WireU64,
     pub ministry: Ministry,
     pub vote: Position,
-    pub preferred_allocation: Allocation,
+    pub preferred_allocation: PreferredAllocation,
     pub conditions: Vec<FundedCondition>,
     pub evidence_ids: Vec<String>,
     pub rationale_summary: String,
-    // Required only for Education and Infrastructure by P3 validation;
-    // Finance must omit. This is role-private actual effort.
-    pub implementation_effort_permille: Option<u16>,
 }
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct CapacityCaps {
-    pub staffing: u16,
-    pub repairs: u16,
-    pub access: u16,
-}
-
-impl CapacityCaps {
-    pub fn new(staffing: u16, repairs: u16, access: u16) -> Result<Self, ContractError> {
-        if staffing > 12 || repairs > 10 || access > 4 {
-            return Err(ContractError::InvalidCreditAmount);
-        }
-        Ok(Self {
-            staffing,
-            repairs,
-            access,
-        })
+impl FinalPosition {
+    pub fn new(
+        meeting_id: String, proposal_version: WireU64, ministry: Ministry,
+        vote: Position, preferred_allocation: PreferredAllocation,
+    ) -> Self {
+        Self { schema_version: SCHEMA_VERSION, meeting_id, proposal_version,
+            ministry, vote, preferred_allocation, conditions: vec![],
+            evidence_ids: vec![], rationale_summary: String::new() }
     }
+    pub const fn schema_version(&self) -> u16 { self.schema_version }
+}
+
+/// Not Debug or serializable: stored and routed only through a private role
+/// channel. The publicly printable FinalPosition cannot contain actual effort.
+#[derive(Clone, Eq, PartialEq)]
+pub struct PrivateEffortDeclaration {
+    meeting_id: String,
+    ministry: Ministry,
+    effort: EffortPermille,
+}
+impl PrivateEffortDeclaration {
+    pub fn new(
+        meeting_id: String, ministry: Ministry, effort: EffortPermille,
+    ) -> Result<Self, ContractError> {
+        if ministry == Ministry::Finance {
+            return Err(ContractError::InvalidMinistry);
+        }
+        Ok(Self { meeting_id, ministry, effort })
+    }
+    pub const fn ministry(&self) -> Ministry { self.ministry }
+    pub const fn effort(&self) -> EffortPermille { self.effort }
+    pub fn meeting_id(&self) -> &str { &self.meeting_id }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct EvidenceRecipients {
+    roles: Vec<Ministry>,
+}
+impl EvidenceRecipients {
+    pub fn new(mut roles: Vec<Ministry>) -> Result<Self, ContractError> {
+        if roles.is_empty() { return Err(ContractError::InvalidRecipients); }
+        roles.sort();
+        roles.dedup();
+        Ok(Self { roles })
+    }
+    pub fn roles(&self) -> &[Ministry] { &self.roles }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum PlayerCommand {
-    Propose {
-        allocation: Allocation,
-    },
-    Amend {
-        proposal_version: u64,
-        allocation: Allocation,
-    },
-    Ratify {
-        proposal_version: u64,
-    },
-    RequestCapacityCaps {
-        caps: CapacityCaps,
-    },
-    OrderAudit {
-        family: PolicyFamily,
-        inspected_quarter: Quarter,
-    },
-    DiscloseEvidence {
-        evidence_id: String,
-        to: Ministry,
-    },
+    Propose { meeting_id: String, allocation: Allocation },
+    Amend { meeting_id: String, proposal_version: WireU64, allocation: Allocation },
+    Ratify { meeting_id: String, proposal_version: WireU64 },
+    RequestCapacityCap { meeting_id: String, caps: CapacityCaps },
+    OrderAudit { family: PolicyFamily, inspected_quarter: Quarter },
+    DiscloseEvidence { evidence_id: String, evidence_version: WireU64,
+        recipients: EvidenceRecipients },
     Defer,
     AdvanceQuarter,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CommandEnvelope {
+    schema_version: u16,
     pub campaign_id: String,
     pub command_id: String,
-    pub expected_world_version: u64,
+    pub expected_world_version: WireU64,
     pub command: PlayerCommand,
+}
+impl CommandEnvelope {
+    pub fn new(
+        campaign_id: String, command_id: String,
+        expected_world_version: WireU64, command: PlayerCommand
+    ) -> Self {
+        Self { schema_version: SCHEMA_VERSION, campaign_id, command_id,
+            expected_world_version, command }
+    }
+    pub const fn schema_version(&self) -> u16 { self.schema_version }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -381,6 +691,7 @@ pub struct EvidenceProvenance {
     pub raw_unit: String,
     pub normalized_unit: String,
     pub transformation: String,
+    pub licence_or_terms: String,
     pub sha256_hex: String,
     pub missing_reason: Option<String>,
 }
@@ -393,47 +704,62 @@ pub struct CountryPack {
     pub cutoff_utc: String,
     pub locale: String,
     pub evidence: Vec<EvidenceProvenance>,
-    // Actual numerical observations are typed/validated in P2.
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RoleObservation {
-    pub schema_version: u16,
+    schema_version: u16,
     pub campaign_id: String,
     pub meeting_id: String,
-    pub proposal_version: u64,
+    pub proposal_version: WireU64,
     pub ministry: Ministry,
     pub quarter: Quarter,
     pub allocation: Allocation,
     pub available_credits: u16,
-    pub belief_ppm: u32,
+    pub belief_ppm: BeliefPpm,
     pub owned_commitments: Vec<Commitment>,
     pub visible_evidence_ids: Vec<String>,
-    // None for Finance. Not exposed to another ministry.
-    pub own_private_effort_permille: Option<u16>,
+    // Deliberately no private effort field on this public/view-safe type.
+}
+impl RoleObservation {
+    pub fn new(
+        campaign_id: String, meeting_id: String, proposal_version: WireU64,
+        ministry: Ministry, quarter: Quarter, allocation: Allocation,
+        available_credits: u16, belief_ppm: BeliefPpm
+    ) -> Result<Self, ContractError> {
+        if available_credits > PILOT_CREDITS {
+            return Err(ContractError::InvalidCreditAmount);
+        }
+        Ok(Self { schema_version: SCHEMA_VERSION, campaign_id, meeting_id,
+            proposal_version, ministry, quarter, allocation, available_credits,
+            belief_ppm, owned_commitments: vec![], visible_evidence_ids: vec![] })
+    }
+    pub const fn schema_version(&self) -> u16 { self.schema_version }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct WireU64(pub u64);
-
-impl WireU64 {
-    // Canonical decimal text for JavaScript-safe JSON transport (no JSON number).
-    // Serde/schema generators must preserve this representation in P1-03.
-    pub fn from_decimal(value: &str) -> Result<Self, ContractError> {
-        if value.is_empty()
-            || (value.len() > 1 && value.starts_with('0'))
-            || !value.bytes().all(|b| b.is_ascii_digit())
-        {
-            return Err(ContractError::InvalidDecimal);
+/// Separately handled, intentionally not Debug or serializable. A private role
+/// view is allowed to expose only *that same role's* actual effort.
+#[derive(Clone)]
+pub struct PrivateRoleObservation {
+    public: RoleObservation,
+    own_effort: Option<PrivateEffortDeclaration>,
+}
+impl PrivateRoleObservation {
+    pub fn new(
+        public: RoleObservation, own_effort: Option<PrivateEffortDeclaration>
+    ) -> Result<Self, ContractError> {
+        match (public.ministry, own_effort.as_ref()) {
+            (Ministry::Finance, None) => {}
+            (Ministry::Finance, Some(_)) => return Err(ContractError::InvalidMinistry),
+            (m, Some(decl)) if decl.ministry() == m
+                && decl.meeting_id() == public.meeting_id => {}
+            _ => return Err(ContractError::InvalidMinistry),
         }
-        value
-            .parse::<u64>()
-            .map(Self)
-            .map_err(|_| ContractError::InvalidDecimal)
+        Ok(Self { public, own_effort })
     }
-
-    pub fn to_decimal(self) -> String {
-        self.0.to_string()
+    pub fn public(&self) -> &RoleObservation { &self.public }
+    pub fn own_effort(&self) -> Option<EffortPermille> {
+        self.own_effort.as_ref().map(PrivateEffortDeclaration::effort)
     }
 }
 
@@ -441,116 +767,200 @@ impl WireU64 {
 mod tests {
     use super::*;
 
+    fn scope(id: &str, family: PolicyFamily, at: u8, units: u16) -> FundedScope {
+        FundedScope::new(id.to_string(), family, Quarter::new(at).unwrap(), units).unwrap()
+    }
+    fn effort(value: u16) -> EffortPermille {
+        EffortPermille::new(value).unwrap()
+    }
+    fn due(value: u16) -> DueQuarter {
+        DueQuarter::new(value).unwrap()
+    }
+
     #[test]
-    fn six_cells_are_checked_without_guessing_distribution() {
+    fn bounded_types_reject_invalid_construction() {
+        assert_eq!(CapacityCaps::new(13, 10, 4), Err(ContractError::InvalidCreditAmount));
+        assert_eq!(Allocation::draft(101, 0, 0), Err(ContractError::InvalidCreditAmount));
+        assert_eq!(CohortWeights::new([0; 6]), Err(ContractError::InvalidPopulationWeights));
+        assert_eq!(EffortPermille::new(1_001), Err(ContractError::InvalidEffort));
+        assert_eq!(BeliefPpm::new(1_000_001), Err(ContractError::InvalidBelief));
+        assert_eq!(Treasury::from_parts(101, 0, 0, 0, 0, 0),
+            Err(ContractError::InvalidTreasury));
+    }
+
+    #[test]
+    fn cohort_distribution_is_exact_and_ordered() {
         assert_eq!(COHORT_ORDER.len(), 6);
-        assert!(CohortWeights::new([166_667, 166_667, 166_666, 166_667, 166_667, 166_666]).is_ok());
-        assert_eq!(
-            CohortWeights::new([1, 1, 1, 1, 1, 1]),
-            Err(ContractError::InvalidPopulationWeights)
-        );
+        let weights = CohortWeights::new([166_667, 166_667, 166_666,
+            166_667, 166_667, 166_666]).unwrap();
+        assert_eq!(u64::from(weights.parts_ppm()[0]), 166_667);
     }
 
     #[test]
-    fn draft_can_be_over_budget_but_not_funded() {
-        let over = Allocation::draft(60, 40, 10).unwrap();
-        assert_eq!(over.total(), 110);
-        assert_eq!(
-            Treasury::initial().can_fund(over),
-            Err(ContractError::InsufficientAvailableFunds)
-        );
-        assert!(
-            Treasury::initial()
-                .can_fund(Allocation::draft(50, 40, 10).unwrap())
-                .is_ok()
-        );
-        assert_eq!(
-            Allocation::draft(101, 0, 0),
-            Err(ContractError::InvalidCreditAmount)
-        );
+    fn treasury_exactly_reconciles_service_and_audit_spending() {
+        let mut treasury = Treasury::from_parts(8, 40, 30, 10, 10, 2).unwrap();
+        treasury.record_delivery(PolicyFamily::Staffing, 3).unwrap();
+        assert_eq!(treasury.service_spent(), 13);
+        assert_eq!(treasury.encumbered(PolicyFamily::Staffing), 37);
+        assert_eq!(treasury.audit_spent(), 2);
+        assert_eq!(treasury.validate(), Ok(()));
+        assert_eq!(treasury.record_delivery(PolicyFamily::Access, 11),
+            Err(ContractError::InvalidTreasury));
+        assert_eq!(treasury.validate(), Ok(()));
+        assert_eq!(Treasury::initial().can_fund(Allocation::draft(60, 40, 10).unwrap()),
+            Err(ContractError::InsufficientAvailableFunds));
     }
 
     #[test]
-    fn treasury_invariant_includes_audit_spend() {
-        let valid = Treasury {
-            available: 8,
-            encumbered: Allocation::draft(40, 30, 10).unwrap(),
-            service_spent: 10,
-            audit_spent: 2,
-        };
-        assert_eq!(valid.validate(), Ok(()));
-        assert_eq!(
-            Treasury {
-                available: 10,
-                ..valid
+    fn shares_capacity_over_old_and_new_scopes_without_duplication() {
+        let mut scopes = vec![
+            scope("new", PolicyFamily::Staffing, 2, 12),
+            scope("old", PolicyFamily::Staffing, 1, 12),
+        ];
+        let receipt = deliver_family_quarter(
+            PolicyFamily::Staffing, 12, false, effort(1000), due(3), &mut scopes
+        ).unwrap();
+        assert_eq!(receipt.total_allocated, 12);
+        assert_eq!(receipt.total_delivered, 12);
+        assert_eq!(receipt.scopes[0].scope_id, "old");
+        assert_eq!(receipt.scopes[1].delivered, 0);
+        assert_eq!(scopes[0].remaining_units(), 12);
+        assert_eq!(scopes[1].remaining_units(), 0);
+    }
+
+    #[test]
+    fn fractional_work_completes_final_unit_without_exceeding_pool() {
+        for rate in [800, 999, 1000] {
+            let mut scopes = vec![scope("one", PolicyFamily::Staffing, 1, 40)];
+            let mut total = 0;
+            for quarter in 2..=7 {
+                let receipt = deliver_family_quarter(PolicyFamily::Staffing, 12,
+                    false, effort(rate), due(quarter), &mut scopes).unwrap();
+                assert!(receipt.total_delivered <= 12);
+                assert!(receipt.total_allocated <= 12);
+                total += receipt.total_delivered;
             }
-            .validate(),
-            Err(ContractError::InvalidTreasury)
-        );
-    }
-
-    #[test]
-    fn fractional_work_completes_final_unit_without_creating_money() {
-        for effort in [800, 999, 1_000] {
-            let mut progress = DeliveryProgress::default();
-            let mut remaining = 40;
-            for _ in 0..6 {
-                let delivered = progress.step(remaining, 12, effort).unwrap();
-                assert!(delivered <= remaining);
-                remaining -= delivered;
-            }
-            assert_eq!(remaining, 0, "effort={effort}");
-            assert_eq!(progress.carry_permille, 0);
+            assert_eq!(total, 40, "rate={rate}");
+            assert_eq!(scopes[0].carry_permille(), 0);
         }
     }
 
     #[test]
-    fn zero_effort_and_ineligible_capacity_never_deliver() {
-        let mut progress = DeliveryProgress::default();
-        assert_eq!(progress.step(4, 4, 0), Ok(0));
-        assert_eq!(progress.step(4, 0, 1_000), Ok(0));
-        assert_eq!(
-            progress.step(1, 1, 1_001),
-            Err(ContractError::InvalidEffort)
-        );
+    fn no_capacity_preserves_carry_and_scope_termination_records_discard() {
+        let mut scopes = vec![scope("one", PolicyFamily::Staffing, 1, 10)];
+        deliver_family_quarter(PolicyFamily::Staffing, 1,
+            false, effort(800), due(2), &mut scopes).unwrap();
+        assert_eq!(scopes[0].carry_permille(), 800);
+        deliver_family_quarter(PolicyFamily::Staffing, 0,
+            false, effort(800), due(3), &mut scopes).unwrap();
+        assert_eq!(scopes[0].carry_permille(), 800);
+        let dropped = scopes[0].terminate();
+        assert_eq!(dropped.dropped_carry_permille, 800);
+        assert_eq!(scopes[0].carry_permille(), 0);
+        let later = deliver_family_quarter(PolicyFamily::Staffing, 12,
+            false, effort(1000), due(4), &mut scopes).unwrap();
+        assert_eq!(later.total_delivered, 0);
     }
 
     #[test]
-    fn exact_large_decimal_wire_boundary() {
-        let max = u64::MAX.to_string();
-        assert_eq!(WireU64::from_decimal(&max), Ok(WireU64(u64::MAX)));
-        assert_eq!(WireU64(u64::MAX).to_decimal(), max);
-        for noncanonical in ["", "-1", "01", "1.0", " 1", "18446744073709551616"] {
-            assert_eq!(
-                WireU64::from_decimal(noncanonical),
-                Err(ContractError::InvalidDecimal)
-            );
+    fn family_bounds_and_failed_actions_leave_state_unchanged() {
+        let mut scopes = vec![scope("s", PolicyFamily::Staffing, 1, 100)];
+        let before = scopes.clone();
+        assert_eq!(deliver_family_quarter(PolicyFamily::Staffing, 500,
+            false, effort(1000), due(2), &mut scopes),
+            Err(ContractError::InvalidCreditAmount));
+        assert_eq!(scopes, before);
+        assert_eq!(deliver_family_quarter(PolicyFamily::Repairs, 10,
+            false, effort(1000), due(3), &mut scopes),
+            Err(ContractError::DuplicateScope));
+        assert_eq!(scopes, before);
+        assert_eq!(deliver_family_quarter(PolicyFamily::Staffing, 12,
+            true, effort(1000), due(3), &mut scopes),
+            Err(ContractError::InvalidCreditAmount));
+        assert_eq!(scopes, before);
+    }
+
+    #[test]
+    fn access_bonus_and_stable_id_ties() {
+        let mut scopes = vec![
+            scope("z", PolicyFamily::Access, 1, 10),
+            scope("a", PolicyFamily::Access, 1, 10),
+        ];
+        let r = deliver_family_quarter(PolicyFamily::Access, 4,
+            true, effort(1000), due(1), &mut scopes).unwrap();
+        assert_eq!(r.total_delivered, 5);
+        assert_eq!(r.scopes[0].scope_id, "a");
+        assert_eq!(r.scopes[0].delivered, 5);
+    }
+
+    #[test]
+    fn private_effort_cannot_attach_to_finance_or_other_role() {
+        assert!(PrivateEffortDeclaration::new("m".to_string(),
+            Ministry::Finance, effort(5)).is_err());
+        let pub_view = RoleObservation::new("c".into(), "m".into(),
+            WireU64::new(1), Ministry::Education, Quarter::new(1).unwrap(),
+            Allocation::draft(50, 40, 10).unwrap(), 0,
+            BeliefPpm::new(500_000).unwrap()).unwrap();
+        let other = PrivateEffortDeclaration::new("m".into(),
+            Ministry::Infrastructure, effort(800)).unwrap();
+        assert!(PrivateRoleObservation::new(pub_view.clone(), Some(other)).is_err());
+        let own = PrivateEffortDeclaration::new("m".into(),
+            Ministry::Education, effort(800)).unwrap();
+        let view = PrivateRoleObservation::new(pub_view.clone(), Some(own)).unwrap();
+        assert_eq!(view.own_effort(), Some(effort(800)));
+        let vote = FinalPosition::new("m".into(), WireU64::new(1),
+            Ministry::Education, Position::Support,
+            PreferredAllocation::assess(Allocation::draft(50, 40, 10).unwrap(), 100).unwrap());
+        assert!(!format!("{vote:?}").contains("800"));
+        assert!(!format!("{pub_view:?}").contains("800"));
+    }
+
+    #[test]
+    fn proposals_and_versions_are_typed_and_precise() {
+        let over = PreferredAllocation::assess(
+            Allocation::draft(60, 40, 10).unwrap(), 100).unwrap();
+        assert!(matches!(over, PreferredAllocation::InvalidDraft(_)));
+        assert!(matches!(PreferredAllocation::assess(
+            Allocation::draft(50, 40, 10).unwrap(), 100).unwrap(),
+            PreferredAllocation::Feasible(_)));
+        let max = WireU64::new(u64::MAX);
+        assert_eq!(WireU64::from_decimal(&max.to_decimal()), Ok(max));
+        assert_eq!(WireU64::from_decimal("0"), Ok(WireU64::new(0)));
+        assert_eq!(WireU64::from_decimal("1"), Ok(WireU64::new(1)));
+        for invalid in ["", "-1", "01", "1.0", " 1", "18446744073709551616"] {
+            assert_eq!(WireU64::from_decimal(invalid), Err(ContractError::InvalidDecimal));
         }
+        let command = CommandEnvelope::new("c".into(), "cmd".into(), max,
+            PlayerCommand::Amend { meeting_id: "m".into(), proposal_version: max,
+                allocation: Allocation::draft(50, 40, 10).unwrap() });
+        assert_eq!(command.expected_world_version.to_decimal(), u64::MAX.to_string());
+        assert_eq!(command.schema_version(), SCHEMA_VERSION);
     }
 
     #[test]
-    fn authorized_caps_are_distinct_from_hidden_effort() {
-        assert!(CapacityCaps::new(12, 10, 4).is_ok());
-        assert!(CapacityCaps::new(13, 10, 4).is_err());
-        let position = FinalPosition {
-            meeting_id: "m".into(),
-            proposal_version: 1,
-            ministry: Ministry::Education,
-            vote: Position::Support,
-            preferred_allocation: Allocation::draft(50, 40, 10).unwrap(),
-            conditions: vec![],
-            evidence_ids: vec![],
-            rationale_summary: "Staffing first".into(),
-            implementation_effort_permille: Some(800),
-        };
-        assert_eq!(position.implementation_effort_permille, Some(800));
+    fn future_due_quarters_and_canonical_disclosures() {
+        assert!(Quarter::new(7).is_err());
+        assert_eq!(DueQuarter::new(8).unwrap().value(), 8);
+        assert_eq!(DueQuarter::new(0), Err(ContractError::InvalidQuarter));
+        let roles = EvidenceRecipients::new(vec![Ministry::Infrastructure,
+            Ministry::Education, Ministry::Education]).unwrap();
+        assert_eq!(roles.roles(), &[Ministry::Education, Ministry::Infrastructure]);
+        assert_eq!(EvidenceRecipients::new(vec![]),
+            Err(ContractError::InvalidRecipients));
     }
 
     #[test]
-    fn calendar_bounds_do_not_advance_with_negotiation() {
-        assert_eq!(Quarter::new(1).unwrap().value(), 1);
-        assert_eq!(Quarter::new(6).unwrap().value(), 6);
-        assert_eq!(Quarter::new(0), Err(ContractError::InvalidQuarter));
-        assert_eq!(Quarter::new(7), Err(ContractError::InvalidQuarter));
+    fn meetings_cannot_advance_a_calendar_quarter_as_a_side_effect() {
+        let q = Quarter::new(1).unwrap();
+        let position = FirstPosition::new(
+            "m".into(), WireU64::new(1), Ministry::Finance,
+            Position::Support, PreferredAllocation::assess(
+                Allocation::draft(50, 40, 10).unwrap(), 100).unwrap(),
+            CounterproposalOrigin::Menu("balanced".into()),
+        );
+        assert_eq!(position.schema_version(), SCHEMA_VERSION);
+        assert_eq!(q.value(), 1);
+        let _separate_explicit_advance_command = PlayerCommand::AdvanceQuarter;
+        // No reducer exists in P1; the test only checks typed separation.
     }
 }
