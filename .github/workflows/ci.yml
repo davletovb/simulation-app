@@ -1,0 +1,110 @@
+name: Essential offline checks
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: essential-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  offline-rust:
+    name: Offline Rust foundation
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - name: Detect Rust workspace
+        id: workspace
+        shell: bash
+        run: |
+          if [ -f Cargo.toml ]; then
+            echo 'present=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'No Rust workspace on this branch; skip Rust checks'
+            echo 'present=false' >> "$GITHUB_OUTPUT"
+          fi
+      - uses: dtolnay/rust-toolchain@stable
+        if: steps.workspace.outputs.present == 'true'
+        with:
+          toolchain: 1.99.1
+          components: rustfmt, clippy
+      - name: Verify pinned toolchain and generated lockfile
+        if: steps.workspace.outputs.present == 'true'
+        shell: bash
+        run: |
+          pinned=$(sed -n 's/^channel = "\([^"]*\)"/\1/p' rust-toolchain.toml)
+          active=$(rustc --version | awk '{print $2}')
+          if [ -z "$pinned" ] || [ "$pinned" != "$active" ]; then
+            echo "Rust toolchain mismatch: file=$pinned active=$active" >&2
+            exit 1
+          fi
+          cargo generate-lockfile --offline
+          git diff --exit-code -- Cargo.lock
+      - name: Format
+        if: steps.workspace.outputs.present == 'true'
+        run: cargo fmt --all -- --check
+      - name: Pure rules source guard (fail closed)
+        if: steps.workspace.outputs.present == 'true'
+        shell: bash
+        run: |
+          if [ ! -d crates/domain/src ]; then
+            echo 'Domain source directory missing' >&2
+            exit 1
+          fi
+          mapfile -d '' -t sources < <(find crates -type f -name '*.rs' -print0)
+          if [ "${#sources[@]}" -eq 0 ]; then
+            echo 'No Rust source files found' >&2
+            exit 1
+          fi
+          re='HashMap|HashSet|([.]|::)(exp|exp2|ln|log|log2|log10|powf|sin|cos|tan|asin|acos|atan|atan2|sinh|cosh|tanh|hypot|cbrt)[[:space:]]*[(]'
+          for src in "${sources[@]}"; do
+            rc=0
+            grep -nE "$re" "$src" || rc=$?
+            if [ "$rc" -eq 0 ]; then
+              echo "Forbidden nondeterministic primitive in $src" >&2
+              exit 1
+            fi
+            if [ "$rc" -ne 1 ]; then
+              echo "Source scan error ($rc): $src" >&2
+              exit 1
+            fi
+          done
+      - name: Clippy
+        if: steps.workspace.outputs.present == 'true'
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - name: Test
+        if: steps.workspace.outputs.present == 'true'
+        run: cargo test --workspace --locked
+      - name: Offline credential pattern scan (tracked project files)
+        shell: bash
+        run: |
+          secret_prefix='OPENROUTER_API_'
+          re='sk-or-v1-[A-Za-z0-9]{16,}|'"${secret_prefix}"'KEY=[^[:space:]]+'
+          mapfile -d '' -t tracked < <(git ls-files -z)
+          if [ "${#tracked[@]}" -eq 0 ]; then
+            echo 'No tracked files; credential scan cannot run' >&2
+            exit 1
+          fi
+          for file in "${tracked[@]}"; do
+            if [ ! -f "$file" ]; then
+              echo "Tracked file missing: $file" >&2
+              exit 1
+            fi
+            rc=0
+            grep -InE "$re" "$file" || rc=$?
+            if [ "$rc" -eq 0 ]; then
+              echo "Credential-like literal found in $file" >&2
+              exit 1
+            fi
+            if [ "$rc" -ne 1 ]; then
+              echo "Credential scan error ($rc): $file" >&2
+              exit 1
+            fi
+          done
+          # Build-output scanning will be added when the frontend exists.

@@ -1,0 +1,21 @@
+# Rust
+/target/
+**/*.rs.bk
+
+# Node/Vite (not yet bootstrapped)
+node_modules/
+dist/
+.vite/
+
+# Local-only game state and credentials
+.env
+.env.*
+!.env.example
+/saves/
+/exports/
+/local-data/
+
+# Developer machines
+.DS_Store
+.idea/
+.vscode/
