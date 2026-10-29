@@ -2,24 +2,12 @@ name: Essential offline checks
 
 on:
   pull_request:
-    paths:
-      - Cargo.toml
-      - Cargo.lock
-      - rust-toolchain.toml
-      - 'crates/**'
-      - '.github/workflows/ci.yml'
   push:
     branches: [main]
-    paths:
-      - Cargo.toml
-      - Cargo.lock
-      - rust-toolchain.toml
-      - 'crates/**'
-      - '.github/workflows/ci.yml'
 
 concurrency:
   group: essential-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
@@ -31,29 +19,80 @@ jobs:
     timeout-minutes: 12
     steps:
       - uses: actions/checkout@v4
+      - name: Detect Rust workspace
+        id: workspace
+        shell: bash
+        run: |
+          if [ -f Cargo.toml ]; then
+            echo 'present=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'No Rust workspace on this branch; skip Rust checks'
+            echo 'present=false' >> "$GITHUB_OUTPUT"
+          fi
       - uses: dtolnay/rust-toolchain@stable
+        if: steps.workspace.outputs.present == 'true'
         with:
           toolchain: 1.99.1
           components: rustfmt, clippy
       - name: Format
+        if: steps.workspace.outputs.present == 'true'
         run: cargo fmt --all -- --check
-      - name: Core deterministic-source guard
+      - name: Pure rules source guard (fail closed)
+        if: steps.workspace.outputs.present == 'true'
         shell: bash
         run: |
-          if grep -R -n -E 'HashMap|HashSet|\.exp\(|\.ln\(|\.powf\(' crates/domain/src --include='*.rs'; then
-            echo "Nondeterministic collection or platform transcendental in domain source" >&2
+          if [ ! -d crates/domain/src ]; then
+            echo 'Domain source directory missing' >&2
             exit 1
           fi
+          mapfile -d '' -t sources < <(find crates -type f -name '*.rs' -print0)
+          if [ "${#sources[@]}" -eq 0 ]; then
+            echo 'No Rust source files found' >&2
+            exit 1
+          fi
+          re='HashMap|HashSet|([.]|::)(exp|exp2|ln|log|log2|log10|powf|sin|cos|tan|asin|acos|atan|atan2|sinh|cosh|tanh|hypot|cbrt)[[:space:]]*[(]'
+          for src in "${sources[@]}"; do
+            rc=0
+            grep -nE "$re" "$src" || rc=$?
+            if [ "$rc" -eq 0 ]; then
+              echo "Forbidden nondeterministic primitive in $src" >&2
+              exit 1
+            fi
+            if [ "$rc" -ne 1 ]; then
+              echo "Source scan error ($rc): $src" >&2
+              exit 1
+            fi
+          done
       - name: Clippy
+        if: steps.workspace.outputs.present == 'true'
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - name: Test
+        if: steps.workspace.outputs.present == 'true'
         run: cargo test --workspace --locked
-      - name: Coarse offline credential pattern scan
+      - name: Offline credential pattern scan (tracked project files)
         shell: bash
         run: |
-          if grep -R -n -E 'sk-or-v1-[A-Za-z0-9]{16,}|OPENROUTER_API_KEY=[^[:space:]]+' crates --include='*.rs' --include='*.toml' --include='*.json'; then
-            echo "Credential-like literal detected" >&2
+          secret_prefix='OPENROUTER_API_'
+          re='sk-or-v1-[A-Za-z0-9]{16,}|'"${secret_prefix}"'KEY=[^[:space:]]+'
+          mapfile -d '' -t tracked < <(git ls-files -z)
+          if [ "${#tracked[@]}" -eq 0 ]; then
+            echo 'No tracked files; credential scan cannot run' >&2
             exit 1
           fi
-          # Excludes this workflow's own detector pattern. Full tracked-tree and
-          # compiled-asset scanning will be added at the P1-05 gate.
+          for file in "${tracked[@]}"; do
+            if [ ! -f "$file" ]; then
+              echo "Tracked file missing: $file" >&2
+              exit 1
+            fi
+            rc=0
+            grep -InE "$re" "$file" || rc=$?
+            if [ "$rc" -eq 0 ]; then
+              echo "Credential-like literal found in $file" >&2
+              exit 1
+            fi
+            if [ "$rc" -ne 1 ]; then
+              echo "Credential scan error ($rc): $file" >&2
+              exit 1
+            fi
+          done
+          # Build-output scanning will be added when the frontend exists.
