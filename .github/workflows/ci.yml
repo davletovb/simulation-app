@@ -2,7 +2,7 @@ name: Essential offline checks
 
 on:
   pull_request:
-    paths: &rust_paths
+    paths:
       - Cargo.toml
       - Cargo.lock
       - rust-toolchain.toml
@@ -10,7 +10,12 @@ on:
       - '.github/workflows/ci.yml'
   push:
     branches: [main]
-    paths: *rust_paths
+    paths:
+      - Cargo.toml
+      - Cargo.lock
+      - rust-toolchain.toml
+      - 'crates/**'
+      - '.github/workflows/ci.yml'
 
 concurrency:
   group: essential-${{ github.workflow }}-${{ github.ref }}
