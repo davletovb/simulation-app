@@ -26,7 +26,7 @@ This is an **interface shell**, not an operational simulation. Selecting a candi
 Requirements: Node.js **22.12+ within the 22.x line** and npm, with network access on the first install. CI and the included `.nvmrc` use Node **22.16.0**; `apps/web/.npmrc` enforces the supported engine range. From the repository root:
 
 ```sh
-nvm use --cd apps/web  # optional when using nvm; otherwise select a supported Node 22.x
+nvm use "$(cat apps/web/.nvmrc)"  # optional when using nvm
 npm --prefix apps/web ci --ignore-scripts
 npm --prefix apps/web run dev
 ```
