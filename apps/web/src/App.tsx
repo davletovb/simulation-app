@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { EVIDENCE_LINES, OFFLINE_PILOT, type Seat } from './contracts'
+import { useState, type KeyboardEvent } from 'react'
+import { EVIDENCE_LINES, OFFLINE_PILOT, type Availability, type EvidenceKind, type Seat } from './contracts'
 
 type Tab = 'briefing' | 'cabinet' | 'outcomes' | 'evidence'
 type PackageId = 'balanced' | 'staff_first' | 'access_first' | 'defer'
@@ -31,10 +31,22 @@ const SEATS: readonly { name: Seat; role: string; focus: string }[] = [
 ]
 
 const asPercent = (n: number): string => `${n}%`
+const allocationTotal = (a: Budget): number => Object.values(a).reduce((sum, value) => sum + value, 0)
+const EVIDENCE_LABEL: Record<EvidenceKind, string> = {
+  public_source: 'Source identified',
+  authored_parameter: 'Authored rule',
+  unverified: 'Missing evidence',
+}
+const CONNECTION_LABEL: Record<Availability, string> = {
+  offline_preview: 'Offline preview · not connected',
+  not_connected: 'Not connected',
+  live: 'Connected',
+}
 
-function BudgetBars({ allocation }: { allocation: Budget }) {
-  const available = 100 - allocation.staff - allocation.repairs - allocation.access
-  const segments = [
+function BudgetBars({ allocation, available, credits }: {
+  allocation: Budget; available: number; credits: number
+}) {
+    const segments = [
     { name: 'Staffing', value: allocation.staff, cls: 'bar-staff' },
     { name: 'Repairs', value: allocation.repairs, cls: 'bar-repairs' },
     { name: 'Access', value: allocation.access, cls: 'bar-access' },
@@ -45,7 +57,7 @@ function BudgetBars({ allocation }: { allocation: Budget }) {
       <div className="budget-track" role="img"
         aria-label={segments.map(s => `${s.name}: ${s.value} credits`).join(', ')}>
         {segments.filter(s => s.value > 0).map(s => (
-          <div className={s.cls} key={s.name} style={{ width: asPercent(s.value) }} />
+          <div className={s.cls} key={s.name} style={{ width: asPercent(s.value / credits * 100) }} />
         ))}
       </div>
       <div className="budget-legend">
@@ -76,7 +88,22 @@ export function App() {
   const [tab, setTab] = useState<Tab>('briefing')
   const [selectedId, setSelectedId] = useState<PackageId>('balanced')
   const candidate = CANDIDATES.find(x => x.id === selectedId) ?? CANDIDATES[0]!
-  const budgetLeft = 100 - Object.values(candidate.allocation).reduce((sum, n) => sum + n, 0)
+  const totalCredits = OFFLINE_PILOT.credits
+  const committed = allocationTotal(candidate.allocation)
+  const budgetLeft = totalCredits - committed
+  function handleTabKeyDown(event: KeyboardEvent<HTMLButtonElement>, current: Tab) {
+    const index = NAV.findIndex(item => item.id === current)
+    let nextIndex: number
+    if (event.key === 'Home') nextIndex = 0
+    else if (event.key === 'End') nextIndex = NAV.length - 1
+    else if (event.key === 'ArrowRight' || event.key === 'ArrowDown') nextIndex = (index + 1) % NAV.length
+    else if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') nextIndex = (index - 1 + NAV.length) % NAV.length
+    else return
+    event.preventDefault()
+    const next = NAV[nextIndex]!
+    setTab(next.id)
+    document.getElementById(`nav-tab-${next.id}`)?.focus()
+  }
 
   return (
     <div className="app-shell">
@@ -89,22 +116,25 @@ export function App() {
         <div className="side-label">YOUR CAMPAIGN</div>
         <div className="country-card">
           <div className="country-flag" aria-hidden="true">🇬🇧</div>
-          <div><strong>United Kingdom</strong><small>England · education pilot</small></div>
-          <span className="small-chevron">⌄</span>
+          <div><strong>{OFFLINE_PILOT.country_iso === 'GB' ? 'United Kingdom' : OFFLINE_PILOT.country_iso}</strong>
+            <small>{OFFLINE_PILOT.jurisdiction} · {OFFLINE_PILOT.case_title}</small></div>
         </div>
         <div className="side-label nav-label">WORKSPACE</div>
-        <nav aria-label="Campaign navigation">
+        <nav role="tablist" aria-label="Campaign views">
           {NAV.map(item => (
-            <button key={item.id} type="button"
+            <button key={item.id} type="button" role="tab"
+              id={`nav-tab-${item.id}`} aria-controls="view-panel"
+              aria-selected={item.id === tab} tabIndex={item.id === tab ? 0 : -1}
+              onKeyDown={event => handleTabKeyDown(event, item.id)}
               className={`nav-link ${item.id === tab ? 'active' : ''}`}
-              onClick={() => setTab(item.id)} aria-current={item.id === tab ? 'page' : undefined}>
+              onClick={() => setTab(item.id)}>
               <span className="nav-number">{item.index}</span>{item.label}
               {item.id === tab && <span className="nav-active-mark" aria-hidden="true" />}
             </button>
           ))}
         </nav>
         <div className="sidebar-bottom">
-          <div className="connection"><span className="connection-dot" />Offline interface preview</div>
+          <div className="connection"><span className="connection-dot" />{CONNECTION_LABEL[OFFLINE_PILOT.status]}</div>
           <p>Not connected to a simulation service. No model calls or policy commits are made here.</p>
           <div className="sidebar-version">FRAMEWORK v0.8.1 · P1 FOUNDATION</div>
         </div>
@@ -114,18 +144,18 @@ export function App() {
         <header className="topbar">
           <span className="breadcrumb">SIMULATION / ENGLAND / {tab.toUpperCase()}</span>
           <div className="top-actions">
-            <span className="header-status"><span className="tiny-dot" /> Local preview</span>
-            <span className="quarter-pill">Q1 / Q6</span>
+            <span className="header-status"><span className="tiny-dot" /> {CONNECTION_LABEL[OFFLINE_PILOT.status]}</span>
+            <span className="quarter-pill">Not started · {OFFLINE_PILOT.total_quarters} quarters</span>
           </div>
         </header>
 
         <div className="content">
           <div className="hero">
             <div className="hero-detail">
-              <span className="hero-kicker"><span className="accent-line" /> GOVERNANCE SIMULATION · 2027</span>
+              <span className="hero-kicker"><span className="accent-line" /> GOVERNANCE SIMULATION · {OFFLINE_PILOT.start}</span>
               <h1>Decisions have<br /><em>consequences.</em></h1>
-              <p>Guide a fictional education programme through six quarters. Balance services, funding, and the interests of a cabinet whose commitments matter.</p>
-              <div className="hero-pills"><span>United Kingdom · England</span><span>Six quarters</span><span>100 fictional credits</span></div>
+              <p>Guide a fictional {OFFLINE_PILOT.case_title.toLowerCase()} through {OFFLINE_PILOT.total_quarters} quarters. Balance services, funding, and the interests of a cabinet whose commitments matter.</p>
+              <div className="hero-pills"><span>{OFFLINE_PILOT.jurisdiction}, UK</span><span>{OFFLINE_PILOT.total_quarters} quarters · starting {OFFLINE_PILOT.start}</span><span>{totalCredits} fictional credits</span></div>
             </div>
             <div className="hero-orbit" aria-hidden="true">
               <div className="orbit orbit-one" /><div className="orbit orbit-two" /><div className="orbit orbit-three" />
@@ -139,6 +169,7 @@ export function App() {
             <span>Illustrative mechanics, not government forecasts. England is the education jurisdiction; this is not the whole UK.</span>
           </div>
 
+          <div role="tabpanel" id="view-panel" aria-labelledby={`nav-tab-${tab}`} tabIndex={0}>
           {tab === 'briefing' && (
             <section className="workspace-section">
               <SectionTitle eyebrow="01 / THE CHALLENGE" title="Allocate your first mandate"
@@ -146,27 +177,28 @@ export function App() {
               <div className="two-column">
                 <div className="panel choice-panel">
                   <div className="panel-top"><h3>Policy directions</h3><span className="muted-small">SELECT TO PREVIEW</span></div>
-                  <div className="choices">
+                  <fieldset className="choices">
+                    <legend className="sr-only">Policy directions (choose one preview)</legend>
                     {CANDIDATES.map(option => (
-                      <button className={`choice ${selectedId === option.id ? 'choice-selected' : ''}`}
-                        type="button" key={option.id} onClick={() => setSelectedId(option.id)}
-                        aria-pressed={selectedId === option.id}>
-                        <span className="choice-radio" />
+                      <label className={`choice ${selectedId === option.id ? 'choice-selected' : ''}`} key={option.id}>
+                        <input className="choice-input" type="radio" name="policy-direction"
+                          value={option.id} checked={selectedId === option.id}
+                          onChange={() => setSelectedId(option.id)} />
+                        <span className="choice-radio" aria-hidden="true" />
                         <span><strong>{option.label}</strong><small>{option.subline}</small></span>
-                        <span className="choice-value mono">{option.allocation.staff + option.allocation.repairs + option.allocation.access}</span>
-                      </button>
+                        <span className="choice-value mono">{allocationTotal(option.allocation)}</span>
+                      </label>
                     ))}
-                  </div>
-                </div>
-                <div className="panel">
+                  </fieldset>
+
                   <div className="panel-top"><h3>Allocation preview</h3><span className="tag">NOT COMMITTED</span></div>
                   <div className="metric-row">
                     <div><span className="metric-label">Committed in draft</span>
-                      <div className="metric"><strong>{100 - budgetLeft}</strong><span>/ 100</span></div></div>
+                      <div className="metric"><strong>{committed}</strong><span>/ {totalCredits}</span></div></div>
                     <div><span className="metric-label">Available reserve</span>
                       <div className="metric"><strong>{budgetLeft}</strong><span>credits</span></div></div>
                   </div>
-                  <BudgetBars allocation={candidate.allocation} />
+                  <BudgetBars allocation={candidate.allocation} available={budgetLeft} credits={totalCredits} />
                   <p className="panel-note">This is a local calculation only. Cabinet votes, funding conditions, delivery, and social responses are not yet simulated.</p>
                 </div>
               </div>
@@ -215,8 +247,7 @@ export function App() {
                       <h3>{item.label}</h3><p>{item.detail}</p>
                     </div>
                     <span className={`evidence-tag evidence-${item.category}`}>
-                      {item.category === 'public_source' ? 'Source identified' :
-                        item.category === 'authored_parameter' ? 'Authored rule' : 'Missing evidence'}
+                      {EVIDENCE_LABEL[item.category]}
                     </span>
                   </article>
                 ))}
@@ -224,11 +255,12 @@ export function App() {
               </div>
             </section>
           )}
+          </div>
         </div>
 
         <footer className="footer">
           <span>MYTH MAKER — LOCAL FOUNDATION</span>
-          <span>Schema {OFFLINE_PILOT.schema_version} · {OFFLINE_PILOT.locale} · No live inference</span>
+          <span>Display preview · {OFFLINE_PILOT.locale} · No live inference</span>
         </footer>
       </main>
     </div>
