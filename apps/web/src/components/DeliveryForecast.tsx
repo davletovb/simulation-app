@@ -22,7 +22,7 @@ export function DeliveryForecast({ allocation }: { allocation: Allocation }) {
       <div className="forecast-scroll">
         <table className="forecast-table">
           <caption className="sr-only">
-            Most units each family could deliver per quarter, if ratified before the first advance
+            Upper bound for each family if ratified before the first advance; optional access volunteer capacity included when attainable
           </caption>
           <thead>
             <tr>
@@ -48,7 +48,7 @@ export function DeliveryForecast({ allocation }: { allocation: Allocation }) {
                     <td key={i} className={locked ? 'cell-locked' : units === 0 ? 'cell-idle' : undefined}>
                       {locked
                         ? <span className="cell-lock" aria-label="Not yet eligible"><Icon name="lock" size={13} /></span>
-                        : <span className="cell-bar" style={{ height: `${(units / family.quarterCap) * 100}%` }}>
+                        : <span className="cell-bar" style={{ height: `${(units / (family.quarterCap + (family.id === 'access' && allocation.access >= 10 ? 1 : 0))) * 100}%` }}>
                             <span className="cell-units">{units}</span>
                           </span>}
                     </td>
