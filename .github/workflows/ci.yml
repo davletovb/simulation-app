@@ -81,6 +81,47 @@ jobs:
       - name: Test
         if: steps.workspace.outputs.present == 'true'
         run: cargo test --workspace --locked
+      - name: Detect React workspace
+        id: web
+        shell: bash
+        run: |
+          if [ -f apps/web/package.json ]; then
+            echo 'present=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'present=false' >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/setup-node@v4
+        if: steps.web.outputs.present == 'true'
+        with:
+          node-version: '22.16.0'
+      - name: Generate npm lockfile if not committed (bootstrap only)
+        if: steps.web.outputs.present == 'true'
+        shell: bash
+        run: |
+          if [ ! -f apps/web/package-lock.json ]; then
+            npm --prefix apps/web install --package-lock-only --ignore-scripts --no-audit --no-fund
+            echo 'BEGIN_MYTH_PACKAGE_LOCK'
+            cat apps/web/package-lock.json
+            echo 'END_MYTH_PACKAGE_LOCK'
+          fi
+      - name: Install pinned frontend dependencies
+        if: steps.web.outputs.present == 'true'
+        run: npm --prefix apps/web ci --no-audit --no-fund
+      - name: Typecheck and build interface
+        if: steps.web.outputs.present == 'true'
+        run: npm --prefix apps/web run build
+      - name: Scan compiled frontend assets for credential-like literals
+        if: steps.web.outputs.present == 'true'
+        shell: bash
+        run: |
+          if [ ! -d apps/web/dist ]; then
+            echo 'Compiled assets missing' >&2
+            exit 1
+          fi
+          if grep -R -nE 'sk-or-v1-[A-Za-z0-9]{16,}' apps/web/dist; then
+            echo 'Credential-like literal in compiled assets' >&2
+            exit 1
+          fi
       - name: Offline credential pattern scan (tracked project files)
         shell: bash
         run: |
