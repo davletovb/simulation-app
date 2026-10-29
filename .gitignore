@@ -2,7 +2,7 @@
 /target/
 **/*.rs.bk
 
-# Node/Vite (not yet bootstrapped)
+# Node/Vite local development and build output
 node_modules/
 dist/
 .vite/

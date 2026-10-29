@@ -19,6 +19,9 @@ jobs:
     timeout-minutes: 12
     steps:
       - uses: actions/checkout@v4
+      - name: Scan tracked files before installing dependencies
+        shell: bash
+        run: bash .github/scripts/scan-secrets.sh tracked
       - name: Detect Rust workspace
         id: workspace
         shell: bash
@@ -81,30 +84,31 @@ jobs:
       - name: Test
         if: steps.workspace.outputs.present == 'true'
         run: cargo test --workspace --locked
-      - name: Offline credential pattern scan (tracked project files)
+      - name: Detect React workspace
+        id: web
         shell: bash
         run: |
-          secret_prefix='OPENROUTER_API_'
-          re='sk-or-v1-[A-Za-z0-9]{16,}|'"${secret_prefix}"'KEY=[^[:space:]]+'
-          mapfile -d '' -t tracked < <(git ls-files -z)
-          if [ "${#tracked[@]}" -eq 0 ]; then
-            echo 'No tracked files; credential scan cannot run' >&2
+          if [ -f apps/web/package.json ]; then
+            echo 'present=true' >> "$GITHUB_OUTPUT"
+          elif [ -d apps/web ]; then
+            echo 'apps/web exists but package.json is missing' >&2
             exit 1
+          else
+            echo 'present=false' >> "$GITHUB_OUTPUT"
           fi
-          for file in "${tracked[@]}"; do
-            if [ ! -f "$file" ]; then
-              echo "Tracked file missing: $file" >&2
-              exit 1
-            fi
-            rc=0
-            grep -InE "$re" "$file" || rc=$?
-            if [ "$rc" -eq 0 ]; then
-              echo "Credential-like literal found in $file" >&2
-              exit 1
-            fi
-            if [ "$rc" -ne 1 ]; then
-              echo "Credential scan error ($rc): $file" >&2
-              exit 1
-            fi
-          done
-          # Build-output scanning will be added when the frontend exists.
+      - uses: actions/setup-node@v4
+        if: steps.web.outputs.present == 'true'
+        with:
+          node-version-file: apps/web/.nvmrc
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+      - name: Install pinned frontend dependencies
+        if: steps.web.outputs.present == 'true'
+        run: npm --prefix apps/web ci --ignore-scripts --no-audit --no-fund
+      - name: Typecheck and build interface
+        if: steps.web.outputs.present == 'true'
+        run: npm --prefix apps/web run build
+      - name: Scan compiled frontend assets (fail closed)
+        if: steps.web.outputs.present == 'true'
+        shell: bash
+        run: bash .github/scripts/scan-secrets.sh dist apps/web/dist
