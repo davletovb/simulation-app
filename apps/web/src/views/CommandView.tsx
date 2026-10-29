@@ -7,6 +7,7 @@ import {
 import { CreditMeter } from '../components/CreditMeter'
 import { DeliveryForecast } from '../components/DeliveryForecast'
 import { Icon } from '../components/Icon'
+import { Mechanics } from '../components/Mechanics'
 
 type CardChoice = PolicyCard | 'custom'
 
@@ -119,7 +120,10 @@ function Pressures({ allocation }: { allocation: Allocation }) {
       {reactions.map(({ faction, pressure }) => (
         <li key={faction.id} className={`pressure pressure-${pressure.kind}`}>
           <Icon name={pressure.kind === 'risk' ? 'alert' : 'spark'} size={16} />
-          <span><strong>{faction.name}</strong>{pressure.text}</span>
+          <span>
+            <strong>{faction.name}</strong>{pressure.text}
+            <Mechanics><p>{faction.rule}</p></Mechanics>
+          </span>
         </li>
       ))}
       {shortfall > 0 && (
@@ -186,10 +190,11 @@ export function CommandView({ allocation, onChange }: {
         <section className="panel forecast" aria-labelledby="forecast-title">
           <div className="panel-head">
             <h2 id="forecast-title">Best-case delivery</h2>
-            <span className="tag tag-calm">Ceiling, not a forecast</span>
+            <span className="tag tag-calm">Illustrative ceiling</span>
           </div>
           <p className="panel-lede">The most each family could deliver if this package were ratified before the first
-            advance, with full effort and no slowdowns or shocks. For access funding of 10 or more, the optimistic ceiling includes the Community Access Network’s attainable +1 capacity from Q2 onward, which requires its volunteer action. It is not guaranteed; real delivery may be lower.</p>
+            advance, with full effort and no slowdowns or shocks. For access funding of 10 or more, the optimistic ceiling includes the Community Access Network’s attainable +1 capacity from Q2 onward, which requires its volunteer action. It is not guaranteed; real delivery may be lower.
+            This is a temporary in-browser illustration; the simulation engine will supply the authoritative preview.</p>
           <DeliveryForecast allocation={allocation} />
         </section>
       </div>

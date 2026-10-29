@@ -4,6 +4,7 @@ import {
   PAID_AUDIT_COST, QUARTERS, lastQuarterLabel,
 } from '../game'
 import { Icon, type IconName } from '../components/Icon'
+import { Mechanics } from '../components/Mechanics'
 
 const QUARTER_EVENTS: readonly string[][] = QUARTERS.map((_, i) => [
   ...FAMILIES.filter(f => f.lag === i).map(f => `${f.label} can start`),
@@ -67,7 +68,7 @@ export function CampaignView() {
         <section className="panel" aria-labelledby="factions-title">
           <div className="panel-head">
             <h2 id="factions-title">Organisations</h2>
-            <span className="tag tag-calm">Authored rules</span>
+            <span className="tag tag-calm">Public interests</span>
           </div>
           <div className="factions">
             {FACTIONS.map(f => (
@@ -78,8 +79,12 @@ export function CampaignView() {
                     <span key={i} className={i < f.start ? 'pip pip-on' : 'pip'} />
                   ))}
                 </div>
-                <p className="faction-resource">{f.resource} {f.start}/{f.max} · +{f.perQuarter} per quarter</p>
-                <p>{f.rule}</p>
+                <p className="faction-resource">{f.resource} {f.start}/{f.max} at the start</p>
+                <p>{f.interest}</p>
+                <Mechanics>
+                  <p>{f.rule}</p>
+                  <p>{f.resource}: +{f.perQuarter} per quarter, up to {f.max}.</p>
+                </Mechanics>
               </article>
             ))}
           </div>

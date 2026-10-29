@@ -31,6 +31,14 @@ These unit tests do not need an API key, a database, Hiyal or model inference. T
 - Supported replay claim is intended for Linux x86_64 and macOS arm64, **not verified** yet. CI currently covers Linux only.
 - Local authoring environment has Node but **no installed Rust compiler/Cargo** and cannot resolve registries; tests were not executed there. **GitHub Actions run #40892336573**, on 2026-10-29, **passed** pinned Rust 1.99.1 formatting, Clippy, fail-closed source guard, 12/12 Rust unit tests and the tracked-file credential-pattern scan on Linux. This verifies the *Rust foundation slice*, not the full P1 acceptance gate. Initial CI failures (formatting and a credential-scanner self-match) were corrected in subsequent commits; final run passed. The wider P1 checklist still remains open.
 
+## Interface decisions (29 October 2026)
+
+| Question | Decision |
+|---|---|
+| Delivery calculations | The Rust engine owns all authoritative calculations: costs, delivery schedules, minister effects, constraints and predicted outcomes. React only visualizes them. The in-browser best-case ceiling (`apps/web/src/game.ts`, `bestCaseSchedule`) stays temporarily, labelled illustrative, until a Rust preview endpoint replaces it. |
+| Organisation trigger rules | Layered visibility. The interface shows each organisation's public interests and contextual warnings without thresholds; the exact authored rule is inspectable behind **View mechanics** in the first playable. |
+| Private information | Minister effort, private preferences and genuinely undiscovered information stay hidden according to role permissions. Future incomplete information about organisations must be an explicit gameplay mechanic, not an undisclosed deterministic threshold. |
+
 ## Executed verification evidence
 
 - [Essential offline checks — successful run #40892336573](https://github.com/davletovb/simulation-app/actions/runs/40892336573), commit `7229418ee7639ec73b5ad7cb736a47e14363d05b`: `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets --locked -- -D warnings`, `cargo test --workspace --locked` (**12 passing tests**), fail-closed source-rule and tracked-file credential pattern checks. No external inference or country-data fetch was executed.

@@ -100,6 +100,8 @@ export interface FamilyForecast {
  *
  * This is a display-only best-case ceiling, not a deterministic prediction or
  * a substitute for the authoritative future P3 society/treasury reducer.
+ * Temporary by decision: the Rust engine owns all authoritative previews, so
+ * replace this with its preview endpoint once one exists.
  */
 export function bestCaseSchedule(a: Allocation): FamilyForecast[] {
   return FAMILIES.map(family => {
@@ -150,9 +152,15 @@ export const MEETING_PHASES: readonly { label: string; detail: string }[] = [
 
 export interface Pressure { kind: 'risk' | 'boost'; text: string }
 
+/**
+ * Layered visibility: `interest` and pressure text are the organisation's public
+ * stance; `rule` is the exact authored mechanic, shown only behind "View mechanics".
+ * Thresholds stay in `pressure`, so no public copy repeats them.
+ */
 export interface Faction {
   id: string
   name: string
+  interest: string
   resource: string
   start: number
   max: number
@@ -163,14 +171,16 @@ export interface Faction {
 
 export const FACTIONS: readonly Faction[] = [
   { id: 'ssa', name: 'School Staff Association', resource: 'Influence', start: 10, max: 20, perQuarter: 2,
+    interest: 'Wants sustained investment in school staffing, and has organised slowdowns when it judged staffing neglected.',
     rule: 'If funded staffing is below 50, it can spend 4 influence to cap next quarter’s staffing effort at 80%.',
     pressure: a => a.staff > 0 && a.staff < 50
-      ? { kind: 'risk', text: 'Staffing is below 50, so they can call a slowdown: staffing effort capped at 80% next quarter.' }
+      ? { kind: 'risk', text: 'Concerned this staffing investment is too low, and may organise a slowdown.' }
       : null },
   { id: 'can', name: 'Community Access Network', resource: 'Volunteer days', start: 4, max: 12, perQuarter: 1,
+    interest: 'Wants local access support funded, and offers volunteer help where it sees a real commitment.',
     rule: 'If access funding is 10 or more, it can spend a volunteer day to add 1 access capacity next quarter.',
     pressure: a => a.access >= 10
-      ? { kind: 'boost', text: 'Access is 10 or more, so volunteers can add +1 access capacity next quarter.' }
+      ? { kind: 'boost', text: 'Sees a real access commitment, and may volunteer to speed up access delivery.' }
       : null },
 ]
 
