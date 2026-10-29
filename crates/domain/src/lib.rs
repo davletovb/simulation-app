@@ -1259,7 +1259,7 @@ mod tests {
     }
 
     #[test]
-    fn meetings_cannot_advance_a_calendar_quarter_as_a_side_effect() {
+    fn typed_meeting_and_advance_commands_are_distinct() {
         let q = Quarter::new(1).unwrap();
         let position = FirstPosition::new(
             "m".into(),
@@ -1272,6 +1272,6 @@ mod tests {
         assert_eq!(position.schema_version(), SCHEMA_VERSION);
         assert_eq!(q.value(), 1);
         let _separate_explicit_advance_command = PlayerCommand::AdvanceQuarter;
-        // No reducer exists in P1; the test only checks typed separation.
+        // No reducer exists in P1; this verifies distinct typed actions only.
     }
 }
