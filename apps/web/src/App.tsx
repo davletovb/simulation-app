@@ -190,7 +190,8 @@ export function App() {
                       </label>
                     ))}
                   </fieldset>
-
+                </div>
+                <div className="panel">
                   <div className="panel-top"><h3>Allocation preview</h3><span className="tag">NOT COMMITTED</span></div>
                   <div className="metric-row">
                     <div><span className="metric-label">Committed in draft</span>
