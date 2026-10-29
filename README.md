@@ -2,7 +2,7 @@
 
 A political simulation game about governing with an AI cabinet: choose a country baseline, propose policies, negotiate commitments, and follow their consequences through institutions and society.
 
-The project is starting a new implementation. Read the [project framework — v0.8.1](docs/framework.md) for the agreed design, proposed architecture, and implementation gates. A runnable game has not yet been built.
+The project is starting a new implementation. Read the [project framework — v0.8.1](docs/framework.md) for the agreed design, proposed architecture, and implementation gates. A runnable game has not yet been built. The first **offline React interface preview** is available on the stacked P1b branch; it does not execute policy decisions.
 
 Follow the [implementation tracker](docs/implementation-tracker.md) for the delivery sequence, open decisions, acceptance checks, and completion evidence.
 
@@ -18,6 +18,19 @@ These implementation constraints supplement the reviewed framework; the framewor
 - **Keep credentials in the backend:** the OpenRouter key must stay outside the browser bundle, committed files, and recorded prompts/receipts. Local replay must work without an API key or network access.
 
 This is the intended operating policy, not an implemented setup guide. The tracker includes writing and verifying runnable setup instructions. A later public deployment needs its own persistent-storage and ongoing free-tier assessment; a free frontend or temporary trial credits alone do not establish a free backend.
+
+## Local interface preview (P1b)
+
+This is an **interface shell**, not an operational simulation. Selecting a candidate changes only the displayed allocation; no minister inference, replay journal, real evidence ingestion or authoritative policy commit occurs.
+
+Requirements: Node.js **22.16.0** and npm with network access on the first install. In the repository root:
+
+```sh
+npm --prefix apps/web ci
+npm --prefix apps/web run dev
+```
+
+Open the localhost URL printed by Vite (normally `http://127.0.0.1:5173`). The web app binds to loopback only. To check the production interface build, run `npm --prefix apps/web run build`. The `/api` development proxy currently targets a **future** local Rust service on `127.0.0.1:8787`; no backend is running for this preview. Do not place an API key in `apps/web`, environment variables exposed to Vite, or browser code. The server/API implementation and Serde-generated wire contracts are still P1 work.
 
 ## Legacy prototype
 
