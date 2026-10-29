@@ -28,7 +28,11 @@ These unit tests do not need an API key, a database, Hiyal or model inference. T
 - `WireU64` demonstrates string-boundary validation; actual JSON serialization, `schemars` schemas, `ts-rs` output, versioned event receipts and command deduplication await P1-02/03 and later phases.
 - React/TypeScript/Vite, Axum, OpenRouter and Hiyal are not yet installed. The reviewed Hiyal candidate revision remains `050d1de094f5d0813817e2020ec5c5da97d5c42e`; introduce it only at P4. No npm lockfile is invented; create it from a real package installation in a tool-enabled environment.
 - Supported replay claim is intended for Linux x86_64 and macOS arm64, **not verified** yet. CI currently covers Linux only.
-- Local development environment available for this change has Node but **no installed Rust compiler/Cargo** and cannot resolve registries. Thus the Rust tests are **authored, not executed locally**. GitHub Actions will be an independent build check; a green check must be observed before marking any P1 item complete.
+- Local authoring environment has Node but **no installed Rust compiler/Cargo** and cannot resolve registries; tests were not executed there. **GitHub Actions run #40888773433**, on 2026-10-29, **passed** pinned Rust 1.99.1 formatting, Clippy, source guard, 8/8 Rust unit tests and the basic credential scan on Linux. This verifies the *Rust foundation slice*, not the full P1 acceptance gate. Initial CI failures (formatting and a credential-scanner self-match) were corrected in subsequent commits; final run passed. The wider P1 checklist still remains open.
+
+## Executed verification evidence
+
+- [Essential offline checks — successful run #40888773433](https://github.com/davletovb/simulation-app/actions/runs/40888773433), commit `722137344291553a3991ae2187b9c1a092391a93`: `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets --locked -- -D warnings`, `cargo test --workspace --locked` (**8 passing tests**), source-rule and credential pattern checks. No external inference or country-data fetch was executed.
 
 ## Next P1 work
 
