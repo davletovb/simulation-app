@@ -21,7 +21,7 @@ This is the intended operating policy, not an implemented setup guide. The track
 
 ## Local interface preview (P1b)
 
-This is an **interface shell**, not an operational simulation. Selecting a candidate changes only the displayed allocation; no minister inference, replay journal, real evidence ingestion or authoritative policy commit occurs.
+This is an **interface shell**, not an operational simulation. It is laid out as a game screen with four views: **Command** (play a policy card or tune a custom split, with a credit-token meter, organisation reactions and a best-case delivery ceiling), **Board** (the three seats, approval rule and meeting phases), **Campaign** (quarter track, per-quarter actions, organisations and cohorts) and **Intel** (evidence status). Keys `1`–`4` switch views and `?` opens the briefing. Drafting changes only what is displayed; voting and advancing stay locked, and no minister inference, replay journal, real evidence ingestion or authoritative policy commit occurs. The delivery ceiling is a display-only upper bound from the P0 lag and capacity rules, not a simulation result.
 
 Requirements: Node.js **22.12+ within the 22.x line** and npm, with network access on the first install. CI and the included `.nvmrc` use Node **22.16.0**; `apps/web/.npmrc` enforces the supported engine range. From the repository root:
 
