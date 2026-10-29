@@ -248,26 +248,29 @@ impl Allocation {
 /// The invalid-draft marker is computed from a mechanical affordability
 /// snapshot, not supplied by an LLM or arbitrary caller.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum PreferredAllocation {
-    Feasible(Allocation),
-    InvalidDraft(Allocation),
+pub enum AllocationValidity {
+    Feasible,
+    InvalidDraft,
+}
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct PreferredAllocation {
+    draft: Allocation,
+    validity: AllocationValidity,
 }
 impl PreferredAllocation {
     pub fn assess(draft: Allocation, eligible_credits: u16) -> Result<Self, ContractError> {
         if eligible_credits > PILOT_CREDITS {
             return Err(ContractError::InvalidCreditAmount);
         }
-        if draft.total() <= u32::from(eligible_credits) {
-            Ok(Self::Feasible(draft))
+        let validity = if draft.total() <= u32::from(eligible_credits) {
+            AllocationValidity::Feasible
         } else {
-            Ok(Self::InvalidDraft(draft))
-        }
+            AllocationValidity::InvalidDraft
+        };
+        Ok(Self { draft, validity })
     }
-    pub const fn allocation(self) -> Allocation {
-        match self {
-            Self::Feasible(v) | Self::InvalidDraft(v) => v,
-        }
-    }
+    pub const fn allocation(self) -> Allocation { self.draft }
+    pub const fn validity(self) -> AllocationValidity { self.validity }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -553,10 +556,6 @@ pub struct FundedCondition {
 pub enum CounterproposalOrigin {
     Menu(String),
     NewTyped,
-}
-
-fn ensure_schema(version: u16) -> Result<(), ContractError> {
-    if version == SCHEMA_VERSION { Ok(()) } else { Err(ContractError::InvalidSchema) }
 }
 
 /// Only mechanically assessed counteroffers can appear as preferences.
@@ -919,10 +918,10 @@ mod tests {
     fn proposals_and_versions_are_typed_and_precise() {
         let over = PreferredAllocation::assess(
             Allocation::draft(60, 40, 10).unwrap(), 100).unwrap();
-        assert!(matches!(over, PreferredAllocation::InvalidDraft(_)));
-        assert!(matches!(PreferredAllocation::assess(
-            Allocation::draft(50, 40, 10).unwrap(), 100).unwrap(),
-            PreferredAllocation::Feasible(_)));
+        assert_eq!(over.validity(), AllocationValidity::InvalidDraft);
+        assert_eq!(PreferredAllocation::assess(
+            Allocation::draft(50, 40, 10).unwrap(), 100).unwrap().validity(),
+            AllocationValidity::Feasible);
         let max = WireU64::new(u64::MAX);
         assert_eq!(WireU64::from_decimal(&max.to_decimal()), Ok(max));
         assert_eq!(WireU64::from_decimal("0"), Ok(WireU64::new(0)));
