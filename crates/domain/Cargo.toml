@@ -1,0 +1,13 @@
+[package]
+name = "myth-domain"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Pure, deterministic game-domain contracts for Myth Maker"
+
+[lints]
+workspace = true
+
+[dependencies]
+# No Hiyal, LLM, storage, network or UI dependencies.
