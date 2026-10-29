@@ -6,9 +6,9 @@
 
 - A dependency-free Rust workspace with `crates/domain`, locked to Rust **1.99.1** (edition 2024).
 - Pure bounded types for fictional 100-credit pilot allocations, treasury invariant, six cohort keys/weights, ministry roles, proposals, commitments, typed actions and role observations.
-- Deterministic integer fractional-delivery primitive, with explicit 0–1000 permille effort validation.
-- Canonical decimal-string parser for full-range `u64` wire values (the actual Serde JSON representation and JSON Schema remain P1-03).
-- Minimal Linux PR CI with formatter, Clippy, unit tests, a source-rule guard and coarse credential-like literal scan. This is a **starter** check, not the complete frontend/build/contract-drift scan required by P1-05.
+- Deterministic **family-wide shared-capacity** delivery helper, with multiple funded scopes, stable oldest-funded-first ordering, checked fractional carry per immutable scope, explicit termination/discard receipts, staffing/repair/access maxima and 0–1000 permille effort validation.
+- Canonical decimal-string parser for full-range `u64` wire values, used by persistent/wire version fields. The actual Serde JSON representation and JSON Schema remain P1-03 and must serialize the wrapper as **string**, not default numeric encoding.
+- One Linux CI job with format/Clippy, **12 Rust unit tests**, fail-closed deterministic-source scan across Rust sources/tests, and credential-pattern scan across tracked project files. PR-only superseded runs can be cancelled; main runs are not cancelled. The check runs for docs-only PRs, skipping Rust commands when a branch has no Cargo workspace. Frontend assets and contract drift checks remain P1-05 work.
 
 ## Commands once the toolchain is available
 
@@ -24,16 +24,16 @@ These unit tests do not need an API key, a database, Hiyal or model inference. T
 ## Explicit boundaries and limitations
 
 - These are contract **data types and primitives**, not the P3 authoritative policy reducer. In particular, `Treasury::can_fund` is **not** cabinet approval; it is only an affordability check. It does not yet handle protected commitments or allocation amendment transitions.
-- `DeliveryProgress::step` is a **single-scope** fractional-work primitive. Its `authorized_capacity` parameter must eventually be supplied from a **single shared family pool** allocated across eligible scopes in stable `(activation_quarter, immutable_scope_id)` order; it must **not** receive the full family capacity independently for each scope. This P0 review correction is contract-only; a multi-scope allocator and its tests remain P3 implementation work.
+- `deliver_family_quarter` implements a **pure multi-scope family-capacity scheduling primitive** with immutable scope ID and per-scope carry. It does not implement the P3 world reducer, adjudication of funding/conditions/audits, historical project schedule storage, or ledger/receipt atomicity. `Treasury::record_delivery` is a separate account-transition helper that **must only** be invoked after a single, validated authoritative payout. The P3 world reducer must compose them and verify receipt-level equality; no live multi-quarter case has been executed.
 - The country evidence list is a typed provenance skeleton; P2 has not ingested or validated an England country pack. Cohort shares remain evidence-dependent.
-- `WireU64` demonstrates string-boundary validation; actual JSON serialization, `schemars` schemas, `ts-rs` output, versioned event receipts and command deduplication await P1-02/03 and later phases.
+- `WireU64` versions, private effort declarations, validated allocation/effort/belief/cap types, explicit invalid-draft preference and audited-recipient collections now enforce P0's typed **Rust construction** constraints. Serde must use the same validation route when added; actual JSON serialization, `schemars` schemas, `ts-rs` output, versioned event receipts and command deduplication await P1-02/03 and later phases. `RoleObservation` and `FinalPosition` are not substitutes for role-aware authorization or serialization controls.
 - React/TypeScript/Vite, Axum, OpenRouter and Hiyal are not yet installed. The reviewed Hiyal candidate revision remains `050d1de094f5d0813817e2020ec5c5da97d5c42e`; introduce it only at P4. No npm lockfile is invented; create it from a real package installation in a tool-enabled environment.
 - Supported replay claim is intended for Linux x86_64 and macOS arm64, **not verified** yet. CI currently covers Linux only.
-- Local authoring environment has Node but **no installed Rust compiler/Cargo** and cannot resolve registries; tests were not executed there. **GitHub Actions run #40888773433**, on 2026-10-29, **passed** pinned Rust 1.99.1 formatting, Clippy, source guard, 8/8 Rust unit tests and the basic credential scan on Linux. This verifies the *Rust foundation slice*, not the full P1 acceptance gate. Initial CI failures (formatting and a credential-scanner self-match) were corrected in subsequent commits; final run passed. The wider P1 checklist still remains open.
+- Local authoring environment has Node but **no installed Rust compiler/Cargo** and cannot resolve registries; tests were not executed there. **GitHub Actions run #40892336573**, on 2026-10-29, **passed** pinned Rust 1.99.1 formatting, Clippy, fail-closed source guard, 12/12 Rust unit tests and the tracked-file credential-pattern scan on Linux. This verifies the *Rust foundation slice*, not the full P1 acceptance gate. Initial CI failures (formatting and a credential-scanner self-match) were corrected in subsequent commits; final run passed. The wider P1 checklist still remains open.
 
 ## Executed verification evidence
 
-- [Essential offline checks — successful run #40888773433](https://github.com/davletovb/simulation-app/actions/runs/40888773433), commit `722137344291553a3991ae2187b9c1a092391a93`: `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets --locked -- -D warnings`, `cargo test --workspace --locked` (**8 passing tests**), source-rule and credential pattern checks. No external inference or country-data fetch was executed.
+- [Essential offline checks — successful run #40892336573](https://github.com/davletovb/simulation-app/actions/runs/40892336573), commit `7229418ee7639ec73b5ad7cb736a47e14363d05b`: `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets --locked -- -D warnings`, `cargo test --workspace --locked` (**12 passing tests**), fail-closed source-rule and tracked-file credential pattern checks. No external inference or country-data fetch was executed.
 
 ## Next P1 work
 
