@@ -39,8 +39,9 @@ jobs:
       - name: Coarse offline credential pattern scan
         shell: bash
         run: |
-          if grep -R -n -E 'sk-or-v1-[A-Za-z0-9]{16,}|OPENROUTER_API_KEY=[^[:space:]]+' crates .github --include='*.rs' --include='*.yml'; then
+          if grep -R -n -E 'sk-or-v1-[A-Za-z0-9]{16,}|OPENROUTER_API_KEY=[^[:space:]]+' crates --include='*.rs' --include='*.toml' --include='*.json'; then
             echo "Credential-like literal detected" >&2
             exit 1
           fi
-          # A full tracked-tree and compiled-assets secret scan is P1-05 follow-up.
+          # Excludes this workflow's own detector pattern. Full tracked-tree and
+          # compiled-asset scanning will be added at the P1-05 gate.
