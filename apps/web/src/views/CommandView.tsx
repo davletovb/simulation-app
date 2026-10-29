@@ -189,7 +189,7 @@ export function CommandView({ allocation, onChange }: {
             <span className="tag tag-calm">Ceiling, not a forecast</span>
           </div>
           <p className="panel-lede">The most each family could deliver if this package were ratified before the first
-            advance, with full effort and no slowdowns or shocks. Real delivery can only be the same or lower.</p>
+            advance, with full effort and no slowdowns or shocks. For access funding of 10 or more, the optimistic ceiling includes the Community Access Network’s attainable +1 capacity from Q2 onward, which requires its volunteer action. It is not guaranteed; real delivery may be lower.</p>
           <DeliveryForecast allocation={allocation} />
         </section>
       </div>
