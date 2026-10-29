@@ -94,16 +94,10 @@ jobs:
         if: steps.web.outputs.present == 'true'
         with:
           node-version: '22.16.0'
-      - name: Generate npm lockfile if not committed (bootstrap only)
+      - name: Verify frontend lockfile exists
         if: steps.web.outputs.present == 'true'
         shell: bash
-        run: |
-          if [ ! -f apps/web/package-lock.json ]; then
-            npm --prefix apps/web install --package-lock-only --ignore-scripts --no-audit --no-fund
-            echo 'BEGIN_MYTH_PACKAGE_LOCK'
-            cat apps/web/package-lock.json
-            echo 'END_MYTH_PACKAGE_LOCK'
-          fi
+        run: test -f apps/web/package-lock.json
       - name: Install pinned frontend dependencies
         if: steps.web.outputs.present == 'true'
         run: npm --prefix apps/web ci --no-audit --no-fund
