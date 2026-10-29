@@ -1,0 +1,7 @@
+# This lockfile records the initial dependency-free workspace.
+# Regenerate and verify with the pinned Cargo toolchain when available.
+version = 4
+
+[[package]]
+name = "myth-domain"
+version = "0.1.0"
