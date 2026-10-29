@@ -24,6 +24,7 @@ These unit tests do not need an API key, a database, Hiyal or model inference. T
 ## Explicit boundaries and limitations
 
 - These are contract **data types and primitives**, not the P3 authoritative policy reducer. In particular, `Treasury::can_fund` is **not** cabinet approval; it is only an affordability check. It does not yet handle protected commitments or allocation amendment transitions.
+- `DeliveryProgress::step` is a **single-scope** fractional-work primitive. Its `authorized_capacity` parameter must eventually be supplied from a **single shared family pool** allocated across eligible scopes in stable `(activation_quarter, immutable_scope_id)` order; it must **not** receive the full family capacity independently for each scope. This P0 review correction is contract-only; a multi-scope allocator and its tests remain P3 implementation work.
 - The country evidence list is a typed provenance skeleton; P2 has not ingested or validated an England country pack. Cohort shares remain evidence-dependent.
 - `WireU64` demonstrates string-boundary validation; actual JSON serialization, `schemars` schemas, `ts-rs` output, versioned event receipts and command deduplication await P1-02/03 and later phases.
 - React/TypeScript/Vite, Axum, OpenRouter and Hiyal are not yet installed. The reviewed Hiyal candidate revision remains `050d1de094f5d0813817e2020ec5c5da97d5c42e`; introduce it only at P4. No npm lockfile is invented; create it from a real package installation in a tool-enabled environment.
