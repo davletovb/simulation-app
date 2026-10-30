@@ -2,6 +2,7 @@
 import argparse
 import hashlib
 import json
+from decimal import Decimal
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2] / "data/england-school-pilot-v1"
@@ -45,6 +46,22 @@ def check():
     n = authored["narrative"]
     assert n["source_snapshot_changed"] is False
     assert n["patches"] == [{"field": "repair_capacity_cap", "before": 10, "after": 8}]
+    values, _ = read("values.json")
+    assert values["schema_version"] == 1
+    assert values["cutoff_utc"] == obs["cutoff_utc"]
+    assert len(values["records"]) == len(obs["indicators"]) == 8
+    measured = {row["id"]: row for row in obs["indicators"]}
+    rules = {"identity": Decimal("1"), "percent * 10000": Decimal("10000"),
+             "decimal * 1000000000": Decimal("1000000000")}
+    for row in values["records"]:
+        source = measured[row["stable_variable_id"]]
+        assert source["value"] == row["normalized_value"] or row["transformation"] != "identity"
+        assert source["unit"] == row["normalized_unit"] or row["transformation"] != "identity"
+        raw = Decimal(row["raw_value"])
+        normalized = Decimal(row["normalized_value"])
+        assert normalized == raw * rules[row["transformation"]]
+        assert row["quality_flags"]
+    assert {v["stable_variable_id"] for v in values["records"]} == set(measured)
     country, _ = read("country-pack.json")
     assert country["schema_version"] == 1 and country["country_iso"] == "GB"
     assert country["simulated_jurisdiction"] == "england"
