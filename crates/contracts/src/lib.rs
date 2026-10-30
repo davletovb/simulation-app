@@ -477,7 +477,13 @@ mod tests {
             schema["properties"]["expected_world_version"]["type"],
             "string"
         );
-        assert!(<CommandEnvelope as TS>::decl(&ts_rs::Config::default()).contains("expected_world_version: string"));
-        assert!(!<PublicRoleView as TS>::decl(&ts_rs::Config::default()).contains("implementation_effort"));
+        assert!(
+            <CommandEnvelope as TS>::decl(&ts_rs::Config::default())
+                .contains("expected_world_version: string")
+        );
+        assert!(
+            !<PublicRoleView as TS>::decl(&ts_rs::Config::default())
+                .contains("implementation_effort")
+        );
     }
 }
