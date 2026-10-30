@@ -906,7 +906,11 @@ mod p2_frozen_pack_tests {
         assert_eq!(board["initial_commitments"].as_array().unwrap().len(), 0);
         assert!(board.get("initial_political_promises").is_none());
         assert!(board.get("initial_enforceable_commitments").is_none());
-        assert!(board["commitment_ledger"].get("political_initial").is_none());
+        assert!(
+            board["commitment_ledger"]
+                .get("political_initial")
+                .is_none()
+        );
     }
 
     #[test]
