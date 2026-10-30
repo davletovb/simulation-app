@@ -19,8 +19,8 @@ def check():
     assert obs["schema_version"] == authored["schema_version"] == 1
     assert obs["cutoff_utc"] == "2026-10-29T23:59:59Z"
     assert "not full source archive" in obs["capture_method"]
-    assert len(obs["indicators"]) == 4
-    assert len({x["id"] for x in obs["indicators"]}) == 4
+    assert len(obs["indicators"]) == 8
+    assert len({x["id"] for x in obs["indicators"]}) == 8
     assert all(x["source"].startswith("https://explore-education-statistics.service.gov.uk/")
                for x in obs["indicators"])
     assert authored["pilot"]["credits"] == 100
@@ -49,9 +49,9 @@ def check():
     assert country["schema_version"] == 1 and country["country_iso"] == "GB"
     assert country["simulated_jurisdiction"] == "england"
     assert country["locale"] == "en-GB" and country["cutoff_utc"] == obs["cutoff_utc"]
-    assert len(country["evidence"]) == 8
-    assert len({e["stable_variable_id"] for e in country["evidence"]}) == 8
-    assert sum(e["missing_reason"] is None for e in country["evidence"]) == 4
+    assert len(country["evidence"]) == 12
+    assert len({e["stable_variable_id"] for e in country["evidence"]}) == 12
+    assert sum(e["missing_reason"] is None for e in country["evidence"]) == 8
     expected = {x["id"] for x in obs["indicators"]}
     assert {e["stable_variable_id"] for e in country["evidence"] if e["missing_reason"] is None} == expected
     for e in country["evidence"]:
