@@ -449,6 +449,8 @@ impl Campaign {
                             receipt
                                 .belief_updates
                                 .push(self.beliefs.observe(&evidence, *ministry)?);
+                            self.disclosed.entry(*ministry).or_default()
+                                .insert(evidence.id.clone());
                         }
                     }
                 }
