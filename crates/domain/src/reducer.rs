@@ -455,20 +455,46 @@ impl Campaign {
         }
         Ok(())
     }
-    fn check_funding(&self, proposal: Allocation) -> Result<(), Rejection> {
-        if self
-            .world
-            .commitments()
-            .iter()
-            .any(|c| c.kind == CommitmentKind::Enforceable && c.status == CommitmentStatus::Pending)
-        {
-            return Err(Rejection::ProtectedCommitment);
+    fn protected_scope_ids(&self, proposal: Allocation) -> Result<BTreeSet<String>, Rejection> {
+        let mut keep = BTreeSet::new();
+        for family in FAMILIES {
+            let ix = family_index(family);
+            let mut required = 0_u16;
+            for c in self.world.commitments() {
+                if c.kind != CommitmentKind::Enforceable || c.status != CommitmentStatus::Pending {
+                    continue;
+                }
+                let progress = self.conditions.iter().find(|x| x.id == c.id)
+                    .ok_or(Rejection::InvalidCondition)?;
+                if progress.family != family { continue; }
+                let done = self.delivered_lifetime[ix].checked_sub(progress.baseline_delivered)
+                    .ok_or(Rejection::Arithmetic)?;
+                required = required.checked_add(c.funded_units.saturating_sub(done))
+                    .ok_or(Rejection::Arithmetic)?;
+            }
+            if required == 0 { continue; }
+            let mut candidates: Vec<_> = self.world.scopes().iter()
+                .filter(|s| s.family() == family && !s.is_terminated()
+                    && s.remaining_units() > 0)
+                .collect();
+            candidates.sort_by(|a,b| a.activation_quarter().cmp(&b.activation_quarter())
+                .then_with(||a.id().cmp(b.id())));
+            let mut retained = 0_u16;
+            for scope in candidates {
+                if retained >= required { break; }
+                retained = retained.checked_add(scope.remaining_units()).ok_or(Rejection::Arithmetic)?;
+                keep.insert(scope.id().to_string());
+            }
+            if retained < required || retained > proposal.units(family) {
+                return Err(Rejection::ProtectedCommitment);
+            }
         }
+        Ok(keep)
+    }
+    fn check_funding(&self, proposal: Allocation) -> Result<(), Rejection> {
+        self.protected_scope_ids(proposal)?;
         let stock = u32::from(self.world.treasury().available())
-            + FAMILIES
-                .iter()
-                .map(|f| u32::from(self.world.treasury().encumbered(*f)))
-                .sum::<u32>();
+            + FAMILIES.iter().map(|f| u32::from(self.world.treasury().encumbered(*f))).sum::<u32>();
         if proposal.total() > stock {
             return Err(Rejection::InsufficientFunding);
         }
@@ -477,53 +503,46 @@ impl Campaign {
     fn ratify(&mut self, m: Meeting, receipt: &mut ReducerReceipt) -> Result<(), Rejection> {
         self.check_funding(m.allocation)?;
         let mut parts = self.world.private_checkpoint_parts();
-        // Replace undelivered unprotected commitments, not consumed cash;
-        // terminate scopes before releasing encumbered credits atomically.
+        // Preserve oldest scopes needed for authoritative pending obligations.
+        // Never move fractional work from one scope to another.
+        let protected = self.protected_scope_ids(m.allocation)?;
+        let mut kept = [0_u16; 3];
         for scope in &mut parts.scopes {
-            if !scope.is_terminated() && scope.remaining_units() != 0 {
-                let units = scope.remaining_units();
-                let family = scope.family();
-                scope.terminate();
-                if let Some(shadow) = self.shadow_scopes.iter_mut().find(|s| s.id() == scope.id()) {
-                    shadow.terminate();
-                }
-                let before = parts.treasury;
-                parts.treasury = before.apply(LedgerMove::Release {
-                    family,
-                    credits: units,
-                })?;
-                receipt.ledger.push(LedgerReceipt::new(
-                    before,
-                    LedgerMove::Release {
-                        family,
-                        credits: units,
-                    },
-                    parts.treasury,
-                )?);
-            }
-        }
-        for family in FAMILIES {
-            let units = m.allocation.units(family);
-            if units == 0 {
+            if scope.is_terminated() || scope.remaining_units() == 0 { continue; }
+            if protected.contains(scope.id()) {
+                let ix = family_index(scope.family());
+                kept[ix] = kept[ix].checked_add(scope.remaining_units())
+                    .ok_or(Rejection::Arithmetic)?;
                 continue;
             }
-            let movement = LedgerMove::Reserve {
-                family,
-                credits: units,
-            };
+            let family = scope.family();
+            let units = scope.remaining_units();
+            scope.terminate();
+            if let Some(shadow) = self.shadow_scopes.iter_mut().find(|s| s.id()==scope.id()) {
+                shadow.terminate();
+            }
+            let movement = LedgerMove::Release { family, credits: units };
             let before = parts.treasury;
             parts.treasury = before.apply(movement)?;
-            receipt
-                .ledger
-                .push(LedgerReceipt::new(before, movement, parts.treasury)?);
+            receipt.ledger.push(LedgerReceipt::new(before, movement, parts.treasury)?);
+        }
+        for family in FAMILIES {
+            let units = m.allocation.units(family)
+                .checked_sub(kept[family_index(family)])
+                .ok_or(Rejection::ProtectedCommitment)?;
+            if units == 0 { continue; }
+            let movement = LedgerMove::Reserve { family, credits: units };
+            let before = parts.treasury;
+            parts.treasury = before.apply(movement)?;
+            receipt.ledger.push(LedgerReceipt::new(before, movement, parts.treasury)?);
             let key = match family {
                 PolicyFamily::Staffing => "staff",
                 PolicyFamily::Repairs => "repairs",
                 PolicyFamily::Access => "access",
             };
             let scope = FundedScope::new(
-                format!("{}-v{}-{key}", m.id, m.version.value()),
-                family, self.world.quarter(), units,
+                format!("{}-v{}-{key}",m.id,m.version.value()),
+                family,self.world.quarter(),units,
             )?;
             self.shadow_scopes.push(scope.clone());
             parts.scopes.push(scope);
@@ -540,6 +559,21 @@ impl Campaign {
                     || condition.due().value() > u16::from(SIX_QUARTERS)
                     || !condition_ids.insert(condition.kind_id().to_string())
                 {
+                    return Err(Rejection::InvalidCondition);
+                }
+                // Milestones must be demonstrably deliverable by their due date.
+                // An approved but impossible promise is institutionally invalid.
+                let periods = condition.due().value()
+                    .saturating_sub(u16::from(self.world.quarter().value())
+                        .saturating_add(condition.family().lag_quarters())
+                        .saturating_add(self.rules.delivery_extra_lag))
+                    .saturating_add(1);
+                let family_cap = match condition.family() {
+                    PolicyFamily::Staffing => m.caps.staff(),
+                    PolicyFamily::Repairs => m.caps.repairs(),
+                    PolicyFamily::Access => m.caps.access(),
+                };
+                if u32::from(condition.units()) > u32::from(periods) * u32::from(family_cap) {
                     return Err(Rejection::InvalidCondition);
                 }
                 let ix = family_index(condition.family());
