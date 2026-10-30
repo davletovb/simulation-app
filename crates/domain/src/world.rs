@@ -3,7 +3,7 @@
 //! All state fields are private. Constructors validate inter-ledger consistency.
 //! Private minister effort is deliberately kept outside public projections.
 use crate::{
-    CohortWeights, Commitment, CommitmentStatus, ContractError, DueQuarter, FundedScope, Ministry,
+    CohortWeights, Commitment, CommitmentStatus, ContractError, DueQuarter, FundedScope, LedgerMove,
     PILOT_CREDITS, PolicyFamily, Quarter, SCHEMA_VERSION, Treasury, WireU64, validate_identifier,
 };
 use std::collections::BTreeSet;
@@ -35,11 +35,26 @@ pub enum Organisation {
 pub struct OrganisationAccount {
     pub id: Organisation,
     /// Fictional organization resource units, never treasury credits.
-    pub resources: u32,
+    resources: u32,
 }
 impl OrganisationAccount {
-    pub const fn new(id: Organisation, resources: u32) -> Self {
-        Self { id, resources }
+    pub fn new(id: Organisation, resources: u32) -> Result<Self, ContractError> {
+        let account = Self { id, resources };
+        account.validate()?;
+        Ok(account)
+    }
+    pub const fn id(&self) -> Organisation { self.id }
+    pub const fn resources(&self) -> u32 { self.resources }
+    pub fn validate(&self) -> Result<(), ContractError> {
+        let max = match self.id {
+            Organisation::SchoolWorkforceAssociation => 20,
+            Organisation::CommunityAccessNetwork => 12,
+        };
+        if self.resources > max {
+            Err(ContractError::InvalidScope)
+        } else {
+            Ok(())
+        }
     }
 }
 
@@ -60,24 +75,24 @@ impl QueuedResponse {
         delivered: [u16; 3],
         service_spent: u16,
     ) -> Result<Self, ContractError> {
-        validate_identifier(&source_event_id)?;
-        if due_quarter.value() <= u16::from(produced_quarter.value()) {
+        let candidate = Self {
+            source_event_id, produced_quarter, due_quarter, delivered, service_spent,
+        };
+        candidate.validate()?;
+        Ok(candidate)
+    }
+    pub fn validate(&self) -> Result<(), ContractError> {
+        validate_identifier(&self.source_event_id)?;
+        if self.due_quarter.value() <= u16::from(self.produced_quarter.value()) {
             return Err(ContractError::InvalidQuarter);
         }
-        let total = delivered.iter().try_fold(0_u16, |acc, units| {
-            acc.checked_add(*units)
-                .ok_or(ContractError::ArithmeticOverflow)
+        let total = self.delivered.iter().try_fold(0_u16, |acc, units| {
+            acc.checked_add(*units).ok_or(ContractError::ArithmeticOverflow)
         })?;
-        if total != service_spent || total > PILOT_CREDITS {
+        if total != self.service_spent || total > PILOT_CREDITS {
             return Err(ContractError::InvalidTreasury);
         }
-        Ok(Self {
-            source_event_id,
-            produced_quarter,
-            due_quarter,
-            delivered,
-            service_spent,
-        })
+        Ok(())
     }
     pub fn source_event_id(&self) -> &str {
         &self.source_event_id
@@ -148,8 +163,8 @@ impl WorldSnapshot {
             cohort_weights,
             support: [SupportPpm::new(500_000)?; 6],
             organisations: [
-                OrganisationAccount::new(Organisation::SchoolWorkforceAssociation, 0),
-                OrganisationAccount::new(Organisation::CommunityAccessNetwork, 0),
+                OrganisationAccount::new(Organisation::SchoolWorkforceAssociation, 10)?,
+                OrganisationAccount::new(Organisation::CommunityAccessNetwork, 4)?,
             ],
             commitments: vec![],
             queued_responses: vec![],
@@ -172,11 +187,12 @@ impl WorldSnapshot {
         self.parts.treasury.validate()?;
         // Exact six cohort slots and a million ppm are enforced by fixed arrays
         // and the domain CohortWeights/SupportPpm constructors.
-        if self.parts.organisations[0].id != Organisation::SchoolWorkforceAssociation
-            || self.parts.organisations[1].id != Organisation::CommunityAccessNetwork
+        if self.parts.organisations[0].id() != Organisation::SchoolWorkforceAssociation
+            || self.parts.organisations[1].id() != Organisation::CommunityAccessNetwork
         {
             return Err(ContractError::InvalidScope);
         }
+        for org in &self.parts.organisations { org.validate()?; }
         let mut ids = BTreeSet::new();
         let mut totals = [0_u16; 3];
         for scope in &self.parts.scopes {
@@ -184,8 +200,15 @@ impl WorldSnapshot {
             if !ids.insert(scope.id()) {
                 return Err(ContractError::DuplicateScope);
             }
-            if scope.carry_permille() >= crate::EFFORT_DENOMINATOR {
+            if scope.carry_permille() >= crate::EFFORT_DENOMINATOR
+                || scope.activation_quarter() > self.parts.quarter {
                 return Err(ContractError::InvalidScope);
+            }
+            // Cancellation discards fractional carry and releases unspent
+            // credits atomically in P3. Keep the scope for history, not funds.
+            if scope.is_terminated() {
+                if scope.carry_permille() != 0 { return Err(ContractError::InvalidScope); }
+                continue;
             }
             let index = family_index(scope.family());
             totals[index] = totals[index]
@@ -203,33 +226,33 @@ impl WorldSnapshot {
         }
         let mut commitment_ids = BTreeSet::new();
         for commitment in &self.parts.commitments {
-            validate_identifier(&commitment.id)?;
-            validate_identifier(&commitment.trigger)?;
-            if commitment.funded_units > PILOT_CREDITS
-                || !commitment_ids.insert(commitment.id.as_str())
+            commitment.validate()?;
+            if !commitment_ids.insert(commitment.id.as_str())
+                || (commitment.status == CommitmentStatus::Pending
+                    && commitment.deadline_quarter.value() < u16::from(self.parts.quarter.value()))
             {
                 return Err(ContractError::InvalidCondition);
             }
-            match (commitment.status, &commitment.resolution_event) {
-                (CommitmentStatus::Pending, None) => {}
-                (CommitmentStatus::Honored | CommitmentStatus::Broken, Some(event)) => {
-                    validate_identifier(event)?;
-                }
-                _ => return Err(ContractError::InvalidCondition),
-            }
         }
         let mut response_ids = BTreeSet::new();
+        let mut queued_spend = 0_u16;
         for response in &self.parts.queued_responses {
+            response.validate()?;
             if !response_ids.insert(response.source_event_id()) {
                 return Err(ContractError::DuplicateScope);
             }
-            // Re-derive the sum to catch accidental future unchecked builders.
-            let total: u16 = response.delivered().iter().try_fold(0_u16, |sum, n| {
-                sum.checked_add(*n).ok_or(ContractError::ArithmeticOverflow)
-            })?;
-            if total != response.service_spent() {
-                return Err(ContractError::InvalidTreasury);
+            let now = u16::from(self.parts.quarter.value());
+            if response.produced_quarter() > self.parts.quarter
+                || response.due_quarter().value() < now {
+                return Err(ContractError::InvalidQuarter);
             }
+            queued_spend = queued_spend.checked_add(response.service_spent())
+                .ok_or(ContractError::ArithmeticOverflow)?;
+        }
+        // Already-applied responses have left this queue; not every lifetime
+        // service unit must remain queued, but no queued unit can be invented.
+        if queued_spend > self.parts.treasury.service_spent() {
+            return Err(ContractError::InvalidTreasury);
         }
         Ok(())
     }
@@ -278,25 +301,6 @@ const fn family_index(family: PolicyFamily) -> usize {
     }
 }
 
-/// Mechanical stock-to-stock transitions; not authorization to spend.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum LedgerMove {
-    Reserve { family: PolicyFamily, credits: u16 },
-    Release { family: PolicyFamily, credits: u16 },
-    SpendService { family: PolicyFamily, credits: u16 },
-    SpendAudit { credits: u16 },
-}
-impl LedgerMove {
-    pub const fn credits(self) -> u16 {
-        match self {
-            Self::Reserve { credits, .. }
-            | Self::Release { credits, .. }
-            | Self::SpendService { credits, .. }
-            | Self::SpendAudit { credits } => credits,
-        }
-    }
-}
-
 /// Verifies every account delta, not merely that both totals equal 100.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct LedgerReceipt {
@@ -310,65 +314,8 @@ impl LedgerReceipt {
         movement: LedgerMove,
         after: Treasury,
     ) -> Result<Self, ContractError> {
-        before.validate()?;
-        after.validate()?;
-        let credits = movement.credits();
-        if credits == 0 || credits > PILOT_CREDITS {
-            return Err(ContractError::InvalidCreditAmount);
-        }
-        let mut available = before.available();
-        let mut encumbered = [
-            before.encumbered(PolicyFamily::Staffing),
-            before.encumbered(PolicyFamily::Repairs),
-            before.encumbered(PolicyFamily::Access),
-        ];
-        let mut service = before.service_spent();
-        let mut audit = before.audit_spent();
-        match movement {
-            LedgerMove::Reserve { family, .. } => {
-                available = available
-                    .checked_sub(credits)
-                    .ok_or(ContractError::InsufficientAvailableFunds)?;
-                let slot = &mut encumbered[family_index(family)];
-                *slot = slot
-                    .checked_add(credits)
-                    .ok_or(ContractError::ArithmeticOverflow)?;
-            }
-            LedgerMove::Release { family, .. } => {
-                let slot = &mut encumbered[family_index(family)];
-                *slot = slot
-                    .checked_sub(credits)
-                    .ok_or(ContractError::InvalidTreasury)?;
-                available = available
-                    .checked_add(credits)
-                    .ok_or(ContractError::ArithmeticOverflow)?;
-            }
-            LedgerMove::SpendService { family, .. } => {
-                let slot = &mut encumbered[family_index(family)];
-                *slot = slot
-                    .checked_sub(credits)
-                    .ok_or(ContractError::InvalidTreasury)?;
-                service = service
-                    .checked_add(credits)
-                    .ok_or(ContractError::ArithmeticOverflow)?;
-            }
-            LedgerMove::SpendAudit { .. } => {
-                available = available
-                    .checked_sub(credits)
-                    .ok_or(ContractError::InsufficientAvailableFunds)?;
-                audit = audit
-                    .checked_add(credits)
-                    .ok_or(ContractError::ArithmeticOverflow)?;
-            }
-        }
-        let expected = Treasury::from_parts(
-            available,
-            encumbered[0],
-            encumbered[1],
-            encumbered[2],
-            service,
-            audit,
-        )?;
+        // No independent balance-moving code: Treasury::apply is authoritative.
+        let expected = before.apply(movement)?;
         if after != expected {
             return Err(ContractError::InvalidTreasury);
         }
@@ -443,6 +390,12 @@ impl EventEnvelope {
             EventKind::CommandAdmitted { command_id } => validate_identifier(command_id)?,
             EventKind::EvidenceDisclosed { evidence_id, .. } => validate_identifier(evidence_id)?,
             EventKind::ResponseQueued { source_event_id } => validate_identifier(source_event_id)?,
+            EventKind::DeliveryRecorded { family, delivered } => {
+                let cap = family.nominal_capacity() + u16::from(*family == PolicyFamily::Access);
+                if *delivered == 0 || *delivered > cap || *delivered > PILOT_CREDITS {
+                    return Err(ContractError::InvalidCreditAmount);
+                }
+            }
             EventKind::QuarterAdvanced { next } if next.value() != quarter.value() + 1 => {
                 return Err(ContractError::InvalidQuarter);
             }
