@@ -161,7 +161,8 @@ impl Campaign {
     }
     /// Only the matching minister gets access to actual effort; public reports
     /// and player previews never include this field.
-    pub(crate) fn private_effort_for(&self, ministry: Ministry) -> Option<u16> {
+    #[cfg(test)]
+    fn private_effort_for(&self, ministry: Ministry) -> Option<u16> {
         match ministry {
             Ministry::Education => Some(self.private_efforts[0].value()),
             Ministry::Infrastructure => Some(self.private_efforts[1].value()),
