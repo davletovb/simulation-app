@@ -1,6 +1,6 @@
 //! Private server-side P1 checkpoint and event wire formats.
 //! Never expose these DTOs as public role views or browser state.
-use crate::{Allocation, Family, Ministry, WireError};
+use crate::{Family, Ministry, WireError};
 use d::world;
 use myth_domain as d;
 use schemars::JsonSchema;
