@@ -11,10 +11,7 @@ fn exact_version(s: &str) -> Result<d::WireU64, WireError> {
     Ok(d::WireU64::from_decimal(s)?)
 }
 fn digest(s: &str) -> Result<(), WireError> {
-    if s.len() == 64
-        && s.bytes()
-            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
-    {
+    if d::is_sha256_hex(s) {
         Ok(())
     } else {
         Err(WireError::Field("sha256"))
@@ -417,13 +414,14 @@ impl PrivateCheckpoint {
         snapshot: &world::WorldSnapshot,
         pack_sha256: String,
     ) -> Result<Self, WireError> {
-        snapshot.validate()?;
+        // Snapshot was checked at construction and cannot be externally
+        // mutated. Borrow its fields; do not deep-clone or revalidate.
         digest(&pack_sha256)?;
-        let parts = snapshot.private_checkpoint_parts();
+        let parts = snapshot.private_checkpoint_parts_ref();
         Ok(Self {
             schema_version: d::SCHEMA_VERSION,
-            campaign_id: parts.campaign_id,
-            pack_id: parts.pack_id,
+            campaign_id: parts.campaign_id.clone(),
+            pack_id: parts.pack_id.clone(),
             pack_sha256,
             world_version: parts.world_version.to_decimal(),
             quarter: parts.quarter.value(),
@@ -432,9 +430,9 @@ impl PrivateCheckpoint {
             scopes: parts.scopes.iter().map(Into::into).collect(),
             cohort_weights_ppm: *parts.cohort_weights.parts_ppm(),
             support_ppm: parts.support.map(|v| v.value()),
-            organisations: parts.organisations.map(|v| OrganisationAccount {
-                id: v.id().into(),
-                resources: v.resources(),
+            organisations: std::array::from_fn(|i| OrganisationAccount {
+                id: parts.organisations[i].id().into(),
+                resources: parts.organisations[i].resources(),
             }),
             commitments: parts.commitments.iter().map(Into::into).collect(),
             queued_responses: parts.queued_responses.iter().map(Into::into).collect(),
@@ -808,10 +806,17 @@ mod tests {
         };
         let good = serde_json::to_string(&pack).unwrap();
         assert!(parse_country_pack(&good).is_ok());
-        let mut broken = pack;
-        broken.evidence.push(broken.evidence[0].clone());
-        assert!(parse_country_pack(&serde_json::to_string(&broken).unwrap()).is_err());
-        broken.evidence[0].source_url = "http://example.org".into();
-        assert!(parse_country_pack(&serde_json::to_string(&broken).unwrap()).is_err());
+        let mut duplicate = pack.clone();
+        duplicate.evidence.push(duplicate.evidence[0].clone());
+        assert!(parse_country_pack(&serde_json::to_string(&duplicate).unwrap()).is_err());
+        let mut http = pack.clone();
+        http.evidence[0].source_url = "http://example.org".into();
+        assert!(parse_country_pack(&serde_json::to_string(&http).unwrap()).is_err());
+        let mut bad_date = pack.clone();
+        bad_date.evidence[0].release_date = "2026-02-30".into();
+        assert!(parse_country_pack(&serde_json::to_string(&bad_date).unwrap()).is_err());
+        let mut after_cutoff = pack;
+        after_cutoff.evidence[0].release_date = "2026-10-02".into();
+        assert!(parse_country_pack(&serde_json::to_string(&after_cutoff).unwrap()).is_err());
     }
 }
