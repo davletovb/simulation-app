@@ -3,9 +3,9 @@
 //! All state fields are private. Constructors validate inter-ledger consistency.
 //! Private minister effort is deliberately kept outside public projections.
 use crate::{
-    BeliefPpm, COHORT_ORDER, CohortWeights, Commitment, CommitmentStatus, ContractError,
+    BeliefPpm, CohortWeights, Commitment, CommitmentStatus, ContractError,
     DueQuarter, FundedScope, Ministry, PILOT_CREDITS, PolicyFamily, Quarter, SCHEMA_VERSION,
-    SIX_QUARTERS, Treasury, WireU64, validate_identifier,
+    Treasury, WireU64, validate_identifier,
 };
 use std::collections::BTreeSet;
 
@@ -122,9 +122,6 @@ impl WorldSnapshot {
         self.parts.treasury.validate()?;
         // Exact six cohort slots and a million ppm are enforced by fixed arrays
         // and the domain CohortWeights/BeliefPpm constructors.
-        if self.parts.cohort_weights.parts_ppm().len() != COHORT_ORDER.len() {
-            return Err(ContractError::InvalidPopulationWeights);
-        }
         if self.parts.organisations[0].id != Organisation::SchoolWorkforceAssociation
             || self.parts.organisations[1].id != Organisation::CommunityAccessNetwork {
             return Err(ContractError::InvalidScope);
