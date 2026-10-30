@@ -132,4 +132,11 @@ fn main() {
         &generated_schema::<EventRecord>(),
         &mode,
     );
+    put(
+        &root,
+        "docs/contracts/minister-output-subsets.json",
+        &format!("{}\n", serde_json::to_string_pretty(
+            &myth_contracts::strict_subset::profiles()).expect("profile schema")),
+        &mode,
+    );
 }
