@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/domain", "crates/contracts", "crates/local-api"]
+members = ["crates/domain", "crates/contracts", "crates/local-api", "crates/hiyal-adapter"]
 resolver = "3"
 
 [workspace.package]
