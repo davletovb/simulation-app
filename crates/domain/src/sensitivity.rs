@@ -332,7 +332,7 @@ mod tests {
         let compact:String=raw.chars().filter(|c|!c.is_whitespace()).collect();
         for (id,weights) in COHORT_TABLES {
             let cells=weights.iter().map(ToString::to_string).collect::<Vec<_>>().join(",");
-            let needle=format!("\\\"id\\\":\\\"{id}\\\",\\\"weights_ppm\\\":[{cells}]");
+            let needle=format!(r#""id":"{id}","weights_ppm":[{cells}]"#);
             assert!(compact.contains(&needle), "P2 population fixture drift for {id}");
         }
     }
