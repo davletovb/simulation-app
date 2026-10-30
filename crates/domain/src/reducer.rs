@@ -1351,7 +1351,7 @@ mod tests {
         c.apply(player(&c,"advance1",PlayerCommand::AdvanceQuarter)).unwrap();
         let before=c.world().world_version();
         assert_eq!(c.apply(player(&c,"propose-q2",PlayerCommand::Propose {
-            meeting_id:"q2".into(),allocation:Allocation::draft(20,30,10).unwrap()
+            meeting_id:"q2".into(),allocation:Allocation::draft(10,30,10).unwrap()
         })).err(),Some(Rejection::ProtectedCommitment));
         assert_eq!(c.world().world_version(),before);
         c.apply(player(&c,"advance2",PlayerCommand::AdvanceQuarter)).unwrap();
