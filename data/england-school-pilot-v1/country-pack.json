@@ -18,7 +18,7 @@
       "normalized_unit": "FTE",
       "transformation": "Transcribed 466372, no normalization",
       "licence_or_terms": "Release-specific source redistribution terms NOT YET CONFIRMED",
-      "sha256_hex": "f09c1e3eedff2be31eda38fc409c4a967ba01750e55f8bb7c459457de578e0e4",
+      "sha256_hex": "03d3542e4516584f07f57a937622a4e7b118444b7200d5816db0f260048e5ba3",
       "missing_reason": null
     },
     {
@@ -34,7 +34,7 @@
       "normalized_unit": "pupils per teacher",
       "transformation": "Transcribed 17.9, identity",
       "licence_or_terms": "Release-specific source redistribution terms NOT YET CONFIRMED",
-      "sha256_hex": "f09c1e3eedff2be31eda38fc409c4a967ba01750e55f8bb7c459457de578e0e4",
+      "sha256_hex": "03d3542e4516584f07f57a937622a4e7b118444b7200d5816db0f260048e5ba3",
       "missing_reason": null
     },
     {
@@ -50,7 +50,7 @@
       "normalized_unit": "ppm",
       "transformation": "Transcribed 0.4 percent times 10000",
       "licence_or_terms": "Release-specific source redistribution terms NOT YET CONFIRMED",
-      "sha256_hex": "f09c1e3eedff2be31eda38fc409c4a967ba01750e55f8bb7c459457de578e0e4",
+      "sha256_hex": "03d3542e4516584f07f57a937622a4e7b118444b7200d5816db0f260048e5ba3",
       "missing_reason": null
     },
     {
@@ -66,7 +66,7 @@
       "normalized_unit": "ppm",
       "transformation": "Transcribed 26.5 percent times 10000",
       "licence_or_terms": "Release-specific source redistribution terms NOT YET CONFIRMED",
-      "sha256_hex": "f09c1e3eedff2be31eda38fc409c4a967ba01750e55f8bb7c459457de578e0e4",
+      "sha256_hex": "03d3542e4516584f07f57a937622a4e7b118444b7200d5816db0f260048e5ba3",
       "missing_reason": null
     },
     {
@@ -82,7 +82,7 @@
       "normalized_unit": "ppm",
       "transformation": "Missing; no transformation",
       "licence_or_terms": "Release-specific source redistribution terms NOT YET CONFIRMED",
-      "sha256_hex": "f09c1e3eedff2be31eda38fc409c4a967ba01750e55f8bb7c459457de578e0e4",
+      "sha256_hex": "03d3542e4516584f07f57a937622a4e7b118444b7200d5816db0f260048e5ba3",
       "missing_reason": "No compatible observed joint distribution"
     },
     {
@@ -98,7 +98,7 @@
       "normalized_unit": "ppm",
       "transformation": "Missing; authored assumption instead",
       "licence_or_terms": "Release-specific source redistribution terms NOT YET CONFIRMED",
-      "sha256_hex": "f09c1e3eedff2be31eda38fc409c4a967ba01750e55f8bb7c459457de578e0e4",
+      "sha256_hex": "03d3542e4516584f07f57a937622a4e7b118444b7200d5816db0f260048e5ba3",
       "missing_reason": "No compatible cross-tabulation"
     },
     {
@@ -114,7 +114,7 @@
       "normalized_unit": "fictional service units",
       "transformation": "Missing; fictional units have no counterpart",
       "licence_or_terms": "Release-specific source redistribution terms NOT YET CONFIRMED",
-      "sha256_hex": "f09c1e3eedff2be31eda38fc409c4a967ba01750e55f8bb7c459457de578e0e4",
+      "sha256_hex": "03d3542e4516584f07f57a937622a4e7b118444b7200d5816db0f260048e5ba3",
       "missing_reason": "No measured real equivalent for fictional service units"
     },
     {
@@ -130,8 +130,72 @@
       "normalized_unit": "fictional service units",
       "transformation": "Missing; fictional units have no counterpart",
       "licence_or_terms": "Release-specific source redistribution terms NOT YET CONFIRMED",
-      "sha256_hex": "f09c1e3eedff2be31eda38fc409c4a967ba01750e55f8bb7c459457de578e0e4",
+      "sha256_hex": "03d3542e4516584f07f57a937622a4e7b118444b7200d5816db0f260048e5ba3",
       "missing_reason": "No measured real equivalent for fictional service units"
+    },
+    {
+      "stable_variable_id": "teaching_assistant_fte",
+      "geographic_scope": "England; school population scope depends on series",
+      "definition": "FTE teaching assistants in England state-funded schools",
+      "source_url": "https://explore-education-statistics.service.gov.uk/find-statistics/school-workforce-in-england/2025",
+      "publisher": "Department for Education",
+      "reference_period": "November 2025",
+      "release_date": "2026-06-04",
+      "retrieval_date": "2026-10-30",
+      "raw_unit": "FTE",
+      "normalized_unit": "FTE",
+      "transformation": "Transcribed 295183 as whole FTE",
+      "licence_or_terms": "Release-specific source redistribution terms NOT YET CONFIRMED",
+      "sha256_hex": "03d3542e4516584f07f57a937622a4e7b118444b7200d5816db0f260048e5ba3",
+      "missing_reason": null
+    },
+    {
+      "stable_variable_id": "school_count",
+      "geographic_scope": "England; school population scope depends on series",
+      "definition": "Schools including state-funded and independent schools; separate denominator from workforce",
+      "source_url": "https://explore-education-statistics.service.gov.uk/find-statistics/school-pupils-and-their-characteristics/2025-26",
+      "publisher": "Department for Education",
+      "reference_period": "2025-26 academic year",
+      "release_date": "2026-06-04",
+      "retrieval_date": "2026-10-30",
+      "raw_unit": "schools",
+      "normalized_unit": "schools",
+      "transformation": "Transcribed 24499 as integer",
+      "licence_or_terms": "Release-specific source redistribution terms NOT YET CONFIRMED",
+      "sha256_hex": "03d3542e4516584f07f57a937622a4e7b118444b7200d5816db0f260048e5ba3",
+      "missing_reason": null
+    },
+    {
+      "stable_variable_id": "allocated_funding_per_pupil_2026_27",
+      "geographic_scope": "England; school population scope depends on series",
+      "definition": "Allocated revenue funding per pupil for England state-funded school ages 5-16; allocation is not spending",
+      "source_url": "https://explore-education-statistics.service.gov.uk/find-statistics/school-funding-statistics/2025-26",
+      "publisher": "Department for Education",
+      "reference_period": "2026-27 financial year",
+      "release_date": "2026-01-29",
+      "retrieval_date": "2026-10-30",
+      "raw_unit": "GBP per pupil",
+      "normalized_unit": "GBP per pupil",
+      "transformation": "Transcribed GBP 8580 as integer; includes estimated components",
+      "licence_or_terms": "Release-specific source redistribution terms NOT YET CONFIRMED",
+      "sha256_hex": "03d3542e4516584f07f57a937622a4e7b118444b7200d5816db0f260048e5ba3",
+      "missing_reason": null
+    },
+    {
+      "stable_variable_id": "allocated_funding_total_2026_27",
+      "geographic_scope": "England; school population scope depends on series",
+      "definition": "Allocated total revenue funding for England state-funded ages 5-16; not capital or spending",
+      "source_url": "https://explore-education-statistics.service.gov.uk/find-statistics/school-funding-statistics/2025-26",
+      "publisher": "Department for Education",
+      "reference_period": "2026-27 financial year",
+      "release_date": "2026-01-29",
+      "retrieval_date": "2026-10-30",
+      "raw_unit": "GBP",
+      "normalized_unit": "GBP",
+      "transformation": "Transcribed GBP 65.9bn to GBP 65900000000; rounded original",
+      "licence_or_terms": "Release-specific source redistribution terms NOT YET CONFIRMED",
+      "sha256_hex": "03d3542e4516584f07f57a937622a4e7b118444b7200d5816db0f260048e5ba3",
+      "missing_reason": null
     }
   ]
 }
