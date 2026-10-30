@@ -1,4 +1,4 @@
-name: P2 one-time offline generated artifacts
+name: P2 one-time offline regenerated artifacts
 on:
   push:
     branches: [feat/p2-england-country-pack]
