@@ -46,7 +46,12 @@ fn supports(view: &RoleObservation, bad: bool) -> bool {
     let believe = view.belief_ppm.value();
     match view.ministry {
         Ministry::Finance => {
-            a.total() <= u32::from(view.available_credits) && believe >= 420_000 && !bad
+            a.total() <= u32::from(view.available_credits) && believe >= 420_000
+                && !view.owned_commitments.iter().any(|c| {
+                    c.kind == crate::CommitmentKind::Enforceable
+                        && c.issuer == Ministry::Finance
+                        && c.status == crate::CommitmentStatus::Broken
+                })
         }
         Ministry::Education => {
             u32::from(a.staff())
