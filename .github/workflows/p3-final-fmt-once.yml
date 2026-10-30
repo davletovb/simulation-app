@@ -1,0 +1,26 @@
+name: P3 one-time canonical formatting
+on:
+  push:
+    branches: [feat/p3-pure-reducer]
+    paths: [.github/workflows/p3-final-fmt-once.yml]
+permissions:
+  contents: write
+jobs:
+  fmt:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: true}
+      - uses: dtolnay/rust-toolchain@stable
+        with: {components: rustfmt}
+      - run: |
+          set -euo pipefail
+          cargo fmt --all
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add crates/domain/src/
+          if ! git diff --cached --quiet; then
+            git commit -m "P3: apply canonical rustfmt to integrated reducer and sensitivity"
+            git push origin HEAD:refs/heads/feat/p3-pure-reducer
+          fi
