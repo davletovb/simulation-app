@@ -10,7 +10,10 @@ use axum::{
     response::{IntoResponse, Response},
     routing::{get, post},
 };
-use myth_contracts::Allocation as WireAllocation;
+use myth_contracts::{
+    Allocation as WireAllocation, Family, ForecastLine, ForecastResponse, PreviewCalculator,
+    PreviewKind, ScriptedSeatVote, ScriptedVoteKind, ScriptedVotes, Ministry, Vote,
+};
 use myth_domain::{self as d, preview::optimistic_preview};
 use serde::{Deserialize, Serialize};
 use std::{net::SocketAddr, path::PathBuf, sync::Arc};
@@ -148,42 +151,12 @@ pub struct AllocationRequest {
     pub allocation: WireAllocation,
 }
 
-#[derive(Clone, Debug, Serialize)]
-#[serde(rename_all = "snake_case")]
-enum Family {
-    Staffing,
-    Repairs,
-    Access,
-}
-impl From<d::PolicyFamily> for Family {
-    fn from(f: d::PolicyFamily) -> Self {
-        match f {
-            d::PolicyFamily::Staffing => Self::Staffing,
-            d::PolicyFamily::Repairs => Self::Repairs,
-            d::PolicyFamily::Access => Self::Access,
-        }
-    }
-}
-#[derive(Serialize)]
-struct ForecastLine {
-    family: Family,
-    per_quarter: [u16; 6],
-    outstanding: u16,
-}
-#[derive(Serialize)]
-struct ForecastResponse {
-    kind: &'static str,
-    calculator: &'static str,
-    authoritative_simulation: bool,
-    conditional_access_bonus: bool,
-    families: Vec<ForecastLine>,
-}
 fn forecast(req: AllocationRequest) -> Result<ForecastResponse, ApiError> {
     let a = d::Allocation::try_from(req.allocation).map_err(|_| ApiError::Invalid)?;
     let preview = optimistic_preview(a).map_err(|_| ApiError::Invalid)?;
     Ok(ForecastResponse {
-        kind: "optimistic_upper_bound",
-        calculator: "myth-domain",
+        kind: PreviewKind::OptimisticUpperBound,
+        calculator: PreviewCalculator::MythDomain,
         authoritative_simulation: false,
         conditional_access_bonus: preview.conditional_access_bonus,
         families: preview
@@ -201,52 +174,36 @@ async fn preview(Json(req): Json<AllocationRequest>) -> Result<Json<ForecastResp
     forecast(req).map(Json)
 }
 
-#[derive(Serialize)]
-struct Vote {
-    ministry: &'static str,
-    position: &'static str,
-}
-#[derive(Serialize)]
-struct ScriptedVotes {
-    kind: &'static str,
-    passes_support_threshold: bool,
-    institutional_ratification: bool,
-    votes: [Vote; 3],
-    support_count: u8,
-    warning: &'static str,
-}
 fn scripted_votes(req: AllocationRequest) -> Result<ScriptedVotes, ApiError> {
     let a = d::Allocation::try_from(req.allocation).map_err(|_| ApiError::Invalid)?;
-    let feasible = a.total() <= u32::from(d::PILOT_CREDITS);
-    // P0 clean-belief baseline only; 500,000 ppm, no missed commitments,
-    // not a substitute for a frozen two-round P3 cabinet meeting.
-    let support = [
-        feasible,
-        feasible && a.staff() >= 45,
-        feasible && a.repairs() >= 35,
-    ];
+    if a.total() > u32::from(d::PILOT_CREDITS) {
+        return Err(ApiError::Invalid);
+    }
+    // P0 clean-belief baseline only; 500,000 ppm, no missed commitments.
+    // An invalid package is not submitted to the scripted electorate.
+    let support = [true, a.staff() >= 45, a.repairs() >= 35];
     let votes = [
-        Vote {
-            ministry: "finance",
-            position: if support[0] { "support" } else { "oppose" },
+        ScriptedSeatVote {
+            ministry: Ministry::Finance,
+            position: if support[0] { Vote::Support } else { Vote::Oppose },
         },
-        Vote {
-            ministry: "education",
-            position: if support[1] { "support" } else { "oppose" },
+        ScriptedSeatVote {
+            ministry: Ministry::Education,
+            position: if support[1] { Vote::Support } else { Vote::Oppose },
         },
-        Vote {
-            ministry: "infrastructure",
-            position: if support[2] { "support" } else { "oppose" },
+        ScriptedSeatVote {
+            ministry: Ministry::Infrastructure,
+            position: if support[2] { Vote::Support } else { Vote::Oppose },
         },
     ];
     let count = support.iter().filter(|v| **v).count() as u8;
     Ok(ScriptedVotes {
-        kind: "clean_belief_scripted_votes",
+        kind: ScriptedVoteKind::CleanBeliefScriptedVotes,
         passes_support_threshold: count >= 2,
         institutional_ratification: false,
         votes,
         support_count: count,
-        warning: "Illustrative clean-belief snapshot only; no meeting, ratification or treasury mutation",
+        warning: "Illustrative clean-belief snapshot only; no meeting, ratification or treasury mutation".into(),
     })
 }
 async fn cabinet(Json(req): Json<AllocationRequest>) -> Result<Json<ScriptedVotes>, ApiError> {
@@ -260,13 +217,19 @@ async fn put_record(
     if id != record.record_id {
         return Err(ApiError::Invalid);
     }
-    state.store.put(record).map(Json).map_err(Into::into)
+    let store = state.store.clone();
+    tokio::task::spawn_blocking(move || store.put(record))
+        .await.map_err(|_| ApiError::Storage)?
+        .map(Json).map_err(Into::into)
 }
 async fn get_record(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<Json<StoredRecord>, ApiError> {
-    state.store.get(&id).map(Json).map_err(Into::into)
+    let store = state.store.clone();
+    tokio::task::spawn_blocking(move || store.get(&id))
+        .await.map_err(|_| ApiError::Storage)?
+        .map(Json).map_err(Into::into)
 }
 
 fn is_allowed_local_authority(host: &str) -> bool {
@@ -368,11 +331,7 @@ mod tests {
             scripted_votes(request(40, 30, 20)).unwrap().support_count,
             1
         );
-        assert!(
-            !scripted_votes(request(60, 40, 10))
-                .unwrap()
-                .passes_support_threshold
-        );
+        assert!(matches!(scripted_votes(request(60, 40, 10)), Err(ApiError::Invalid)));
     }
     #[test]
     fn optimistic_preview_matches_domain_not_typescript() {
