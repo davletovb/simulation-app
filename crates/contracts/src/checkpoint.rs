@@ -846,3 +846,20 @@ mod tests {
         assert!(parse_country_pack(&serde_json::to_string(&after_cutoff).unwrap()).is_err());
     }
 }
+
+#[cfg(test)]
+mod p2_frozen_pack_tests {
+    #[test]
+    fn frozen_england_headline_provenance_matches_p1_contract() {
+        let raw = include_str!("../../../data/england-school-pilot-v1/country-pack.json");
+        let pack = super::parse_country_pack(raw).expect("P2 fixture must satisfy P1 country-pack contract");
+        assert_eq!(pack.country_iso, "GB");
+        assert_eq!(pack.simulated_jurisdiction, "england");
+        assert_eq!(pack.cutoff_utc, "2026-10-29T23:59:59Z");
+        assert_eq!(pack.evidence.len(), 12);
+        assert_eq!(
+            pack.evidence.iter().filter(|entry| entry.missing_reason.is_none()).count(),
+            8
+        );
+    }
+}
