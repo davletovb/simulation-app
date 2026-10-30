@@ -260,6 +260,27 @@ pub async fn advance_slice(trial:&mut GameTrial)->Result<bool,String>{
     trial.store.world().verify()?;
     Ok(true)
 }
+/// Performance-only sequential cabinet path: measures each complete Hiyal
+/// role step (including EveryEvent fsync), rather than dividing an opaque
+/// three-actor frozen batch by three. Recovery acceptance still separately
+/// verifies the production frozen run_round path, including crash suffixes.
+pub async fn benchmark_sequential_cabinet(trial:&mut GameTrial)
+    ->Result<Vec<u128>,String>
+{
+    let phase=trial.store.world().phase.as_str();
+    if phase!="first_positions_frozen" && phase!="final_positions_frozen" {
+        return Err("not inside a cabinet phase".into());
+    }
+    enable(trial,&crate::ACTORS[1..4])?;
+    let mut times=vec![];
+    for _ in 0..3 {
+        let begin=std::time::Instant::now();
+        check_step(trial.step().await?)?;
+        times.push(begin.elapsed().as_micros());
+    }
+    trial.store.world().verify()?;
+    Ok(times)
+}
 pub async fn run_until_closed(trial:&mut GameTrial)->Result<(),String>{
     for _ in 0..100 {
         if !advance_slice(trial).await? {
