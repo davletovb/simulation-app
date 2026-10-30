@@ -792,6 +792,16 @@ mod tests {
         assert!(matches!(WorldSnapshot::from_parts(no_spend),
             Err(ContractError::InvalidTreasury)));
 
+        let mut cumulative = seed.clone();
+        cumulative.treasury = Treasury::from_parts(95, 0, 0, 0, 5, 0).unwrap();
+        cumulative.queued_responses.push(make(1, 2));
+        cumulative.queued_responses.push(QueuedResponse::new(
+            "another".into(), Quarter::new(1).unwrap(),
+            DueQuarter::new(2).unwrap(), [0, 3, 0], 3,
+        ).unwrap());
+        assert!(matches!(WorldSnapshot::from_parts(cumulative),
+            Err(ContractError::InvalidTreasury)));
+
         let mut future = seed.clone();
         future.treasury = Treasury::from_parts(97, 0, 0, 0, 3, 0).unwrap();
         future.queued_responses.push(make(2, 3));
