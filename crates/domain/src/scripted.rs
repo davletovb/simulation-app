@@ -82,23 +82,23 @@ pub fn decide(view: &RoleObservation) -> Result<ScriptDecision, ContractError> {
         })
         .collect();
     ranked.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.cmp(b.1)));
-    let (_score, menu_id, preferred) = ranked
-        .first()
-        .copied()
-        .ok_or(ContractError::InvalidCreditAmount)?;
-    validate_identifier(menu_id)?;
+    // A later quarter may have less than the minimum 90-credit menu package.
+    // The valid player proposal is then a finite, role-visible typed fallback:
+    // do not infer additional budget or use hidden campaign state.
+    let (preferred, origin) = if let Some((_, menu_id, allocation)) = ranked.first().copied() {
+        validate_identifier(menu_id)?;
+        (allocation, CounterproposalOrigin::Menu(menu_id.into()))
+    } else if view.allocation.total() <= u32::from(view.available_credits) {
+        (view.allocation, CounterproposalOrigin::NewTyped)
+    } else {
+        // An all-zero counteroffer is affordable even when no policy is.
+        (Allocation::draft(0, 0, 0)?, CounterproposalOrigin::NewTyped)
+    };
     let choice = PreferredAllocation::assess(preferred, view.available_credits)?;
     let first = FirstPosition::new(
-        view.meeting_id.clone(),
-        view.proposal_version,
-        view.ministry,
-        if supports(view, bad) {
-            Position::Support
-        } else {
-            Position::Oppose
-        },
-        choice,
-        CounterproposalOrigin::Menu(menu_id.into()),
+        view.meeting_id.clone(), view.proposal_version, view.ministry,
+        if supports(view, bad) { Position::Support } else { Position::Oppose },
+        choice, origin,
     )?;
     let vote = if supports(view, bad) {
         Position::Support
@@ -216,6 +216,18 @@ mod tests {
                 .total()
                 <= 100
         );
+    }
+    #[test]
+    fn later_quarter_counteroffer_remains_feasible_below_menu_floor() {
+        let allocation=Allocation::draft(30,20,10).unwrap();
+        for budget in [79_u16,60,10,0] {
+            let mut obs=view(Ministry::Education,allocation,500_000);
+            obs.available_credits=budget;
+            let decision=decide(&obs).unwrap();
+            assert!(decision.first.preferred_allocation.allocation().total() <= u32::from(budget));
+            assert_eq!(decision.first.proposal_version,obs.proposal_version);
+            assert_eq!(decision.final_position.proposal_version,obs.proposal_version);
+        }
     }
     #[test]
     fn finance_treats_political_misses_as_preferences_not_legal_veto() {
