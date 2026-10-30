@@ -275,7 +275,7 @@ pub enum Counterproposal {
     Menu { menu_id: String },
     NewTyped,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, JsonSchema, TS)]
 #[serde(deny_unknown_fields)]
 pub struct MinisterAction {
     pub schema_version: u16,
@@ -470,6 +470,15 @@ mod tests {
             panic!("wrong stage")
         }
     }
+    #[test]
+    fn private_action_rejects_extra_fields_and_public_view_is_separate() {
+        let raw = minister("final", "education", "800");
+        let extra = raw.replace("\"rationale_summary\":\"\"", "\"rationale_summary\":\"\",\"private_leak\":true");
+        assert!(matches!(parse_minister_action(&extra, 100), Err(WireError::Json(_))));
+        let schema = serde_json::to_value(schemars::schema_for!(PublicRoleView)).unwrap();
+        assert!(schema["properties"].get("implementation_effort_permille").is_none());
+    }
+
     #[test]
     fn generated_schema_and_types_show_string_versions_not_private_effort() {
         let schema = serde_json::to_value(schemars::schema_for!(CommandEnvelope)).unwrap();
