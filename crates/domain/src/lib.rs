@@ -9,6 +9,8 @@ pub mod audit;
 pub mod fixed;
 pub mod preview;
 pub mod reducer;
+pub mod scripted;
+pub mod sensitivity;
 pub mod world;
 
 use std::collections::BTreeSet;
