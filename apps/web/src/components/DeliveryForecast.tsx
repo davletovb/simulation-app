@@ -23,6 +23,9 @@ export function DeliveryForecast({ allocation, preview }: { allocation: Allocati
         <p>{preview.status === 'loading'
           ? 'Calculating the optimistic delivery ceiling with the local Rust service…'
           : 'Rust delivery preview unavailable. Start the loopback service (cargo run -p myth-local-api) to see a verified estimate. No TypeScript fallback is substituted.'}</p>
+        {preview.status === 'unavailable' && (
+          <button type="button" onClick={preview.retry}>Retry Rust preview</button>
+        )}
       </div>
     )
   }
@@ -30,7 +33,11 @@ export function DeliveryForecast({ allocation, preview }: { allocation: Allocati
   const shortfalls = rows.filter(r => r.outstanding > 0)
   return (
     <>
-      <p className="panel-note" role="status">Optimistic ceiling · calculated by Rust · not a simulated result</p>
+      <p className="panel-note" role="status">
+        {preview.status === 'updating'
+          ? 'Updating Rust estimate… showing the previous allocation only. These values do not describe the new draft.'
+          : 'Optimistic ceiling · calculated by Rust · not a simulated result'}
+      </p>
       <div className="forecast-scroll">
         <table className="forecast-table">
           <caption className="sr-only">
@@ -71,7 +78,7 @@ export function DeliveryForecast({ allocation, preview }: { allocation: Allocati
           </tbody>
         </table>
       </div>
-      {shortfalls.length > 0 && (
+      {preview.status === 'ready' && shortfalls.length > 0 && (
         <ul className="forecast-warnings">
           {shortfalls.map(r => (
             <li key={r.family.id}>
