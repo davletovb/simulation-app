@@ -1,0 +1,32 @@
+name: P4 one-shot lockfile and pinned Hiyal adapter validation
+on:
+  push:
+    branches: [feat/p4-hiyal-recovery]
+    paths: [.github/workflows/p4-bootstrap-once.yml]
+permissions:
+  contents: write
+jobs:
+  compile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 14
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: true}
+      - uses: dtolnay/rust-toolchain@stable
+        with: {toolchain: '1.99.1', components: 'rustfmt,clippy'}
+      - name: Lock approved Hiyal revision, format and test adapter
+        run: |
+          set -euo pipefail
+          cargo generate-lockfile
+          cargo fmt --all
+          cargo test --locked -p myth-hiyal-adapter -- --nocapture
+      - name: Commit exact lock and canonical format
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Cargo.lock crates/hiyal-adapter
+          if ! git diff --cached --quiet; then
+            git commit -m "P4: freeze pinned Hiyal dependency and canonical adapter format"
+            git push origin HEAD:refs/heads/feat/p4-hiyal-recovery
+          fi
