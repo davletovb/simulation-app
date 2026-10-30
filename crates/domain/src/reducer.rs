@@ -160,7 +160,7 @@ pub struct Campaign {
     scheduled_lifetime: [u16; 3],
     audits: Vec<DeliveryAudit>,
     beliefs: BeliefLedger,
-    disclosed: BTreeMap<Ministry,BTreeSet<String>>,
+    disclosed: BTreeMap<Ministry, BTreeSet<String>>,
 }
 
 pub enum Action {
@@ -244,9 +244,16 @@ impl Campaign {
             constituency_support_ppm: u32::try_from(weighted / 1_000_000)
                 .map_err(|_| Rejection::Arithmetic)?,
             latest_public_report: latest,
-            visible_audits: self.audits.iter().filter(|audit|
-                self.disclosed.get(&ministry).is_some_and(|ids|ids.contains(&audit.id))
-            ).cloned().collect(),
+            visible_audits: self
+                .audits
+                .iter()
+                .filter(|audit| {
+                    self.disclosed
+                        .get(&ministry)
+                        .is_some_and(|ids| ids.contains(&audit.id))
+                })
+                .cloned()
+                .collect(),
         })
     }
     /// Game-truth audit records are player-private until explicitly disclosed.
@@ -283,20 +290,31 @@ impl Campaign {
         ministry: Ministry,
     ) -> Result<crate::RoleObservation, Rejection> {
         let meeting = self.meeting.as_ref().ok_or(Rejection::InvalidPhase)?;
-        let mut view=self.world.role_observation(
-            ministry,meeting.id.clone(),meeting.version,meeting.allocation,
+        let mut view = self.world.role_observation(
+            ministry,
+            meeting.id.clone(),
+            meeting.version,
+            meeting.allocation,
             crate::BeliefPpm::new(self.beliefs.belief(ministry))?,
         )?;
         // A replacement proposal can release undelivered, unprotected
         // encumbrances. The role sees the net fundable campaign stock, not just
         // the current 'available' treasury bucket; legal protection is checked
         // independently at proposal admission and ratification.
-        let fundable=u32::from(self.world.treasury().available())
-            +[PolicyFamily::Staffing,PolicyFamily::Repairs,PolicyFamily::Access]
-                .iter().map(|f|u32::from(self.world.treasury().encumbered(*f))).sum::<u32>();
-        view.available_credits=u16::try_from(fundable).map_err(|_|Rejection::Arithmetic)?;
-        view.visible_evidence_ids=self.disclosed.get(&ministry)
-            .map_or_else(Vec::new,|ids|ids.iter().cloned().collect());
+        let fundable = u32::from(self.world.treasury().available())
+            + [
+                PolicyFamily::Staffing,
+                PolicyFamily::Repairs,
+                PolicyFamily::Access,
+            ]
+            .iter()
+            .map(|f| u32::from(self.world.treasury().encumbered(*f)))
+            .sum::<u32>();
+        view.available_credits = u16::try_from(fundable).map_err(|_| Rejection::Arithmetic)?;
+        view.visible_evidence_ids = self
+            .disclosed
+            .get(&ministry)
+            .map_or_else(Vec::new, |ids| ids.iter().cloned().collect());
         view.validate()?;
         Ok(view)
     }
@@ -457,7 +475,9 @@ impl Campaign {
                             receipt
                                 .belief_updates
                                 .push(self.beliefs.observe(&evidence, *ministry)?);
-                            self.disclosed.entry(*ministry).or_default()
+                            self.disclosed
+                                .entry(*ministry)
+                                .or_default()
                                 .insert(evidence.id.clone());
                         }
                     }
@@ -1650,14 +1670,20 @@ mod tests {
             .unwrap();
         assert_eq!(correction.belief_updates[0].delta, 0);
         assert_eq!(c.belief_for(Ministry::Education), 420000);
-        c.apply(player(&c,"q3-proposal",PlayerCommand::Propose{
-            meeting_id:"q3".into(),allocation:Allocation::draft(30,20,10).unwrap()
-        })).unwrap();
-        let education=c.role_view(Ministry::Education).unwrap();
-        let infrastructure=c.role_view(Ministry::Infrastructure).unwrap();
-        assert_eq!(education.visible_audits.len(),2);
-        assert_eq!(education.observation.visible_evidence_ids.len(),2);
-        assert_eq!(infrastructure.visible_audits.len(),0);
+        c.apply(player(
+            &c,
+            "q3-proposal",
+            PlayerCommand::Propose {
+                meeting_id: "q3".into(),
+                allocation: Allocation::draft(30, 20, 10).unwrap(),
+            },
+        ))
+        .unwrap();
+        let education = c.role_view(Ministry::Education).unwrap();
+        let infrastructure = c.role_view(Ministry::Infrastructure).unwrap();
+        assert_eq!(education.visible_audits.len(), 2);
+        assert_eq!(education.observation.visible_evidence_ids.len(), 2);
+        assert_eq!(infrastructure.visible_audits.len(), 0);
         assert!(infrastructure.observation.visible_evidence_ids.is_empty());
         c.world().validate().unwrap();
     }
@@ -1745,52 +1771,103 @@ mod tests {
     #[test]
     fn missed_funded_staffing_deadline_changes_relationship_once_without_double_spend() {
         use crate::FundedCondition;
-        let mut c=campaign();
-        open(&mut c,Allocation::draft(50,40,10).unwrap());
-        for role in ROLES {first(&mut c,role);}
-        c.apply(Action::FreezeFinal{command_id:"freeze".into()}).unwrap();
-        let mut finance=FinalPosition::new("q1".into(),c.proposal_version().unwrap(),
-            Ministry::Finance,Position::Support,
-            PreferredAllocation::assess(Allocation::draft(50,40,10).unwrap(),100).unwrap()).unwrap();
-        finance.set_public_details(vec![FundedCondition::new("staff-by-q2".into(),
-            PolicyFamily::Staffing,12,DueQuarter::new(2).unwrap()).unwrap()],
-            vec![],"enforceable staffing deadline".into()).unwrap();
-        c.apply(Action::Final(finance,None)).unwrap();
-        final_vote(&mut c,Ministry::Education,Position::Support,0);
-        final_vote(&mut c,Ministry::Infrastructure,Position::Support,1000);
-        c.apply(player(&c,"ratify",PlayerCommand::Ratify{
-            meeting_id:"q1".into(),proposal_version:c.proposal_version().unwrap()
-        })).unwrap();
-        c.apply(player(&c,"advance1",PlayerCommand::AdvanceQuarter)).unwrap();
-        c.apply(player(&c,"advance2",PlayerCommand::AdvanceQuarter)).unwrap();
-        assert_eq!(c.world().commitments()[0].status,CommitmentStatus::Broken);
-        assert_eq!(c.relationship()[0],45);
-        assert_eq!(c.world().treasury().encumbered(PolicyFamily::Staffing),50);
-        assert_eq!(c.world().treasury().service_spent(),9);
-        c.apply(player(&c,"advance3",PlayerCommand::AdvanceQuarter)).unwrap();
-        assert_eq!(c.relationship()[0],45);
+        let mut c = campaign();
+        open(&mut c, Allocation::draft(50, 40, 10).unwrap());
+        for role in ROLES {
+            first(&mut c, role);
+        }
+        c.apply(Action::FreezeFinal {
+            command_id: "freeze".into(),
+        })
+        .unwrap();
+        let mut finance = FinalPosition::new(
+            "q1".into(),
+            c.proposal_version().unwrap(),
+            Ministry::Finance,
+            Position::Support,
+            PreferredAllocation::assess(Allocation::draft(50, 40, 10).unwrap(), 100).unwrap(),
+        )
+        .unwrap();
+        finance
+            .set_public_details(
+                vec![
+                    FundedCondition::new(
+                        "staff-by-q2".into(),
+                        PolicyFamily::Staffing,
+                        12,
+                        DueQuarter::new(2).unwrap(),
+                    )
+                    .unwrap(),
+                ],
+                vec![],
+                "enforceable staffing deadline".into(),
+            )
+            .unwrap();
+        c.apply(Action::Final(finance, None)).unwrap();
+        final_vote(&mut c, Ministry::Education, Position::Support, 0);
+        final_vote(&mut c, Ministry::Infrastructure, Position::Support, 1000);
+        c.apply(player(
+            &c,
+            "ratify",
+            PlayerCommand::Ratify {
+                meeting_id: "q1".into(),
+                proposal_version: c.proposal_version().unwrap(),
+            },
+        ))
+        .unwrap();
+        c.apply(player(&c, "advance1", PlayerCommand::AdvanceQuarter))
+            .unwrap();
+        c.apply(player(&c, "advance2", PlayerCommand::AdvanceQuarter))
+            .unwrap();
+        assert_eq!(c.world().commitments()[0].status, CommitmentStatus::Broken);
+        assert_eq!(c.relationship()[0], 45);
+        assert_eq!(c.world().treasury().encumbered(PolicyFamily::Staffing), 50);
+        assert_eq!(c.world().treasury().service_spent(), 9);
+        c.apply(player(&c, "advance3", PlayerCommand::AdvanceQuarter))
+            .unwrap();
+        assert_eq!(c.relationship()[0], 45);
         c.world().validate().unwrap();
     }
     #[test]
-    fn organisation_actions_consume_resources_only_for_next_quarter(){
-        let mut no_policy=campaign();
-        let a=no_policy.apply(player(&no_policy,"advance1",PlayerCommand::AdvanceQuarter)).unwrap();
+    fn organisation_actions_consume_resources_only_for_next_quarter() {
+        let mut no_policy = campaign();
+        let a = no_policy
+            .apply(player(
+                &no_policy,
+                "advance1",
+                PlayerCommand::AdvanceQuarter,
+            ))
+            .unwrap();
         assert!(a.report.unwrap().staff_slowdown_next);
-        assert_eq!(no_policy.world().organisations()[0].resources(),8);
-        assert_eq!(no_policy.world().organisations()[1].resources(),5);
-        let mut funded=campaign();
-        open(&mut funded,Allocation::draft(50,40,10).unwrap());
-        votes(&mut funded,[true,true,true]);
-        funded.apply(player(&funded,"ratify",PlayerCommand::Ratify{
-            meeting_id:"q1".into(),proposal_version:funded.proposal_version().unwrap()
-        })).unwrap();
-        let q1=funded.apply(player(&funded,"advance1",PlayerCommand::AdvanceQuarter)).unwrap();
-        assert_eq!(q1.delivered[2],4);
+        assert_eq!(no_policy.world().organisations()[0].resources(), 8);
+        assert_eq!(no_policy.world().organisations()[1].resources(), 5);
+        let mut funded = campaign();
+        open(&mut funded, Allocation::draft(50, 40, 10).unwrap());
+        votes(&mut funded, [true, true, true]);
+        funded
+            .apply(player(
+                &funded,
+                "ratify",
+                PlayerCommand::Ratify {
+                    meeting_id: "q1".into(),
+                    proposal_version: funded.proposal_version().unwrap(),
+                },
+            ))
+            .unwrap();
+        let q1 = funded
+            .apply(player(&funded, "advance1", PlayerCommand::AdvanceQuarter))
+            .unwrap();
+        assert_eq!(q1.delivered[2], 4);
         assert!(q1.report.unwrap().access_bonus_next);
-        assert_eq!(funded.world().organisations()[1].resources(),4);
-        let q2=funded.apply(player(&funded,"advance2",PlayerCommand::AdvanceQuarter)).unwrap();
-        assert_eq!(q2.delivered[2],5);
-        assert_eq!(funded.world().treasury().service_spent(),4+q2.delivered.iter().sum::<u16>());
+        assert_eq!(funded.world().organisations()[1].resources(), 4);
+        let q2 = funded
+            .apply(player(&funded, "advance2", PlayerCommand::AdvanceQuarter))
+            .unwrap();
+        assert_eq!(q2.delivered[2], 5);
+        assert_eq!(
+            funded.world().treasury().service_spent(),
+            4 + q2.delivered.iter().sum::<u16>()
+        );
     }
     #[test]
     fn signed_coefficients_keep_losing_cells_negative() {

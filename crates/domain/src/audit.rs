@@ -211,21 +211,26 @@ mod tests {
     }
     #[test]
     fn conflicting_accepted_target_is_rejected_until_explicit_higher_version() {
-        let mut ledger=BeliefLedger::default();
-        let original=example(10,10,10);
-        ledger.observe(&original,Ministry::Finance).unwrap();
-        assert_eq!(ledger.belief(Ministry::Finance),540_000);
-        let mut conflict=original.clone();
-        conflict.id="conflict-same-version".into();
-        conflict.inspected_cumulative=0;
-        assert_eq!(ledger.observe(&conflict,Ministry::Finance),
-            Err(ContractError::InvalidCondition));
-        assert_eq!(ledger.belief(Ministry::Finance),540_000);
-        conflict.version=WireU64::new(2);
-        let corrected=ledger.observe(&conflict,Ministry::Finance).unwrap();
-        assert_eq!(corrected.delta,0);
-        assert_eq!(corrected.disposition,BeliefDisposition::SupersedingWithoutReplay);
-        assert_eq!(ledger.belief(Ministry::Finance),540_000);
+        let mut ledger = BeliefLedger::default();
+        let original = example(10, 10, 10);
+        ledger.observe(&original, Ministry::Finance).unwrap();
+        assert_eq!(ledger.belief(Ministry::Finance), 540_000);
+        let mut conflict = original.clone();
+        conflict.id = "conflict-same-version".into();
+        conflict.inspected_cumulative = 0;
+        assert_eq!(
+            ledger.observe(&conflict, Ministry::Finance),
+            Err(ContractError::InvalidCondition)
+        );
+        assert_eq!(ledger.belief(Ministry::Finance), 540_000);
+        conflict.version = WireU64::new(2);
+        let corrected = ledger.observe(&conflict, Ministry::Finance).unwrap();
+        assert_eq!(corrected.delta, 0);
+        assert_eq!(
+            corrected.disposition,
+            BeliefDisposition::SupersedingWithoutReplay
+        );
+        assert_eq!(ledger.belief(Ministry::Finance), 540_000);
     }
     #[test]
     fn variation_budget_is_per_minister_and_nonreplenishing() {
