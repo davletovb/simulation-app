@@ -319,7 +319,11 @@ pub enum MinisterAction {
         rationale_summary: String,
         #[serde(default, deserialize_with = "deserialize_present_effort")]
         #[ts(optional)]
-        #[schemars(with = "u16", range(min = 0, max = 1000), skip_serializing_if = "Option::is_none")]
+        #[schemars(
+            with = "u16",
+            range(min = 0, max = 1000),
+            skip_serializing_if = "Option::is_none"
+        )]
         implementation_effort_permille: Option<u16>,
     },
 }
