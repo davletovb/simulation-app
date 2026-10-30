@@ -24,6 +24,19 @@
 
 The reference ranking is the authored_baseline population, 100% response coefficients, original delivery lags and one-quarter response lag. A reversal is defined as a strict sign change in **balanced weighted support minus staff_first weighted support**; ties are not counted as reversals. Other metrics (delivered units, outstanding encumbrances, six cell-level support values and minister relationship scores) are recorded for every variant in [the complete results table](../data/england-school-pilot-v1/p3-sensitivity-results.csv), not silently omitted.
 
+## Distributional gains, losses and rank sensitivity
+
+| Synthetic beneficiary cell | Min support ppm | Max support ppm | Accepted runs below 500,000 | Accepted runs above 500,000 | Package rank reversals vs reference |
+|---|---:|---:|---:|---:|---:|
+| urban-low | 501795 | 507304 | 0 | 72 | 0 |
+| urban-middle | 502950 | 512450 | 0 | 72 | 0 |
+| urban-high | 477276 | 496426 | 72 | 0 | 0 |
+| rural-low | 502485 | 510454 | 0 | 72 | 0 |
+| rural-middle | 503850 | 515150 | 0 | 72 | 0 |
+| rural-high | 480606 | 497175 | 72 | 0 | 0 |
+
+These are *simulated cell support changes*, not observed gains/losses among England residents. The baseline of 500,000 ppm is authored, and ties are excluded from reversal counts.
+
 ## Empirical and identification limits
 
 The sweep is numerical sensitivity within an authored deterministic mechanism, not causal identification or validation of any real England policy. No observed school-beneficiary joint income-by-residence distribution or response elasticities are available. The program changes **only** the declared model knobs and weights, not actor choices or shocks. Policy rankings outside these magnitudes/delays/tables remain unexamined. Infeasible and vote-rejected proposals have no policy spending; social responses remain bounded. The all-zero shock schedule is an explicit controlled experiment assumption.

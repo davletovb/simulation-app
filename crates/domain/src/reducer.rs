@@ -113,8 +113,8 @@ pub struct QuarterReport {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PublicQuarterReport {
     pub quarter: Quarter,
-    pub reported_cumulative: [u16;3],
-    pub due_cumulative: [u16;3],
+    pub reported_cumulative: [u16; 3],
+    pub due_cumulative: [u16; 3],
     pub weighted_support_ppm: u32,
     pub staff_slowdown_next: bool,
     pub access_bonus_next: bool,
@@ -216,28 +216,31 @@ impl Campaign {
         &self.reports
     }
     pub fn player_reports(&self) -> Vec<PublicQuarterReport> {
-        self.reports.iter().map(|x| PublicQuarterReport {
-            quarter:x.quarter,
-            reported_cumulative:x.reported,
-            due_cumulative:x.due_schedule,
-            weighted_support_ppm:x.weighted_support_ppm,
-            staff_slowdown_next:x.staff_slowdown_next,
-            access_bonus_next:x.access_bonus_next,
-        }).collect()
+        self.reports
+            .iter()
+            .map(|x| PublicQuarterReport {
+                quarter: x.quarter,
+                reported_cumulative: x.reported,
+                due_cumulative: x.due_schedule,
+                weighted_support_ppm: x.weighted_support_ppm,
+                staff_slowdown_next: x.staff_slowdown_next,
+                access_bonus_next: x.access_bonus_next,
+            })
+            .collect()
     }
     pub fn role_view(&self, ministry: Ministry) -> Result<RoleView, Rejection> {
-        let observation=self.role_observation(ministry)?;
-        let latest=self.player_reports().into_iter().last();
-        let mut weighted=0_u128;
+        let observation = self.role_observation(ministry)?;
+        let latest = self.player_reports().into_iter().last();
+        let mut weighted = 0_u128;
         for ix in 0..6 {
-            weighted+=u128::from(self.world.support()[ix].value())
-                *u128::from(self.world.cohort_weights().parts_ppm()[ix]);
+            weighted += u128::from(self.world.support()[ix].value())
+                * u128::from(self.world.cohort_weights().parts_ppm()[ix]);
         }
         Ok(RoleView {
             observation,
             constituency_support_ppm: u32::try_from(weighted / 1_000_000)
-                .map_err(|_|Rejection::Arithmetic)?,
-            latest_public_report:latest,
+                .map_err(|_| Rejection::Arithmetic)?,
+            latest_public_report: latest,
         })
     }
     /// Game-truth audit records are player-private until explicitly disclosed.
@@ -524,38 +527,65 @@ impl Campaign {
         }
         Ok(())
     }
-    fn protected_scope_units(&self, proposal: Allocation)
-        -> Result<BTreeMap<String,u16>, Rejection>
-    {
-        let mut keep=BTreeMap::new();
+    fn protected_scope_units(
+        &self,
+        proposal: Allocation,
+    ) -> Result<BTreeMap<String, u16>, Rejection> {
+        let mut keep = BTreeMap::new();
         for family in FAMILIES {
-            let ix=family_index(family);
-            let mut required=0_u16;
+            let ix = family_index(family);
+            let mut required = 0_u16;
             for commitment in self.world.commitments() {
-                if commitment.kind!=CommitmentKind::Enforceable
-                    || commitment.status!=CommitmentStatus::Pending {continue;}
-                let info=self.conditions.iter().find(|p|p.id==commitment.id)
+                if commitment.kind != CommitmentKind::Enforceable
+                    || commitment.status != CommitmentStatus::Pending
+                {
+                    continue;
+                }
+                let info = self
+                    .conditions
+                    .iter()
+                    .find(|p| p.id == commitment.id)
                     .ok_or(Rejection::InvalidCondition)?;
-                if info.family!=family {continue;}
-                let delivered=self.delivered_lifetime[ix].checked_sub(info.baseline_delivered)
+                if info.family != family {
+                    continue;
+                }
+                let delivered = self.delivered_lifetime[ix]
+                    .checked_sub(info.baseline_delivered)
                     .ok_or(Rejection::Arithmetic)?;
-                required=required.checked_add(commitment.funded_units.saturating_sub(delivered))
+                required = required
+                    .checked_add(commitment.funded_units.saturating_sub(delivered))
                     .ok_or(Rejection::Arithmetic)?;
             }
-            if required>proposal.units(family) {return Err(Rejection::ProtectedCommitment);}
-            let mut scopes:Vec<_>=self.world.scopes().iter().filter(|scope|
-                scope.family()==family && !scope.is_terminated() && scope.remaining_units()>0
-            ).collect();
-            scopes.sort_by(|x,y|x.activation_quarter().cmp(&y.activation_quarter())
-                .then_with(||x.id().cmp(y.id())));
-            let mut remaining=required;
+            if required > proposal.units(family) {
+                return Err(Rejection::ProtectedCommitment);
+            }
+            let mut scopes: Vec<_> = self
+                .world
+                .scopes()
+                .iter()
+                .filter(|scope| {
+                    scope.family() == family
+                        && !scope.is_terminated()
+                        && scope.remaining_units() > 0
+                })
+                .collect();
+            scopes.sort_by(|x, y| {
+                x.activation_quarter()
+                    .cmp(&y.activation_quarter())
+                    .then_with(|| x.id().cmp(y.id()))
+            });
+            let mut remaining = required;
             for scope in scopes {
-                if remaining==0 {break;}
-                let held=scope.remaining_units().min(remaining);
-                keep.insert(scope.id().to_string(),held);
-                remaining-=held;
+                if remaining == 0 {
+                    break;
+                }
+                let held = scope.remaining_units().min(remaining);
+                keep.insert(scope.id().to_string(), held);
+                remaining -= held;
             }
-            if remaining!=0 {return Err(Rejection::ProtectedCommitment);}
+            if remaining != 0 {
+                return Err(Rejection::ProtectedCommitment);
+            }
         }
         Ok(keep)
     }
@@ -579,35 +609,56 @@ impl Campaign {
         let protected = self.protected_scope_units(m.allocation)?;
         let mut kept = [0_u16; 3];
         for scope in &mut parts.scopes {
-            if scope.is_terminated() || scope.remaining_units()==0 {continue;}
-            let remaining=scope.remaining_units();
-            let held=protected.get(scope.id()).copied().unwrap_or(0);
-            let releasable=remaining.checked_sub(held).ok_or(Rejection::Arithmetic)?;
-            if held==0 {
+            if scope.is_terminated() || scope.remaining_units() == 0 {
+                continue;
+            }
+            let remaining = scope.remaining_units();
+            let held = protected.get(scope.id()).copied().unwrap_or(0);
+            let releasable = remaining.checked_sub(held).ok_or(Rejection::Arithmetic)?;
+            if held == 0 {
                 scope.terminate();
-            } else if releasable>0 {
-                *scope=FundedScope::restore(
-                    scope.id().to_string(),scope.family(),scope.activation_quarter(),
-                    held,scope.carry_permille(),scope.is_blocked(),false
+            } else if releasable > 0 {
+                *scope = FundedScope::restore(
+                    scope.id().to_string(),
+                    scope.family(),
+                    scope.activation_quarter(),
+                    held,
+                    scope.carry_permille(),
+                    scope.is_blocked(),
+                    false,
                 )?;
             }
-            if let Some(shadow)=self.shadow_scopes.iter_mut().find(|item|item.id()==scope.id()) {
-                if held==0 {
+            if let Some(shadow) = self
+                .shadow_scopes
+                .iter_mut()
+                .find(|item| item.id() == scope.id())
+            {
+                if held == 0 {
                     shadow.terminate();
-                } else if shadow.remaining_units()>held {
-                    *shadow=FundedScope::restore(
-                        shadow.id().to_string(),shadow.family(),shadow.activation_quarter(),
-                        held,shadow.carry_permille(),shadow.is_blocked(),false
+                } else if shadow.remaining_units() > held {
+                    *shadow = FundedScope::restore(
+                        shadow.id().to_string(),
+                        shadow.family(),
+                        shadow.activation_quarter(),
+                        held,
+                        shadow.carry_permille(),
+                        shadow.is_blocked(),
+                        false,
                     )?;
                 }
             }
-            let ix=family_index(scope.family());
-            kept[ix]=kept[ix].checked_add(held).ok_or(Rejection::Arithmetic)?;
-            if releasable>0 {
-                let movement=LedgerMove::Release{family:scope.family(),credits:releasable};
-                let before=parts.treasury;
-                parts.treasury=before.apply(movement)?;
-                receipt.ledger.push(LedgerReceipt::new(before,movement,parts.treasury)?);
+            let ix = family_index(scope.family());
+            kept[ix] = kept[ix].checked_add(held).ok_or(Rejection::Arithmetic)?;
+            if releasable > 0 {
+                let movement = LedgerMove::Release {
+                    family: scope.family(),
+                    credits: releasable,
+                };
+                let before = parts.treasury;
+                parts.treasury = before.apply(movement)?;
+                receipt
+                    .ledger
+                    .push(LedgerReceipt::new(before, movement, parts.treasury)?);
             }
         }
         for family in FAMILIES {
@@ -1330,172 +1381,339 @@ mod tests {
     #[test]
     fn funded_deadline_is_protected_until_delivered_and_resolved_once() {
         use crate::FundedCondition;
-        let mut c=campaign();
-        open(&mut c, Allocation::draft(50,40,10).unwrap());
-        for role in ROLES { first(&mut c,role); }
-        c.apply(Action::FreezeFinal{command_id:"freeze".into()}).unwrap();
-        let mut finance=FinalPosition::new("q1".into(),c.proposal_version().unwrap(),
-            Ministry::Finance, Position::Support,
-            PreferredAllocation::assess(Allocation::draft(50,40,10).unwrap(),100).unwrap()).unwrap();
-        finance.set_public_details(vec![FundedCondition::new("staff-by-q2".into(),
-            PolicyFamily::Staffing,12,DueQuarter::new(2).unwrap()).unwrap()],
-            vec![],"funded staffing deadline".into()).unwrap();
-        c.apply(Action::Final(finance,None)).unwrap();
-        final_vote(&mut c,Ministry::Education,Position::Support,1000);
-        final_vote(&mut c,Ministry::Infrastructure,Position::Support,1000);
-        c.apply(player(&c,"ratify",PlayerCommand::Ratify {
-            meeting_id:"q1".into(),proposal_version:c.proposal_version().unwrap(),
-        })).unwrap();
-        assert_eq!(c.world().commitments().len(),1);
-        assert_eq!(c.world().treasury().service_spent(),0);
-        c.apply(player(&c,"advance1",PlayerCommand::AdvanceQuarter)).unwrap();
-        let before=c.world().world_version();
-        assert_eq!(c.apply(player(&c,"propose-q2",PlayerCommand::Propose {
-            meeting_id:"q2".into(),allocation:Allocation::draft(10,30,10).unwrap()
-        })).err(),Some(Rejection::ProtectedCommitment));
-        assert_eq!(c.world().world_version(),before);
+        let mut c = campaign();
+        open(&mut c, Allocation::draft(50, 40, 10).unwrap());
+        for role in ROLES {
+            first(&mut c, role);
+        }
+        c.apply(Action::FreezeFinal {
+            command_id: "freeze".into(),
+        })
+        .unwrap();
+        let mut finance = FinalPosition::new(
+            "q1".into(),
+            c.proposal_version().unwrap(),
+            Ministry::Finance,
+            Position::Support,
+            PreferredAllocation::assess(Allocation::draft(50, 40, 10).unwrap(), 100).unwrap(),
+        )
+        .unwrap();
+        finance
+            .set_public_details(
+                vec![
+                    FundedCondition::new(
+                        "staff-by-q2".into(),
+                        PolicyFamily::Staffing,
+                        12,
+                        DueQuarter::new(2).unwrap(),
+                    )
+                    .unwrap(),
+                ],
+                vec![],
+                "funded staffing deadline".into(),
+            )
+            .unwrap();
+        c.apply(Action::Final(finance, None)).unwrap();
+        final_vote(&mut c, Ministry::Education, Position::Support, 1000);
+        final_vote(&mut c, Ministry::Infrastructure, Position::Support, 1000);
+        c.apply(player(
+            &c,
+            "ratify",
+            PlayerCommand::Ratify {
+                meeting_id: "q1".into(),
+                proposal_version: c.proposal_version().unwrap(),
+            },
+        ))
+        .unwrap();
+        assert_eq!(c.world().commitments().len(), 1);
+        assert_eq!(c.world().treasury().service_spent(), 0);
+        c.apply(player(&c, "advance1", PlayerCommand::AdvanceQuarter))
+            .unwrap();
+        let before = c.world().world_version();
+        assert_eq!(
+            c.apply(player(
+                &c,
+                "propose-q2",
+                PlayerCommand::Propose {
+                    meeting_id: "q2".into(),
+                    allocation: Allocation::draft(10, 30, 10).unwrap()
+                }
+            ))
+            .err(),
+            Some(Rejection::ProtectedCommitment)
+        );
+        assert_eq!(c.world().world_version(), before);
         // A smaller but lawful Q2 amendment retains exactly 12 protected
         // staff credits in the original scope, and releases the other 38.
-        c.apply(player(&c,"propose-q2-allowed",PlayerCommand::Propose{
-            meeting_id:"q2".into(),allocation:Allocation::draft(30,30,10).unwrap()
-        })).unwrap();
+        c.apply(player(
+            &c,
+            "propose-q2-allowed",
+            PlayerCommand::Propose {
+                meeting_id: "q2".into(),
+                allocation: Allocation::draft(30, 30, 10).unwrap(),
+            },
+        ))
+        .unwrap();
         for role in ROLES {
-            let pos=FirstPosition::new(
-                "q2".into(),c.proposal_version().unwrap(),role,Position::Support,
-                PreferredAllocation::assess(Allocation::draft(30,30,10).unwrap(),100).unwrap(),
-                CounterproposalOrigin::NewTyped
-            ).unwrap();
+            let pos = FirstPosition::new(
+                "q2".into(),
+                c.proposal_version().unwrap(),
+                role,
+                Position::Support,
+                PreferredAllocation::assess(Allocation::draft(30, 30, 10).unwrap(), 100).unwrap(),
+                CounterproposalOrigin::NewTyped,
+            )
+            .unwrap();
             c.apply(Action::First(pos)).unwrap();
         }
-        c.apply(Action::FreezeFinal{command_id:"freeze-q2".into()}).unwrap();
+        c.apply(Action::FreezeFinal {
+            command_id: "freeze-q2".into(),
+        })
+        .unwrap();
         for role in ROLES {
-            let pos=FinalPosition::new(
-                "q2".into(),c.proposal_version().unwrap(),role,Position::Support,
-                PreferredAllocation::assess(Allocation::draft(30,30,10).unwrap(),100).unwrap()
-            ).unwrap();
-            let effort=if role==Ministry::Finance {None} else {
-                Some(PrivateEffortDeclaration::new(
-                    "q2".into(),role,EffortPermille::new(1000).unwrap()
-                ).unwrap())
+            let pos = FinalPosition::new(
+                "q2".into(),
+                c.proposal_version().unwrap(),
+                role,
+                Position::Support,
+                PreferredAllocation::assess(Allocation::draft(30, 30, 10).unwrap(), 100).unwrap(),
+            )
+            .unwrap();
+            let effort = if role == Ministry::Finance {
+                None
+            } else {
+                Some(
+                    PrivateEffortDeclaration::new(
+                        "q2".into(),
+                        role,
+                        EffortPermille::new(1000).unwrap(),
+                    )
+                    .unwrap(),
+                )
             };
-            c.apply(Action::Final(pos,effort)).unwrap();
+            c.apply(Action::Final(pos, effort)).unwrap();
         }
-        c.apply(player(&c,"ratify-q2",PlayerCommand::Ratify{
-            meeting_id:"q2".into(),proposal_version:c.proposal_version().unwrap()
-        })).unwrap();
-        let staff:Vec<_>=c.world().scopes().iter().filter(|scope|
-            scope.family()==PolicyFamily::Staffing && !scope.is_terminated()
-        ).collect();
-        assert_eq!(staff.len(),2);
-        assert_eq!(staff.iter().map(|scope|scope.remaining_units()).sum::<u16>(),30);
-        assert_eq!(c.world().treasury().available(),26);
-        c.apply(player(&c,"advance2",PlayerCommand::AdvanceQuarter)).unwrap();
-        assert_eq!(c.world().commitments()[0].status,CommitmentStatus::Honored);
-        assert_eq!(c.relationship()[0],52);
-        assert_eq!(c.world().treasury().service_spent(),21);
-        c.apply(player(&c,"propose-q3",PlayerCommand::Propose {
-            meeting_id:"q3".into(),allocation:Allocation::draft(20,30,10).unwrap()
-        })).unwrap();
-        assert_eq!(c.world().quarter().value(),3);
+        c.apply(player(
+            &c,
+            "ratify-q2",
+            PlayerCommand::Ratify {
+                meeting_id: "q2".into(),
+                proposal_version: c.proposal_version().unwrap(),
+            },
+        ))
+        .unwrap();
+        let staff: Vec<_> = c
+            .world()
+            .scopes()
+            .iter()
+            .filter(|scope| scope.family() == PolicyFamily::Staffing && !scope.is_terminated())
+            .collect();
+        assert_eq!(staff.len(), 2);
+        assert_eq!(
+            staff
+                .iter()
+                .map(|scope| scope.remaining_units())
+                .sum::<u16>(),
+            30
+        );
+        assert_eq!(c.world().treasury().available(), 26);
+        c.apply(player(&c, "advance2", PlayerCommand::AdvanceQuarter))
+            .unwrap();
+        assert_eq!(c.world().commitments()[0].status, CommitmentStatus::Honored);
+        assert_eq!(c.relationship()[0], 52);
+        assert_eq!(c.world().treasury().service_spent(), 21);
+        c.apply(player(
+            &c,
+            "propose-q3",
+            PlayerCommand::Propose {
+                meeting_id: "q3".into(),
+                allocation: Allocation::draft(20, 30, 10).unwrap(),
+            },
+        ))
+        .unwrap();
+        assert_eq!(c.world().quarter().value(), 3);
         c.world().validate().unwrap();
     }
     #[test]
     fn game_truth_audit_free_then_paid_and_duplicate_disclosure_does_not_double_move_belief() {
         use crate::EvidenceRecipients;
-        let mut c=campaign();
-        open(&mut c,Allocation::draft(40,30,20).unwrap());
-        for role in ROLES { first(&mut c,role); }
-        c.apply(Action::FreezeFinal{command_id:"freeze".into()}).unwrap();
-        final_vote(&mut c,Ministry::Finance,Position::Support,1000);
-        final_vote(&mut c,Ministry::Education,Position::Support,500);
-        final_vote(&mut c,Ministry::Infrastructure,Position::Support,1000);
-        c.apply(player(&c,"ratify",PlayerCommand::Ratify {
-            meeting_id:"q1".into(),proposal_version:c.proposal_version().unwrap()
-        })).unwrap();
-        c.apply(player(&c,"advance1",PlayerCommand::AdvanceQuarter)).unwrap();
-        c.apply(player(&c,"advance2",PlayerCommand::AdvanceQuarter)).unwrap();
-        assert_eq!(c.world().quarter().value(),3);
-        assert_eq!(c.reports()[1].due_schedule[0],12);
-        assert_eq!(c.reports()[1].delivered_cumulative[0],6);
-        let free=c.apply(player(&c,"first-audit",PlayerCommand::OrderAudit {
-            family:PolicyFamily::Staffing,inspected_quarter:Quarter::new(2).unwrap()
-        })).unwrap();
+        let mut c = campaign();
+        open(&mut c, Allocation::draft(40, 30, 20).unwrap());
+        for role in ROLES {
+            first(&mut c, role);
+        }
+        c.apply(Action::FreezeFinal {
+            command_id: "freeze".into(),
+        })
+        .unwrap();
+        final_vote(&mut c, Ministry::Finance, Position::Support, 1000);
+        final_vote(&mut c, Ministry::Education, Position::Support, 500);
+        final_vote(&mut c, Ministry::Infrastructure, Position::Support, 1000);
+        c.apply(player(
+            &c,
+            "ratify",
+            PlayerCommand::Ratify {
+                meeting_id: "q1".into(),
+                proposal_version: c.proposal_version().unwrap(),
+            },
+        ))
+        .unwrap();
+        c.apply(player(&c, "advance1", PlayerCommand::AdvanceQuarter))
+            .unwrap();
+        c.apply(player(&c, "advance2", PlayerCommand::AdvanceQuarter))
+            .unwrap();
+        assert_eq!(c.world().quarter().value(), 3);
+        assert_eq!(c.reports()[1].due_schedule[0], 12);
+        assert_eq!(c.reports()[1].delivered_cumulative[0], 6);
+        let free = c
+            .apply(player(
+                &c,
+                "first-audit",
+                PlayerCommand::OrderAudit {
+                    family: PolicyFamily::Staffing,
+                    inspected_quarter: Quarter::new(2).unwrap(),
+                },
+            ))
+            .unwrap();
         assert!(free.ledger.is_empty());
-        let first=c.player_audits()[0].clone();
-        assert_eq!(first.cost,0);
-        let disclosed=c.apply(player(&c,"disclose1",PlayerCommand::DiscloseEvidence {
-            evidence_id:first.id.clone(),evidence_version:first.version,
-            recipients:EvidenceRecipients::new(vec![Ministry::Education]).unwrap()
-        })).unwrap();
-        assert_eq!(disclosed.belief_updates.len(),1);
-        assert_eq!(disclosed.belief_updates[0].delta,-80000);
-        assert_eq!(c.belief_for(Ministry::Education),420000);
-        assert_eq!(c.belief_for(Ministry::Infrastructure),500000);
-        let dup=c.apply(player(&c,"disclose2",PlayerCommand::DiscloseEvidence {
-            evidence_id:first.id,evidence_version:first.version,
-            recipients:EvidenceRecipients::new(vec![Ministry::Education]).unwrap()
-        })).unwrap();
-        assert_eq!(dup.belief_updates[0].delta,0);
-        let paid=c.apply(player(&c,"second-audit",PlayerCommand::OrderAudit {
-            family:PolicyFamily::Staffing,inspected_quarter:Quarter::new(2).unwrap()
-        })).unwrap();
-        assert_eq!(paid.ledger.len(),1);
-        assert_eq!(c.world().treasury().audit_spent(),2);
-        assert_eq!(c.player_audits()[1].version.value(),2);
-        let new=c.player_audits()[1].clone();
-        let correction=c.apply(player(&c,"disclose3",PlayerCommand::DiscloseEvidence {
-            evidence_id:new.id,evidence_version:new.version,
-            recipients:EvidenceRecipients::new(vec![Ministry::Education]).unwrap()
-        })).unwrap();
-        assert_eq!(correction.belief_updates[0].delta,0);
-        assert_eq!(c.belief_for(Ministry::Education),420000);
+        let first = c.player_audits()[0].clone();
+        assert_eq!(first.cost, 0);
+        let disclosed = c
+            .apply(player(
+                &c,
+                "disclose1",
+                PlayerCommand::DiscloseEvidence {
+                    evidence_id: first.id.clone(),
+                    evidence_version: first.version,
+                    recipients: EvidenceRecipients::new(vec![Ministry::Education]).unwrap(),
+                },
+            ))
+            .unwrap();
+        assert_eq!(disclosed.belief_updates.len(), 1);
+        assert_eq!(disclosed.belief_updates[0].delta, -80000);
+        assert_eq!(c.belief_for(Ministry::Education), 420000);
+        assert_eq!(c.belief_for(Ministry::Infrastructure), 500000);
+        let dup = c
+            .apply(player(
+                &c,
+                "disclose2",
+                PlayerCommand::DiscloseEvidence {
+                    evidence_id: first.id,
+                    evidence_version: first.version,
+                    recipients: EvidenceRecipients::new(vec![Ministry::Education]).unwrap(),
+                },
+            ))
+            .unwrap();
+        assert_eq!(dup.belief_updates[0].delta, 0);
+        let paid = c
+            .apply(player(
+                &c,
+                "second-audit",
+                PlayerCommand::OrderAudit {
+                    family: PolicyFamily::Staffing,
+                    inspected_quarter: Quarter::new(2).unwrap(),
+                },
+            ))
+            .unwrap();
+        assert_eq!(paid.ledger.len(), 1);
+        assert_eq!(c.world().treasury().audit_spent(), 2);
+        assert_eq!(c.player_audits()[1].version.value(), 2);
+        let new = c.player_audits()[1].clone();
+        let correction = c
+            .apply(player(
+                &c,
+                "disclose3",
+                PlayerCommand::DiscloseEvidence {
+                    evidence_id: new.id,
+                    evidence_version: new.version,
+                    recipients: EvidenceRecipients::new(vec![Ministry::Education]).unwrap(),
+                },
+            ))
+            .unwrap();
+        assert_eq!(correction.belief_updates[0].delta, 0);
+        assert_eq!(c.belief_for(Ministry::Education), 420000);
         c.world().validate().unwrap();
     }
     #[test]
-    fn cap_change_invalidates_original_proposal_version_and_cannot_hide_second_amendment(){
-        let mut c=campaign();
-        open(&mut c,Allocation::draft(50,40,10).unwrap());
-        let prior=c.proposal_version().unwrap();
-        c.apply(player(&c,"cap-edit",PlayerCommand::RequestCapacityCap{
-            meeting_id:"q1".into(),caps:CapacityCaps::new(10,8,4).unwrap()
-        })).unwrap();
-        assert_eq!(c.proposal_version().unwrap().value(),prior.value()+1);
-        for role in ROLES {first(&mut c,role);}
-        assert!(c.apply(player(&c,"second-edit",PlayerCommand::Amend{
-            meeting_id:"q1".into(),proposal_version:c.proposal_version().unwrap(),
-            allocation:Allocation::draft(60,30,10).unwrap(),
-        })).is_err());
-        assert_eq!(c.caps().staff(),12);
-        assert_eq!(c.world().treasury().available(),100);
+    fn cap_change_invalidates_original_proposal_version_and_cannot_hide_second_amendment() {
+        let mut c = campaign();
+        open(&mut c, Allocation::draft(50, 40, 10).unwrap());
+        let prior = c.proposal_version().unwrap();
+        c.apply(player(
+            &c,
+            "cap-edit",
+            PlayerCommand::RequestCapacityCap {
+                meeting_id: "q1".into(),
+                caps: CapacityCaps::new(10, 8, 4).unwrap(),
+            },
+        ))
+        .unwrap();
+        assert_eq!(c.proposal_version().unwrap().value(), prior.value() + 1);
+        for role in ROLES {
+            first(&mut c, role);
+        }
+        assert!(
+            c.apply(player(
+                &c,
+                "second-edit",
+                PlayerCommand::Amend {
+                    meeting_id: "q1".into(),
+                    proposal_version: c.proposal_version().unwrap(),
+                    allocation: Allocation::draft(60, 30, 10).unwrap(),
+                }
+            ))
+            .is_err()
+        );
+        assert_eq!(c.caps().staff(), 12);
+        assert_eq!(c.world().treasury().available(), 100);
     }
     #[test]
     fn player_and_minister_public_views_hide_inspected_truth_before_audit() {
-        let mut c=campaign();
-        open(&mut c,Allocation::draft(50,40,10).unwrap());
-        for m in ROLES {first(&mut c,m);}
-        c.apply(Action::FreezeFinal{command_id:"freeze".into()}).unwrap();
-        final_vote(&mut c,Ministry::Finance,Position::Support,1000);
-        final_vote(&mut c,Ministry::Education,Position::Support,500);
-        final_vote(&mut c,Ministry::Infrastructure,Position::Support,1000);
-        c.apply(player(&c,"ratify",PlayerCommand::Ratify{
-            meeting_id:"q1".into(),proposal_version:c.proposal_version().unwrap()
-        })).unwrap();
-        c.apply(player(&c,"advance1",PlayerCommand::AdvanceQuarter)).unwrap();
-        c.apply(player(&c,"advance2",PlayerCommand::AdvanceQuarter)).unwrap();
-        assert_eq!(c.reports()[1].delivered_cumulative[0],6);
-        let public=c.player_reports();
-        assert_eq!(public[1].reported_cumulative[0],8);
-        assert_eq!(public[1].due_cumulative[0],12);
+        let mut c = campaign();
+        open(&mut c, Allocation::draft(50, 40, 10).unwrap());
+        for m in ROLES {
+            first(&mut c, m);
+        }
+        c.apply(Action::FreezeFinal {
+            command_id: "freeze".into(),
+        })
+        .unwrap();
+        final_vote(&mut c, Ministry::Finance, Position::Support, 1000);
+        final_vote(&mut c, Ministry::Education, Position::Support, 500);
+        final_vote(&mut c, Ministry::Infrastructure, Position::Support, 1000);
+        c.apply(player(
+            &c,
+            "ratify",
+            PlayerCommand::Ratify {
+                meeting_id: "q1".into(),
+                proposal_version: c.proposal_version().unwrap(),
+            },
+        ))
+        .unwrap();
+        c.apply(player(&c, "advance1", PlayerCommand::AdvanceQuarter))
+            .unwrap();
+        c.apply(player(&c, "advance2", PlayerCommand::AdvanceQuarter))
+            .unwrap();
+        assert_eq!(c.reports()[1].delivered_cumulative[0], 6);
+        let public = c.player_reports();
+        assert_eq!(public[1].reported_cumulative[0], 8);
+        assert_eq!(public[1].due_cumulative[0], 12);
         // Public role view is independently constructible only during an open
         // meeting. No private effort, truth or unpublished audit field is in it.
-        c.apply(player(&c,"propose-q3",PlayerCommand::Propose{
-            meeting_id:"q3".into(),allocation:Allocation::draft(30,20,10).unwrap()
-        })).unwrap();
-        let role=c.role_view(Ministry::Education).unwrap();
-        assert_eq!(role.latest_public_report.unwrap().reported_cumulative[0],8);
-        assert_eq!(role.observation.ministry,Ministry::Education);
-        assert!(role.constituency_support_ppm<=1_000_000);
-        assert_eq!(c.private_effort_for(Ministry::Education),Some(500));
+        c.apply(player(
+            &c,
+            "propose-q3",
+            PlayerCommand::Propose {
+                meeting_id: "q3".into(),
+                allocation: Allocation::draft(30, 20, 10).unwrap(),
+            },
+        ))
+        .unwrap();
+        let role = c.role_view(Ministry::Education).unwrap();
+        assert_eq!(role.latest_public_report.unwrap().reported_cumulative[0], 8);
+        assert_eq!(role.observation.ministry, Ministry::Education);
+        assert!(role.constituency_support_ppm <= 1_000_000);
+        assert_eq!(c.private_effort_for(Ministry::Education), Some(500));
     }
     #[test]
     fn signed_coefficients_keep_losing_cells_negative() {
