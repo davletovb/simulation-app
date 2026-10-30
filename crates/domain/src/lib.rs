@@ -5,6 +5,7 @@
 //! funding creates multiple eligible scopes in the same quarter.
 #![forbid(unsafe_code)]
 
+pub mod fixed;
 pub mod preview;
 pub mod world;
 
