@@ -139,11 +139,13 @@ pub enum PlayerAction {
     },
     Amend {
         meeting_id: String,
+        #[schemars(regex(pattern = "^(0|[1-9][0-9]{0,19})$"))]
         proposal_version: String,
         allocation: Allocation,
     },
     Ratify {
         meeting_id: String,
+        #[schemars(regex(pattern = "^(0|[1-9][0-9]{0,19})$"))]
         proposal_version: String,
     },
     RequestCapacityCap {
@@ -157,6 +159,7 @@ pub enum PlayerAction {
     },
     DiscloseEvidence {
         evidence_id: String,
+        #[schemars(regex(pattern = "^(0|[1-9][0-9]{0,19})$"))]
         evidence_version: String,
         recipients: Vec<Ministry>,
     },
@@ -532,6 +535,17 @@ mod tests {
         assert!(json.get("implementation_effort_permille").is_none());
         role.visible_evidence_ids.push("bad\u{202E}id".into());
         assert!(PublicRoleView::try_from(&role).is_err());
+    }
+    #[test]
+    fn generated_schema_carries_domain_numeric_and_canonical_bounds() {
+        let command = serde_json::to_value(schemars::schema_for!(CommandEnvelope)).unwrap();
+        assert_eq!(command["properties"]["expected_world_version"]["pattern"],
+            "^(0|[1-9][0-9]{0,19})$");
+        let minister = serde_json::to_value(schemars::schema_for!(MinisterAction)).unwrap();
+        let as_text = minister.to_string();
+        assert!(as_text.contains("1000"), "effort range missing");
+        assert!(as_text.contains("maximum"), "numeric maxima missing");
+        assert!(as_text.contains("counterproposal_source"));
     }
     #[test]
     fn version_string_roundtrip_including_max_u64() {
