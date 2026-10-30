@@ -700,7 +700,7 @@ pub enum CounterproposalOrigin {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct FirstPosition {
     schema_version: u16,
-    pub meeting_id: String,
+    meeting_id: String,
     pub proposal_version: WireU64,
     pub ministry: Ministry,
     pub position: Position,
@@ -730,8 +730,12 @@ impl FirstPosition {
         position: Position,
         preferred_allocation: PreferredAllocation,
         counterproposal_source: CounterproposalOrigin,
-    ) -> Self {
-        Self {
+    ) -> Result<Self, ContractError> {
+        validate_identifier(&meeting_id)?;
+        if let CounterproposalOrigin::Menu(ref id) = counterproposal_source {
+            validate_identifier(id)?;
+        }
+        Ok(Self {
             schema_version: SCHEMA_VERSION,
             meeting_id,
             proposal_version,
@@ -742,8 +746,9 @@ impl FirstPosition {
             conditions: vec![],
             evidence_ids: vec![],
             rationale_summary: String::new(),
-        }
+        })
     }
+    pub fn meeting_id(&self) -> &str { &self.meeting_id }
     pub const fn schema_version(&self) -> u16 {
         self.schema_version
     }
@@ -752,7 +757,7 @@ impl FirstPosition {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct FinalPosition {
     schema_version: u16,
-    pub meeting_id: String,
+    meeting_id: String,
     pub proposal_version: WireU64,
     pub ministry: Ministry,
     pub vote: Position,
@@ -780,8 +785,9 @@ impl FinalPosition {
         ministry: Ministry,
         vote: Position,
         preferred_allocation: PreferredAllocation,
-    ) -> Self {
-        Self {
+    ) -> Result<Self, ContractError> {
+        validate_identifier(&meeting_id)?;
+        Ok(Self {
             schema_version: SCHEMA_VERSION,
             meeting_id,
             proposal_version,
@@ -791,8 +797,9 @@ impl FinalPosition {
             conditions: vec![],
             evidence_ids: vec![],
             rationale_summary: String::new(),
-        }
+        })
     }
+    pub fn meeting_id(&self) -> &str { &self.meeting_id }
     pub const fn schema_version(&self) -> u16 {
         self.schema_version
     }
@@ -812,6 +819,7 @@ impl PrivateEffortDeclaration {
         ministry: Ministry,
         effort: EffortPermille,
     ) -> Result<Self, ContractError> {
+        validate_identifier(&meeting_id)?;
         if ministry == Ministry::Finance {
             return Err(ContractError::InvalidMinistry);
         }
@@ -882,13 +890,26 @@ pub enum PlayerCommand {
     AdvanceQuarter,
 }
 
+impl PlayerCommand {
+    pub fn validate_ids(&self) -> Result<(), ContractError> {
+        match self {
+            Self::Propose { meeting_id, .. }
+            | Self::Amend { meeting_id, .. }
+            | Self::Ratify { meeting_id, .. }
+            | Self::RequestCapacityCap { meeting_id, .. } => validate_identifier(meeting_id),
+            Self::DiscloseEvidence { evidence_id, .. } => validate_identifier(evidence_id),
+            _ => Ok(()),
+        }
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CommandEnvelope {
     schema_version: u16,
-    pub campaign_id: String,
-    pub command_id: String,
+    campaign_id: String,
+    command_id: String,
     pub expected_world_version: WireU64,
-    pub command: PlayerCommand,
+    command: PlayerCommand,
 }
 impl CommandEnvelope {
     pub fn new(
@@ -896,15 +917,21 @@ impl CommandEnvelope {
         command_id: String,
         expected_world_version: WireU64,
         command: PlayerCommand,
-    ) -> Self {
-        Self {
+    ) -> Result<Self, ContractError> {
+        validate_identifier(&campaign_id)?;
+        validate_identifier(&command_id)?;
+        command.validate_ids()?;
+        Ok(Self {
             schema_version: SCHEMA_VERSION,
             campaign_id,
             command_id,
             expected_world_version,
             command,
-        }
+        })
     }
+    pub fn campaign_id(&self) -> &str { &self.campaign_id }
+    pub fn command_id(&self) -> &str { &self.command_id }
+    pub fn command(&self) -> &PlayerCommand { &self.command }
     pub const fn schema_version(&self) -> u16 {
         self.schema_version
     }
@@ -1066,7 +1093,7 @@ mod tests {
         }
         let mut pos=FinalPosition::new("meeting".into(), WireU64::new(0),
             Ministry::Education, Position::Support,
-            PreferredAllocation::assess(Allocation::draft(50,40,10).unwrap(),100).unwrap());
+            PreferredAllocation::assess(Allocation::draft(50,40,10).unwrap(),100).unwrap()).unwrap();
         assert!(pos.set_public_details(vec![],vec![],"x\u{202E}y".into()).is_err());
         assert_eq!(pos.rationale_summary(),"");
     }
@@ -1300,7 +1327,7 @@ mod tests {
             Ministry::Education,
             Position::Support,
             PreferredAllocation::assess(Allocation::draft(50, 40, 10).unwrap(), 100).unwrap(),
-        );
+        ).unwrap();
         assert!(!format!("{vote:?}").contains("800"));
         assert!(!format!("{pub_view:?}").contains("800"));
     }
@@ -1335,7 +1362,7 @@ mod tests {
                 proposal_version: max,
                 allocation: Allocation::draft(50, 40, 10).unwrap(),
             },
-        );
+        ).unwrap();
         assert_eq!(
             command.expected_world_version.to_decimal(),
             u64::MAX.to_string()
@@ -1374,7 +1401,7 @@ mod tests {
             Position::Support,
             PreferredAllocation::assess(Allocation::draft(50, 40, 10).unwrap(), 100).unwrap(),
             CounterproposalOrigin::Menu("balanced".into()),
-        );
+        ).unwrap();
         assert_eq!(position.schema_version(), SCHEMA_VERSION);
         assert_eq!(q.value(), 1);
         let _separate_explicit_advance_command = PlayerCommand::AdvanceQuarter;
