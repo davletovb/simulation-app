@@ -120,11 +120,19 @@ pub struct PublicQuarterReport {
     pub access_bonus_next: bool,
 }
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PublicVote {
+    pub quarter: Quarter,
+    pub ministry: Ministry,
+    pub proposal_version: WireU64,
+    pub vote: Position,
+}
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RoleView {
     pub observation: crate::RoleObservation,
     pub constituency_support_ppm: u32,
     pub latest_public_report: Option<PublicQuarterReport>,
     pub visible_audits: Vec<DeliveryAudit>,
+    pub prior_public_votes: Vec<PublicVote>,
 }
 #[derive(Clone, Debug)]
 pub struct ReducerReceipt {
@@ -161,6 +169,7 @@ pub struct Campaign {
     audits: Vec<DeliveryAudit>,
     beliefs: BeliefLedger,
     disclosed: BTreeMap<Ministry, BTreeSet<String>>,
+    vote_history: Vec<PublicVote>,
 }
 
 pub enum Action {
@@ -210,6 +219,7 @@ impl Campaign {
             audits: vec![],
             beliefs: BeliefLedger::default(),
             disclosed: BTreeMap::new(),
+            vote_history: vec![],
         })
     }
     pub fn world(&self) -> &WorldSnapshot {
@@ -244,6 +254,7 @@ impl Campaign {
             constituency_support_ppm: u32::try_from(weighted / 1_000_000)
                 .map_err(|_| Rejection::Arithmetic)?,
             latest_public_report: latest,
+            prior_public_votes: self.vote_history.clone(),
             visible_audits: self
                 .audits
                 .iter()
@@ -1097,6 +1108,14 @@ impl Campaign {
             parts.phase = MeetingPhase::QuarterOpen;
         } else {
             parts.phase = MeetingPhase::QuarterClosed;
+        }
+        if let Some(meeting)=self.meeting.as_ref() {
+            for action in meeting.final_votes.values() {
+                self.vote_history.push(PublicVote {
+                    quarter:q, ministry:action.ministry,
+                    proposal_version:action.proposal_version,vote:action.vote,
+                });
+            }
         }
         self.meeting = None;
         self.meeting_used = false;
