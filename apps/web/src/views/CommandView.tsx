@@ -113,8 +113,10 @@ function Pressures({ allocation, preview }: { allocation: Allocation; preview: P
     const pressure = f.pressure(allocation)
     return pressure ? [{ faction: f, pressure }] : []
   })
-  const shortfall = preview.rows?.reduce((sum, row) => sum + row.outstanding, 0) ?? 0
-  if (reactions.length === 0 && shortfall === 0) return null
+  const fresh = preview.status === 'ready'
+  const shortfall = fresh ? preview.rows?.reduce((sum, row) => sum + row.outstanding, 0) ?? 0 : 0
+  const pending = preview.status === 'loading' || preview.status === 'updating' || preview.status === 'unavailable'
+  if (reactions.length === 0 && shortfall === 0 && !pending) return null
   return (
     <ul className="pressures" aria-label="Likely reactions to this draft">
       {reactions.map(({ faction, pressure }) => (
@@ -126,7 +128,17 @@ function Pressures({ allocation, preview }: { allocation: Allocation; preview: P
           </span>
         </li>
       ))}
-      {shortfall > 0 && (
+      {pending && (
+        <li className="pressure pressure-neutral" role="status">
+          <Icon name="hourglass" size={16} />
+          <span><strong>Delivery horizon</strong>
+            {preview.status === 'unavailable'
+              ? 'Rust preview unavailable. The delivery shortfall is unknown until the local service responds.'
+              : 'Checking the delivery horizon with Rust. The current draft has no verified forecast yet.'}
+          </span>
+        </li>
+      )}
+      {fresh && shortfall > 0 && (
         <li className="pressure pressure-risk">
           <Icon name="hourglass" size={16} />
           <span><strong>Delivery horizon</strong>{shortfall} funded unit{shortfall === 1 ? '' : 's'} can’t arrive
