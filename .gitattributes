@@ -2,3 +2,7 @@ apps/web/src/generated/** text eol=lf
 docs/contracts/** text eol=lf
 data/england-school-pilot-v1/*.json text eol=lf
 data/england-school-pilot-v1/raw/*.gz -text
+
+# P4 source-byte identity and cross-OS canonical reconstruction
+*.rs text eol=lf
+*.toml text eol=lf
