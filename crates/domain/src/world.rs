@@ -722,6 +722,135 @@ mod tests {
     }
 
     #[test]
+    fn organisation_starts_and_caps_match_pilot_contract() {
+        let world = WorldSnapshot::initial("campaign".into(), "pack".into(), weights()).unwrap();
+        assert_eq!(world.organisations()[0].resources(), 10);
+        assert_eq!(world.organisations()[1].resources(), 4);
+        assert!(OrganisationAccount::new(Organisation::SchoolWorkforceAssociation, 20).is_ok());
+        assert!(OrganisationAccount::new(Organisation::CommunityAccessNetwork, 12).is_ok());
+        assert!(OrganisationAccount::new(Organisation::SchoolWorkforceAssociation, 21).is_err());
+        assert!(OrganisationAccount::new(Organisation::CommunityAccessNetwork, 13).is_err());
+    }
+    #[test]
+    fn termination_releases_credits_without_discarding_historical_scope() {
+        let mut parts = WorldSnapshot::initial("c".into(), "pack".into(), weights()).unwrap().parts;
+        parts.treasury = Treasury::from_parts(88, 12, 0, 0, 0, 0).unwrap();
+        parts.scopes.push(FundedScope::new("old".into(), PolicyFamily::Staffing,
+            Quarter::new(1).unwrap(), 12).unwrap());
+        WorldSnapshot::from_parts(parts.clone()).unwrap();
+        let receipt = parts.scopes[0].terminate();
+        assert_eq!(receipt.dropped_carry_permille, 0);
+        // The mechanical release and termination must be committed atomically
+        // by P3. Either half in isolation fails this snapshot invariant.
+        assert!(WorldSnapshot::from_parts(parts.clone()).is_err());
+        parts.treasury = parts.treasury.apply(LedgerMove::Release {
+            family: PolicyFamily::Staffing, credits: 12,
+        }).unwrap();
+        let world = WorldSnapshot::from_parts(parts).unwrap();
+        assert!(world.scopes()[0].is_terminated());
+        assert_eq!(world.scopes()[0].remaining_units(), 12);
+        assert_eq!(world.treasury().encumbered(PolicyFamily::Staffing), 0);
+    }
+    #[test]
+    fn pending_political_funding_rejected_consistently_in_world_and_role_view() {
+        let invalid = Commitment {
+            id: "political-1".into(), issuer: Ministry::Finance, beneficiary: Ministry::Education,
+            proposal_version: WireU64::new(0),
+            kind: crate::CommitmentKind::Political, funded_units: 1,
+            trigger: "promise".into(), deadline_quarter: DueQuarter::new(3).unwrap(),
+            status: CommitmentStatus::Pending, resolution_event: None,
+        };
+        assert!(invalid.validate().is_err());
+        let mut parts = WorldSnapshot::initial("c".into(), "pack".into(), weights()).unwrap().parts;
+        parts.commitments.push(invalid.clone());
+        assert!(WorldSnapshot::from_parts(parts).is_err());
+        let mut role = crate::RoleObservation::new(crate::RoleObservationInput {
+            campaign_id: "c".into(), meeting_id: "m".into(),
+            proposal_version: WireU64::new(0), ministry: Ministry::Finance,
+            quarter: Quarter::new(1).unwrap(),
+            allocation: Allocation::draft(0, 0, 0).unwrap(),
+            available_credits: 100, belief_ppm: crate::BeliefPpm::new(500_000).unwrap(),
+        }).unwrap();
+        role.owned_commitments.push(invalid);
+        assert!(role.validate().is_err());
+    }
+    #[test]
+    fn future_or_overdue_world_components_and_unspent_queued_effects_fail() {
+        let seed = WorldSnapshot::initial("c".into(), "pack".into(), weights()).unwrap().parts;
+        let mut scope = seed.clone();
+        scope.scopes.push(FundedScope::new("future".into(), PolicyFamily::Staffing,
+            Quarter::new(2).unwrap(), 1).unwrap());
+        scope.treasury = Treasury::from_parts(99, 1, 0, 0, 0, 0).unwrap();
+        assert!(WorldSnapshot::from_parts(scope).is_err());
+
+        let make = |produced: u8, due: u16| QueuedResponse::new(
+            "source".into(), Quarter::new(produced).unwrap(),
+            DueQuarter::new(due).unwrap(), [2, 1, 0], 3,
+        ).unwrap();
+        let mut no_spend = seed.clone();
+        no_spend.queued_responses.push(make(1, 2));
+        assert!(matches!(WorldSnapshot::from_parts(no_spend),
+            Err(ContractError::InvalidTreasury)));
+
+        let mut future = seed.clone();
+        future.treasury = Treasury::from_parts(97, 0, 0, 0, 3, 0).unwrap();
+        future.queued_responses.push(make(2, 3));
+        assert!(matches!(WorldSnapshot::from_parts(future),
+            Err(ContractError::InvalidQuarter)));
+
+        let mut overdue = seed.clone();
+        overdue.quarter = Quarter::new(4).unwrap();
+        overdue.treasury = Treasury::from_parts(97, 0, 0, 0, 3, 0).unwrap();
+        overdue.queued_responses.push(make(1, 2));
+        assert!(matches!(WorldSnapshot::from_parts(overdue),
+            Err(ContractError::InvalidQuarter)));
+
+        let mut deadline = seed;
+        deadline.quarter = Quarter::new(3).unwrap();
+        deadline.commitments.push(Commitment {
+            id:"pending".into(), issuer: Ministry::Finance, beneficiary: Ministry::Education,
+            proposal_version: WireU64::new(0),
+            kind: crate::CommitmentKind::Political, funded_units: 0,
+            trigger:"trigger".into(), deadline_quarter: DueQuarter::new(2).unwrap(),
+            status: CommitmentStatus::Pending, resolution_event: None,
+        });
+        assert!(matches!(WorldSnapshot::from_parts(deadline),
+            Err(ContractError::InvalidCondition)));
+    }
+    #[test]
+    fn queued_effect_recheck_validates_every_field_not_only_sum() {
+        let mut parts = WorldSnapshot::initial("c".into(), "pack".into(), weights()).unwrap().parts;
+        parts.treasury = Treasury::from_parts(97, 0, 0, 0, 3, 0).unwrap();
+        let valid = QueuedResponse::new("source".into(), Quarter::new(1).unwrap(),
+            DueQuarter::new(2).unwrap(), [3, 0, 0], 3).unwrap();
+        parts.queued_responses.push(valid);
+        assert!(WorldSnapshot::from_parts(parts.clone()).is_ok());
+        parts.queued_responses[0].source_event_id = "".into();
+        assert!(WorldSnapshot::from_parts(parts.clone()).is_err());
+        parts.queued_responses[0].source_event_id = "source".into();
+        parts.queued_responses[0].due_quarter = DueQuarter::new(1).unwrap();
+        assert!(WorldSnapshot::from_parts(parts.clone()).is_err());
+        parts.queued_responses[0].due_quarter = DueQuarter::new(2).unwrap();
+        parts.queued_responses[0].service_spent = 101;
+        assert!(WorldSnapshot::from_parts(parts).is_err());
+    }
+    #[test]
+    fn delivered_event_must_fit_one_family_cap_and_be_positive() {
+        let check = |family, delivered| EventEnvelope::new(
+            "c".into(), "e".into(), WireU64::new(1), WireU64::new(1),
+            Quarter::new(2).unwrap(), EventKind::DeliveryRecorded { family, delivered },
+        );
+        assert!(check(PolicyFamily::Staffing, 12).is_ok());
+        assert!(check(PolicyFamily::Repairs, 10).is_ok());
+        assert!(check(PolicyFamily::Access, 5).is_ok());
+        assert!(check(PolicyFamily::Staffing, 13).is_err());
+        assert!(check(PolicyFamily::Repairs, 11).is_err());
+        assert!(check(PolicyFamily::Access, 6).is_err());
+        assert!(check(PolicyFamily::Access, 0).is_err());
+        assert!(check(PolicyFamily::Access, u16::MAX).is_err());
+    }
+
+    #[test]
     fn overbudget_draft_does_not_create_world_financial_entries() {
         let allocation = Allocation::draft(60, 40, 10).unwrap();
         assert!(Treasury::initial().can_fund(allocation).is_err());
