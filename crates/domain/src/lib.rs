@@ -6,6 +6,7 @@
 #![forbid(unsafe_code)]
 
 pub mod preview;
+pub mod world;
 
 use std::collections::BTreeSet;
 use std::fmt;
