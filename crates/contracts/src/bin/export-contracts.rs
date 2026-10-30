@@ -29,7 +29,7 @@ fn generated_types() -> String {
     ];
     format!(
         "// GENERATED from myth-contracts. DO NOT EDIT.\n// All *_version and expected_world_version fields are decimal strings.\n\n{}\n",
-        declarations.join("\n\n")
+        declarations.into_iter().map(|decl| format!("export {decl}")).collect::<Vec<_>>().join("\n\n")
     )
 }
 fn generated_schema<T: schemars::JsonSchema>() -> String {
