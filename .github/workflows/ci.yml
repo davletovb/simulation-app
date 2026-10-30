@@ -84,6 +84,9 @@ jobs:
       - name: Test
         if: steps.workspace.outputs.present == 'true'
         run: cargo test --workspace --locked
+      - name: Offline loopback API smoke
+        if: steps.workspace.outputs.present == 'true'
+        run: bash .github/scripts/offline-api-smoke.sh
       - name: Verify generated Serde / TS / JSON Schema contract drift
         if: steps.workspace.outputs.present == 'true'
         run: cargo run --locked -p myth-contracts --bin export-contracts -- --check
