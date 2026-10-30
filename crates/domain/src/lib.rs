@@ -656,12 +656,14 @@ impl FundedScope {
         self.terminated = true;
         receipt
     }
-    fn eligible(&self, quarter: DueQuarter) -> bool {
+    fn eligible_with_extra_lag(&self, quarter: DueQuarter, extra_lag: u16) -> bool {
         !self.terminated
             && !self.blocked
             && self.remaining_units > 0
             && quarter.value()
-                >= u16::from(self.activation_quarter.value()) + self.family.lag_quarters()
+                >= u16::from(self.activation_quarter.value())
+                    .saturating_add(self.family.lag_quarters())
+                    .saturating_add(extra_lag)
     }
 }
 
@@ -697,6 +699,22 @@ pub fn deliver_family_quarter(
     quarter: DueQuarter,
     scopes: &mut [FundedScope],
 ) -> Result<FamilyDeliveryReceipt, ContractError> {
+    deliver_family_quarter_with_lag(
+        family, authorized_capacity, access_bonus, effort, quarter, 0, scopes
+    )
+}
+
+/// Explicit extra lag for preregistered, *authored* offline sensitivity only.
+/// Uses the identical oldest-funded-first shared capacity allocator.
+pub fn deliver_family_quarter_with_lag(
+    family: PolicyFamily,
+    authorized_capacity: u16,
+    access_bonus: bool,
+    effort: EffortPermille,
+    quarter: DueQuarter,
+    extra_lag: u16,
+    scopes: &mut [FundedScope],
+) -> Result<FamilyDeliveryReceipt, ContractError> {
     if authorized_capacity > family.nominal_capacity()
         || (access_bonus && family != PolicyFamily::Access)
     {
@@ -725,7 +743,7 @@ pub fn deliver_family_quarter(
     let mut scope_receipts = Vec::new();
     for index in sorted {
         let scope = &mut staged[index];
-        if !scope.eligible(quarter) {
+        if !scope.eligible_with_extra_lag(quarter, extra_lag) {
             continue;
         }
         let allocated = scope.remaining_units.min(capacity_left);
