@@ -184,7 +184,7 @@ export function CommandView({ allocation, onChange }: {
             </button>
           </div>
           <p id="cta-why" className="cta-why">
-            Voting needs the simulation service, which isn’t connected in this preview.
+            Real cabinet votes require the full simulation. The local service supplies scripted baseline snapshots only, without ratification.
           </p>
         </section>
 
