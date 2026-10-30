@@ -41,7 +41,7 @@ Start the loopback-only Axum backend with `cargo +1.99.1 run --locked -p myth-lo
 
 The separate `myth-contracts` Rust crate validates JSON commands and minister-action inputs before converting them to the pure domain types. Rust generates TypeScript declarations at `apps/web/src/generated/transport.ts` and JSON Schema files in `docs/contracts/`. The checked-in artifacts are enforced by CI: `cargo +1.99.1 run --locked -p myth-contracts --bin export-contracts -- --check`.
 
-See [the P1-03 contracts note](docs/p1-03-contracts.md) for accepted shapes, privacy boundaries, generator commands and remaining model-route compatibility checks. This is **not** an operating API or connected policy preview; the existing TypeScript delivery chart is temporary and must be replaced by Rust-calculated outputs when the offline backend is implemented.
+See [the P1-03 contracts note](docs/p1-03-contracts.md) for accepted shapes, privacy boundaries, generator commands and remaining model-route compatibility checks. The P1-03 transport crate alone is not an operating API; the separate P1d loopback adapter now supplies Rust-calculated optimistic capacity previews, but still does not execute a complete policy simulation.
 
 ## Legacy prototype
 
