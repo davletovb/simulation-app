@@ -11,10 +11,35 @@ use crate::{
     Allocation, CapacityCaps, CohortWeights, CommandEnvelope, Commitment, CommitmentKind,
     CommitmentStatus, ContractError, DueQuarter, EffortPermille, FinalPosition, FirstPosition,
     FundedScope, LedgerMove, Ministry, PolicyFamily, Position, PrivateEffortDeclaration, Quarter,
-    SIX_QUARTERS, WireU64, deliver_family_quarter, validate_identifier,
+    SIX_QUARTERS, WireU64, deliver_family_quarter_with_lag, validate_identifier,
 };
 use std::collections::{BTreeMap, BTreeSet};
 
+/// Authored, immutable per-run offline mechanism assumptions.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Rules {
+    pub magnitude_percent: u16,
+    pub delivery_extra_lag: u16,
+    pub response_lag: u16,
+    pub shocks: [[i32; 6]; 6],
+    pub q2_repair_cap: Option<u16>,
+}
+impl Default for Rules {
+    fn default() -> Self {
+        Self { magnitude_percent: 100, delivery_extra_lag: 0, response_lag: 1,
+               shocks: [[0; 6]; 6], q2_repair_cap: None }
+    }
+}
+impl Rules {
+    pub fn validate(&self) -> Result<(), Rejection> {
+        if ![50,100,150].contains(&self.magnitude_percent)
+            || self.delivery_extra_lag > 1 || !(1..=2).contains(&self.response_lag)
+            || self.q2_repair_cap.is_some_and(|x| x > 10)
+            || self.shocks.iter().flatten().any(|v| v.unsigned_abs() > 8_000)
+        { return Err(Rejection::InvalidCondition); }
+        Ok(())
+    }
+}
 const FAMILIES: [PolicyFamily; 3] = [
     PolicyFamily::Staffing,
     PolicyFamily::Repairs,
@@ -99,6 +124,8 @@ pub struct Campaign {
     conditions: Vec<ConditionProgress>,
     relationship: [i16; 3],
     reports: Vec<QuarterReport>,
+    rules: Rules,
+    shadow_scopes: Vec<FundedScope>,
     scheduled_lifetime: [u16; 3],
     audits: Vec<DeliveryAudit>,
     beliefs: BeliefLedger,
@@ -122,6 +149,12 @@ impl Campaign {
         pack_id: &str,
         weights: CohortWeights,
     ) -> Result<Self, Rejection> {
+        Self::with_rules(campaign_id, pack_id, weights, Rules::default())
+    }
+    pub fn with_rules(
+        campaign_id: &str, pack_id: &str, weights: CohortWeights, rules: Rules,
+    ) -> Result<Self, Rejection> {
+        rules.validate()?;
         Ok(Self {
             world: WorldSnapshot::initial(campaign_id.into(), pack_id.into(), weights)?,
             meeting: None,
@@ -135,6 +168,8 @@ impl Campaign {
             conditions: vec![],
             relationship: [50; 3],
             reports: vec![],
+            rules,
+            shadow_scopes: vec![],
             scheduled_lifetime: [0; 3],
             audits: vec![],
             beliefs: BeliefLedger::default(),
@@ -449,6 +484,9 @@ impl Campaign {
                 let units = scope.remaining_units();
                 let family = scope.family();
                 scope.terminate();
+                if let Some(shadow) = self.shadow_scopes.iter_mut().find(|s| s.id() == scope.id()) {
+                    shadow.terminate();
+                }
                 let before = parts.treasury;
                 parts.treasury = before.apply(LedgerMove::Release {
                     family,
@@ -483,12 +521,12 @@ impl Campaign {
                 PolicyFamily::Repairs => "repairs",
                 PolicyFamily::Access => "access",
             };
-            parts.scopes.push(FundedScope::new(
+            let scope = FundedScope::new(
                 format!("{}-v{}-{key}", m.id, m.version.value()),
-                family,
-                self.world.quarter(),
-                units,
-            )?);
+                family, self.world.quarter(), units,
+            )?;
+            self.shadow_scopes.push(scope.clone());
+            parts.scopes.push(scope);
         }
         let mut condition_ids = BTreeSet::new();
         let mut protected = [0_u16; 3];
@@ -610,7 +648,11 @@ impl Campaign {
             return Err(Rejection::InvalidPhase);
         }
         let mut parts = self.world.private_checkpoint_parts();
-        let caps = [self.caps.staff(), self.caps.repairs(), self.caps.access()];
+        let caps = [self.caps.staff(),
+            if q.value() == 2 { self.rules.q2_repair_cap.map_or(
+                self.caps.repairs(), |v| v.min(self.caps.repairs())
+            ) } else { self.caps.repairs() },
+            self.caps.access()];
         let private_staff =
             self.private_efforts[0]
                 .value()
@@ -629,28 +671,27 @@ impl Campaign {
                 .collect();
             let mut scoped: Vec<FundedScope> =
                 indexes.iter().map(|i| parts.scopes[*i].clone()).collect();
-            // Predict the authorized due schedule using the exact same shared
-            // allocator and fractional carry, but with full permitted effort.
-            let mut hypothetical = scoped.clone();
-            let due_receipt = deliver_family_quarter(
-                *family,
-                caps[ix],
-                ix == 2 && self.bonus_due,
-                EffortPermille::new(1000)?,
-                DueQuarter::from(q),
-                &mut hypothetical,
+            // Maintain a separate full-effort due-schedule scope ledger.
+            // Actual minister effort never rewrites historical scheduled work.
+            let shadow_ids: Vec<usize> = self.shadow_scopes.iter().enumerate()
+                .filter(|(_,s)| s.family() == *family).map(|(i,_)| i).collect();
+            let mut shadow_family: Vec<FundedScope> = shadow_ids.iter()
+                .map(|i| self.shadow_scopes[*i].clone()).collect();
+            let due = deliver_family_quarter_with_lag(
+                *family, caps[ix], ix == 2 && self.bonus_due,
+                EffortPermille::new(1000)?, DueQuarter::from(q),
+                self.rules.delivery_extra_lag, &mut shadow_family,
             )?;
-            scheduled[ix] = due_receipt.total_delivered;
+            for (index, updated) in shadow_ids.into_iter().zip(shadow_family) {
+                self.shadow_scopes[index] = updated;
+            }
+            scheduled[ix] = due.total_delivered;
             self.scheduled_lifetime[ix] = self.scheduled_lifetime[ix]
-                .checked_add(scheduled[ix])
-                .ok_or(Rejection::Arithmetic)?;
-            let delivery = deliver_family_quarter(
-                *family,
-                caps[ix],
-                ix == 2 && self.bonus_due,
-                EffortPermille::new(efforts[ix])?,
-                DueQuarter::from(q),
-                &mut scoped,
+                .checked_add(due.total_delivered).ok_or(Rejection::Arithmetic)?;
+            let delivery = deliver_family_quarter_with_lag(
+                *family, caps[ix], ix == 2 && self.bonus_due,
+                EffortPermille::new(efforts[ix])?, DueQuarter::from(q),
+                self.rules.delivery_extra_lag, &mut scoped,
             )?;
             delivered[ix] = delivery.total_delivered;
             for (index, updated) in indexes.into_iter().zip(scoped) {
@@ -674,6 +715,15 @@ impl Campaign {
                     .ok_or(Rejection::Arithmetic)?;
             }
         }
+        // Frozen exogenous shocks precede previously queued cohort responses.
+        for ix in 0..6 {
+            let candidate = (i64::from(parts.support[ix].value())
+                + i64::from(self.rules.shocks[usize::from(q.value() - 1)][ix]))
+                .clamp(0,1_000_000);
+            parts.support[ix] = SupportPpm::new(
+                u32::try_from(candidate).map_err(|_| Rejection::Arithmetic)?
+            )?;
+        }
         // Apply prior response events due NOW, after this quarter's delivery.
         // The response for newly delivered units may first affect next quarter.
         let mut due = vec![];
@@ -687,7 +737,7 @@ impl Campaign {
         });
         for response in &due {
             for ix in 0..6 {
-                let delta = cohort_response(ix, response.delivered())?;
+                let delta = cohort_response_scaled(ix, response.delivered(), self.rules.magnitude_percent)?;
                 let previous = i64::from(parts.support[ix].value());
                 let updated = (previous + delta).clamp(0, 1_000_000);
                 parts.support[ix] =
@@ -698,7 +748,7 @@ impl Campaign {
             parts.queued_responses.push(QueuedResponse::new(
                 format!("delivery-q{}", q.value()),
                 q,
-                DueQuarter::new(u16::from(q.value()) + 1)?,
+                DueQuarter::new(u16::from(q.value()) + self.rules.response_lag)?,
                 delivered,
                 newly_spent,
             )?);
@@ -819,6 +869,10 @@ const fn role_index(m: Ministry) -> usize {
 }
 /// Six authored, non-empirical, floor-rounded response kernels. Integer-only.
 fn cohort_response(ix: usize, delivered: [u16; 3]) -> Result<i64, Rejection> {
+    cohort_response_scaled(ix, delivered, 100)
+}
+fn cohort_response_scaled(ix: usize, delivered: [u16; 3], magnitude_percent: u16)
+    -> Result<i64, Rejection> {
     let geography: [[i128; 4]; 2] = [[100, 100, 100, 100], [80, 130, 140, 100]];
     let income: [[i128; 4]; 3] = [
         [120, 90, 130, 130],
@@ -841,7 +895,9 @@ fn cohort_response(ix: usize, delivered: [u16; 3]) -> Result<i64, Rejection> {
         + terms[1] * i128::from(delivered[1])
         + terms[2] * i128::from(delivered[2])
         - terms[3] * spent;
-    i64::try_from(result.clamp(-8000, 8000)).map_err(|_| Rejection::Arithmetic)
+    let scaled = result.checked_mul(i128::from(magnitude_percent))
+        .ok_or(Rejection::Arithmetic)? / 100;
+    i64::try_from(scaled.clamp(-8000, 8000)).map_err(|_| Rejection::Arithmetic)
 }
 
 #[cfg(test)]
