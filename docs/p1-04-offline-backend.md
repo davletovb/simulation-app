@@ -19,7 +19,7 @@ npm --prefix apps/web ci --ignore-scripts --no-audit --no-fund
 npm --prefix apps/web run dev
 ```
 
-Open the Vite localhost URL. The browser dev proxy forwards **only** `/api` paths to `http://127.0.0.1:8787`. The delivery chart and delivery-horizon warning now read **Rust** `/api/preview`; they show a distinct unavailable state when the backend is not running. No TypeScript fallback calculator remains.
+Open the Vite localhost URL. The browser dev proxy forwards **only** `/api` paths to `http://127.0.0.1:8787`. The delivery chart and delivery-horizon warning now read **Rust** `/api/preview`; they show a distinct loading/unavailable state when the backend is not running, with a manual **Retry Rust preview** control. Slider updates are debounced by 180 ms; while updating, previous results are explicitly labeled stale and the current draft's shortfall remains unknown until the new response arrives. No TypeScript fallback calculator remains.
 
 The service listens on **127.0.0.1:8787**, not `0.0.0.0`. Set `MYTH_BIND` to another numeric *loopback* address/port if needed. A `MYTH_BIND` without a loopback IP is rejected. There is no public host mode, no CORS enablement, and no intentional remote capability.
 
@@ -60,7 +60,7 @@ By default, choice records live under **`local-data/saves/`** relative to the pr
 
 Writes serialize within one process, execute on Tokio's blocking thread pool, write a uniquely named same-directory temporary file, fsync the file and atomically rename. On Unix a directory fsync is attempted **after** replacement; if it fails, the API returns success with a server-side durability warning because the visible file has already changed. On systems without supported directory fsync, crash-durability is not guaranteed. This is not a fully verified multi-OS recovery protocol. File sizes and paths are bounded; recording IDs use lowercase ASCII letters, digits, `_` and `-` only to prevent case-insensitive filesystem collisions. Each write uses a unique exclusive temporary name so a crash orphan cannot block a new save; overwritten records replace their previous version. The service does **not** yet provide independent process locking, append-only event custody, Hiyal hashes, crash-recovery testing across operating systems, or a full authoritative save/export/import command. Those remain P4/P7 requirements.
 
-Local request guards reject non-loopback Host and Origin values and require JSON on writes. This is **not authentication against another local process**. Do not expose the port through an internet reverse proxy or store private user data here.
+Local request guards reject non-loopback Host and Origin values and require JSON on writes. Both preview and scripted meeting response DTOs are defined in `myth-contracts` and exported by Rust into `apps/web/src/generated/transport.ts`, with corresponding `docs/contracts/preview-response.schema.json` and `scripted-votes.schema.json`; CI enforces generator drift. This is **not authentication against another local process**. Do not expose the port through an internet reverse proxy or store private user data here.
 
 ## Verification and limitations
 
