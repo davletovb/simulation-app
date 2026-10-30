@@ -733,7 +733,10 @@ mod tests {
         let mut phantom = captured.clone();
         phantom.scopes[0].remaining_units = 0;
         phantom.scopes[0].carry_permille = 999;
-        assert!(matches!(phantom.restore(PACK_HASH), Err(WireError::Domain(_))));
+        assert!(matches!(
+            phantom.restore(PACK_HASH),
+            Err(WireError::Domain(_))
+        ));
 
         assert!(
             parse_checkpoint(
