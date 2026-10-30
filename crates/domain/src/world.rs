@@ -3,11 +3,25 @@
 //! All state fields are private. Constructors validate inter-ledger consistency.
 //! Private minister effort is deliberately kept outside public projections.
 use crate::{
-    BeliefPpm, CohortWeights, Commitment, CommitmentStatus, ContractError,
+    CohortWeights, Commitment, CommitmentStatus, ContractError,
     DueQuarter, FundedScope, Ministry, PILOT_CREDITS, PolicyFamily, Quarter, SCHEMA_VERSION,
     Treasury, WireU64, validate_identifier,
 };
 use std::collections::BTreeSet;
+
+/// Cohort support is not an actor's belief and has its own bounded type.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct SupportPpm(u32);
+impl SupportPpm {
+    pub fn new(value: u32) -> Result<Self, ContractError> {
+        if value > crate::SHARE_DENOMINATOR {
+            Err(ContractError::InvalidSupport)
+        } else {
+            Ok(Self(value))
+        }
+    }
+    pub const fn value(self) -> u32 { self.0 }
+}
 
 /// The first case has exactly two fictional organizations. Not population cells.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
@@ -79,7 +93,7 @@ pub struct WorldParts {
     pub treasury: Treasury,
     pub scopes: Vec<FundedScope>,
     pub cohort_weights: CohortWeights,
-    pub support: [BeliefPpm; 6],
+    pub support: [SupportPpm; 6],
     pub organisations: [OrganisationAccount; 2],
     pub commitments: Vec<Commitment>,
     pub queued_responses: Vec<QueuedResponse>,
@@ -100,7 +114,7 @@ impl WorldSnapshot {
             campaign_id, pack_id, world_version: WireU64::new(0),
             quarter: Quarter::new(1)?, phase: MeetingPhase::QuarterOpen,
             treasury: Treasury::initial(), scopes: vec![], cohort_weights,
-            support: [BeliefPpm::new(500_000)?; 6],
+            support: [SupportPpm::new(500_000)?; 6],
             organisations: [
                 OrganisationAccount::new(Organisation::SchoolWorkforceAssociation, 0),
                 OrganisationAccount::new(Organisation::CommunityAccessNetwork, 0),
@@ -121,7 +135,7 @@ impl WorldSnapshot {
         validate_identifier(&self.parts.pack_id)?;
         self.parts.treasury.validate()?;
         // Exact six cohort slots and a million ppm are enforced by fixed arrays
-        // and the domain CohortWeights/BeliefPpm constructors.
+        // and the domain CohortWeights/SupportPpm constructors.
         if self.parts.organisations[0].id != Organisation::SchoolWorkforceAssociation
             || self.parts.organisations[1].id != Organisation::CommunityAccessNetwork {
             return Err(ContractError::InvalidScope);
@@ -179,7 +193,7 @@ impl WorldSnapshot {
     pub fn treasury(&self) -> Treasury { self.parts.treasury }
     pub fn scopes(&self) -> &[FundedScope] { &self.parts.scopes }
     pub fn cohort_weights(&self) -> &CohortWeights { &self.parts.cohort_weights }
-    pub fn support(&self) -> &[BeliefPpm; 6] { &self.parts.support }
+    pub fn support(&self) -> &[SupportPpm; 6] { &self.parts.support }
     pub fn organisations(&self) -> &[OrganisationAccount; 2] { &self.parts.organisations }
     pub fn commitments(&self) -> &[Commitment] { &self.parts.commitments }
     pub fn queued_responses(&self) -> &[QueuedResponse] { &self.parts.queued_responses }
@@ -323,6 +337,12 @@ mod tests {
 
     fn weights() -> CohortWeights {
         CohortWeights::new([200_000, 200_000, 100_000, 150_000, 200_000, 150_000]).unwrap()
+    }
+    #[test]
+    fn support_is_bounded_independently_of_minister_beliefs() {
+        assert_eq!(SupportPpm::new(0).unwrap().value(), 0);
+        assert_eq!(SupportPpm::new(1_000_000).unwrap().value(), 1_000_000);
+        assert_eq!(SupportPpm::new(1_000_001), Err(ContractError::InvalidSupport));
     }
     #[test]
     fn initial_world_has_exact_six_cell_stock_and_no_fake_spending() {
