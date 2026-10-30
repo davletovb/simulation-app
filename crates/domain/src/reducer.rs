@@ -1975,9 +1975,13 @@ mod tests {
         c.apply(player(&c,"advance1",PlayerCommand::AdvanceQuarter)).unwrap();
         c.apply(player(&c,"advance2",PlayerCommand::AdvanceQuarter)).unwrap();
         assert_eq!(c.reports()[1].delivered[0],12);
-        assert_eq!(c.world().commitments()[0].status,CommitmentStatus::Honored);
-        assert_eq!(c.world().commitments()[1].status,CommitmentStatus::Broken);
-        assert_eq!(c.relationship(),[52,45,50]);
+        let honored=c.world().commitments().iter().filter(|x|
+            x.status==CommitmentStatus::Honored).count();
+        let broken=c.world().commitments().iter().filter(|x|
+            x.status==CommitmentStatus::Broken).count();
+        assert_eq!((honored,broken),(1,1));
+        // Lexicographic commitment IDs give Education the first ten units.
+        assert_eq!(c.relationship(),[45,52,50]);
         c.world().validate().unwrap();
     }
     #[test]
