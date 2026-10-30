@@ -53,6 +53,12 @@ pub struct Trial {
     pub audit_spent: u16,
     pub weighted_support_ppm: u32,
     pub group_support_ppm: [u32; 6],
+    /// Derived counterfactual after applying only already queued Q7/Q8
+    /// responses; Q6 score remains the authoritative game-horizon score.
+    pub settled_weighted_support_ppm: u32,
+    pub settled_group_support_ppm: [u32; 6],
+    pub pending_cell_delta_ppm: [i64; 6],
+    pub pending_response_count: usize,
     pub relationships: [i16; 3],
 }
 fn submit(c: &mut Campaign, id: &str, action: PlayerCommand) -> Result<(), Rejection> {
@@ -65,7 +71,7 @@ fn submit(c: &mut Campaign, id: &str, action: PlayerCommand) -> Result<(), Rejec
     c.apply(Action::Player(envelope))?;
     Ok(())
 }
-fn minister_round(c: &mut Campaign, meeting: &str) -> Result<usize, Rejection> {
+fn minister_round(c: &mut Campaign, meeting: &str) -> Result<(), Rejection> {
     for role in MINISTERS {
         let obs = c.role_observation(role)?;
         let decision = scripted::decide(&obs)?;
@@ -74,14 +80,10 @@ fn minister_round(c: &mut Campaign, meeting: &str) -> Result<usize, Rejection> {
     c.apply(Action::FreezeFinal {
         command_id: format!("{meeting}-freeze"),
     })?;
-    let mut support = 0_usize;
     for role in MINISTERS {
         let observation = c.role_observation(role)?;
         let decision = scripted::decide(&observation)?;
-        if decision.final_position.vote == crate::Position::Support {
-            support += 1;
-        }
-        let effort = if role == Ministry::Finance {
+         let effort = if role == Ministry::Finance {
             None
         } else {
             Some(PrivateEffortDeclaration::new(
@@ -92,7 +94,7 @@ fn minister_round(c: &mut Campaign, meeting: &str) -> Result<usize, Rejection> {
         };
         c.apply(Action::Final(decision.final_position, effort))?;
     }
-    Ok(support)
+    Ok(())
 }
 /// All variants receive the SAME Q1 proposal, scripted first/final vote law,
 /// 1000‰ efforts and six explicit advances, with all-zero exogenous shocks.
@@ -130,21 +132,17 @@ pub fn run_one(
         Err(Rejection::InsufficientFunding) => Admission::InfeasibleTreasury,
         Err(other) => return Err(other),
         Ok(()) => {
-            let support = minister_round(&mut c, "q1")?;
-            if support >= 2 {
-                let proposal_version = c.proposal_version().ok_or(Rejection::InvalidPhase)?;
-                submit(
-                    &mut c,
-                    "q1-ratify",
-                    PlayerCommand::Ratify {
-                        meeting_id: "q1".into(),
-                        proposal_version,
-                    },
-                )?;
-                Admission::Ratified
-            } else {
-                submit(&mut c, "q1-defer", PlayerCommand::Defer)?;
-                Admission::RejectedByVotes
+            minister_round(&mut c,"q1")?;
+            let proposal_version=c.proposal_version().ok_or(Rejection::InvalidPhase)?;
+            match submit(&mut c,"q1-ratify",PlayerCommand::Ratify {
+                meeting_id:"q1".into(),proposal_version,
+            }) {
+                Ok(()) => Admission::Ratified,
+                Err(Rejection::InvalidVote) => {
+                    submit(&mut c,"q1-defer",PlayerCommand::Defer)?;
+                    Admission::RejectedByVotes
+                }
+                Err(other)=>return Err(other),
             }
         }
     };
@@ -184,6 +182,15 @@ pub fn run_one(
         .last()
         .ok_or(Rejection::InvalidPhase)?
         .weighted_support_ppm;
+    let (settled,pending_count)=c.settle_pending_support()?;
+    let mut pending_delta=[0_i64;6];
+    let mut weighted_settled=0_u128;
+    for ix in 0..6 {
+        pending_delta[ix]=i64::from(settled[ix])-i64::from(supports[ix]);
+        weighted_settled+=u128::from(settled[ix])*u128::from(weights[ix]);
+    }
+    let settled_weighted_support_ppm=u32::try_from(weighted_settled/1_000_000)
+        .map_err(|_|Rejection::Arithmetic)?;
     Ok(Trial {
         package: name,
         table,
@@ -214,6 +221,10 @@ pub fn run_one(
         audit_spent: treasury.audit_spent(),
         weighted_support_ppm: weighted,
         group_support_ppm: supports,
+        settled_weighted_support_ppm,
+        settled_group_support_ppm: settled,
+        pending_cell_delta_ppm: pending_delta,
+        pending_response_count: pending_count,
         relationships: c.relationship(),
     })
 }
@@ -241,55 +252,61 @@ pub fn sweep() -> Result<Vec<Trial>, Rejection> {
     Ok(outcomes)
 }
 /// Comparing like-for-like policy packages; infeasible/failed votes are retained.
-pub fn contrast(outcomes: &[Trial]) -> (usize, usize) {
-    let mut ranked = 0_usize;
-    let mut reversed = 0_usize;
-    for baseline in outcomes.iter().filter(|x| x.package == "balanced") {
-        if let Some(comparator) = outcomes.iter().find(|x| {
-            x.package == "staff_first"
-                && x.table == baseline.table
-                && x.coefficient_percent == baseline.coefficient_percent
-                && x.extra_delivery_lag == baseline.extra_delivery_lag
-                && x.response_lag == baseline.response_lag
-        }) {
-            if baseline.admission != Admission::Ratified
-                || comparator.admission != Admission::Ratified
-            {
-                continue;
-            }
-            {
-                ranked += 1;
-                // Reference ranking comes from the baseline coefficient/lag/table case.
-                let reference = outcomes.iter().find(|x| {
-                    x.package == "balanced"
-                        && x.table == "authored_baseline"
-                        && x.coefficient_percent == 100
-                        && x.extra_delivery_lag == 0
-                        && x.response_lag == 1
-                });
-                let reference_other = outcomes.iter().find(|x| {
-                    x.package == "staff_first"
-                        && x.table == "authored_baseline"
-                        && x.coefficient_percent == 100
-                        && x.extra_delivery_lag == 0
-                        && x.response_lag == 1
-                });
-                if let (Some(a), Some(b)) = (reference, reference_other) {
-                    let baseline_delta =
-                        i64::from(a.weighted_support_ppm) - i64::from(b.weighted_support_ppm);
-                    let tested_delta = i64::from(baseline.weighted_support_ppm)
-                        - i64::from(comparator.weighted_support_ppm);
-                    if baseline_delta.signum() != 0
-                        && tested_delta.signum() != 0
-                        && baseline_delta.signum() != tested_delta.signum()
-                    {
-                        reversed += 1;
-                    }
-                }
+/// One pairing implementation shared by aggregate and all six-cell reports.
+/// Infeasible or vote-rejected rows are kept in the raw trial table but never
+/// treated as an eligible policy-ranking comparison.
+pub fn accepted_pairs(outcomes:&[Trial])->Vec<(&Trial,&Trial)> {
+    outcomes.iter().filter(|x|x.package=="balanced"
+        && x.admission==Admission::Ratified)
+        .filter_map(|a| {
+            outcomes.iter().find(|b|b.package=="staff_first"
+                && b.admission==Admission::Ratified
+                && b.table==a.table
+                && b.coefficient_percent==a.coefficient_percent
+                && b.extra_delivery_lag==a.extra_delivery_lag
+                && b.response_lag==a.response_lag)
+                .map(|b|(a,b))
+        }).collect()
+}
+#[derive(Clone,Copy,Debug,Eq,PartialEq)]
+pub struct PairStats {
+    pub eligible:usize,
+    pub q6_ties:usize,
+    pub q6_differences:usize,
+    pub settled_ties:usize,
+    pub settled_differences:usize,
+    /// Only strict sign comparisons with a nonzero pinned reference qualify.
+    pub settled_reversals:usize,
+    pub reference_settled_tied:bool,
+}
+pub fn contrast(outcomes:&[Trial])->PairStats {
+    let pairs=accepted_pairs(outcomes);
+    let reference=pairs.iter().find(|(a,_)|
+        a.table=="authored_baseline" && a.coefficient_percent==100
+        && a.extra_delivery_lag==0 && a.response_lag==1);
+    let reference_delta=reference.map_or(0_i64,|(a,b)|
+        i64::from(a.settled_weighted_support_ppm)
+        -i64::from(b.settled_weighted_support_ppm));
+    let mut result=PairStats{
+        eligible:pairs.len(),q6_ties:0,q6_differences:0,
+        settled_ties:0,settled_differences:0,settled_reversals:0,
+        reference_settled_tied:reference_delta==0,
+    };
+    for (a,b) in pairs {
+        if a.weighted_support_ppm==b.weighted_support_ppm {
+            result.q6_ties+=1;
+        } else {result.q6_differences+=1;}
+        let difference=i64::from(a.settled_weighted_support_ppm)
+            -i64::from(b.settled_weighted_support_ppm);
+        if difference==0 { result.settled_ties+=1; }
+        else {
+            result.settled_differences+=1;
+            if reference_delta!=0 && difference.signum()!=reference_delta.signum() {
+                result.settled_reversals+=1;
             }
         }
     }
-    (ranked, reversed)
+    result
 }
 #[cfg(test)]
 mod tests {
@@ -327,7 +344,19 @@ mod tests {
             );
             assert!(x.group_support_ppm.iter().all(|v| *v <= 1_000_000));
         }
-        assert_eq!(contrast(&all).0, 36);
+        let stats=contrast(&all);
+        assert_eq!(stats.eligible,36);
+        assert_eq!(stats.q6_ties,36);
+        assert_eq!(stats.q6_differences,0);
+        assert_eq!(stats.q6_ties+stats.q6_differences,stats.eligible);
+        assert_eq!(stats.settled_ties+stats.settled_differences,stats.eligible);
+        for row in &all {
+            assert!(row.pending_response_count<=2);
+            for i in 0..6 {
+                assert_eq!(i64::from(row.settled_group_support_ppm[i])
+                    -i64::from(row.group_support_ppm[i]),row.pending_cell_delta_ppm[i]);
+            }
+        }
     }
     #[test]
     fn exact_population_variants_are_pinned_to_frozen_p2_authored_fixture() {
