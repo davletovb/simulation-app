@@ -1,0 +1,28 @@
+name: P3 one-shot rustfmt
+on:
+  push:
+    branches: [feat/p3-pure-reducer]
+    paths: [.github/workflows/p3-format-once.yml]
+permissions:
+  contents: write
+jobs:
+  format:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - run: |
+          set -euo pipefail
+          cargo fmt --all
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add crates/domain/src/reducer.rs
+          if ! git diff --cached --quiet; then
+            git commit -m "P3: apply canonical rustfmt to initial reducer"
+            git push origin HEAD:refs/heads/feat/p3-pure-reducer
+          fi
