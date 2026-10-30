@@ -195,7 +195,7 @@ export function CommandView({ allocation, onChange }: {
           </div>
           <p className="panel-lede">The most each family could deliver if this package were ratified before the first
             advance, with full effort and no slowdowns or shocks. For access funding of 10 or more, the optimistic ceiling includes the Community Access Network’s attainable +1 capacity from Q2 onward, which requires its volunteer action. It is not guaranteed; real delivery may be lower.
-            This is a temporary in-browser illustration; the simulation engine will supply the authoritative preview.</p>
+            The local Rust service calculates this conditional optimistic ceiling. Actual outcomes still require the P3 simulation engine.</p>
           <DeliveryForecast allocation={allocation} preview={preview} />
         </section>
       </div>
