@@ -331,7 +331,7 @@ mod tests {
         check_step(trial.step().await.unwrap()).unwrap();
         assert_eq!(trial.store.world().phase,"first_positions_frozen");
         enable(&mut trial,&crate::ACTORS[1..4]).unwrap();
-        trial.policy.fail_role_once=Some((EDUCATION,Arc::new(AtomicBool::new(true))));
+        trial.policy.fail_role_once=Some((crate::EDUCATION,Arc::new(AtomicBool::new(true))));
         let task=tokio::spawn(async move {trial.run_round(3).await});
         assert!(task.await.unwrap_err().is_panic());
         assert!(path.join("pending-round.json").is_file());
