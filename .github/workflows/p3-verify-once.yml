@@ -1,4 +1,4 @@
-name: P3 one-time final Experiment B verification (Clippy corrections)
+name: P3 one-time final Experiment B verification (full gates)
 on:
   push:
     branches: [feat/p3-pure-reducer]
