@@ -23,6 +23,7 @@ pub enum ContractError {
     InvalidCreditAmount,
     InvalidEffort,
     InvalidBelief,
+    InvalidSupport,
     InvalidPopulationWeights,
     InvalidDecimal,
     InvalidTreasury,
