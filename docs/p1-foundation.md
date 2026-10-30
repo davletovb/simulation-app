@@ -35,7 +35,7 @@ These unit tests do not need an API key, a database, Hiyal or model inference. T
 
 | Question | Decision |
 |---|---|
-| Delivery calculations | The Rust engine owns all authoritative calculations: costs, delivery schedules, minister effects, constraints and predicted outcomes. React only visualizes them. The in-browser best-case ceiling (`apps/web/src/game.ts`, `bestCaseSchedule`) stays temporarily, labelled illustrative, until a Rust preview endpoint replaces it. |
+| Delivery calculations | The Rust engine owns all authoritative calculations: costs, delivery schedules, minister effects, constraints and predicted outcomes. React only visualizes them. The temporary TypeScript `bestCaseSchedule` has been removed. The existing local Axum `/api/preview` endpoint invokes the pure Rust family-capacity helper, while React only renders its validated typed response. Actual authoritative campaign outcomes remain P3 work. |
 | Organisation trigger rules | Layered visibility. The interface shows each organisation's public interests and contextual warnings without thresholds; the exact authored rule is inspectable behind **View mechanics** in the first playable. |
 | Private information | Minister effort, private preferences and genuinely undiscovered information stay hidden according to role permissions. Future incomplete information about organisations must be an explicit gameplay mechanic, not an undisclosed deterministic threshold. |
 
@@ -47,5 +47,5 @@ These unit tests do not need an API key, a database, Hiyal or model inference. T
 
 1. **P1b completed as a preview slice**: React/Vite shell, real npm lockfile, strict typecheck/build and compiled-asset scan in the same Linux CI job. This is not an interactive simulation.
 2. Introduce Serde, schemars and ts-rs on the pinned compatible toolchain, with generated schemas/TypeScript, canonical decimal-string fields and serialization boundary tests.
-3. Build a recorded/scripted local API mode with backend-only credentials and an executable offline smoke path.
+3. The P1d scripted/recorded local API and offline smoke path now exist; full world saves, replay, and backend-only live credential admission remain separate P3/P4/P5 work.
 4. Complete whole-tree/compiled-asset credential scanning, contract-drift detection and the final P1 evidence log. Keep live model evaluation out of routine CI.
