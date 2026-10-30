@@ -1300,6 +1300,112 @@ mod tests {
         assert_eq!(c.world().treasury().available(), 100);
     }
     #[test]
+    fn funded_deadline_is_protected_until_delivered_and_resolved_once() {
+        use crate::FundedCondition;
+        let mut c=campaign();
+        open(&mut c, Allocation::draft(50,40,10).unwrap());
+        for role in ROLES { first(&mut c,role); }
+        c.apply(Action::FreezeFinal{command_id:"freeze".into()}).unwrap();
+        let mut finance=FinalPosition::new("q1".into(),c.proposal_version().unwrap(),
+            Ministry::Finance, Position::Support,
+            PreferredAllocation::assess(Allocation::draft(50,40,10).unwrap(),100).unwrap()).unwrap();
+        finance.set_public_details(vec![FundedCondition::new("staff-by-q2".into(),
+            PolicyFamily::Staffing,12,DueQuarter::new(2).unwrap()).unwrap()],
+            vec![],"funded staffing deadline".into()).unwrap();
+        c.apply(Action::Final(finance,None)).unwrap();
+        final_vote(&mut c,Ministry::Education,Position::Support,1000);
+        final_vote(&mut c,Ministry::Infrastructure,Position::Support,1000);
+        c.apply(player(&c,"ratify",PlayerCommand::Ratify {
+            meeting_id:"q1".into(),proposal_version:c.proposal_version().unwrap(),
+        })).unwrap();
+        assert_eq!(c.world().commitments().len(),1);
+        assert_eq!(c.world().treasury().service_spent(),0);
+        c.apply(player(&c,"advance1",PlayerCommand::AdvanceQuarter)).unwrap();
+        let before=c.world().world_version();
+        assert_eq!(c.apply(player(&c,"propose-q2",PlayerCommand::Propose {
+            meeting_id:"q2".into(),allocation:Allocation::draft(20,30,10).unwrap()
+        })).err(),Some(Rejection::ProtectedCommitment));
+        assert_eq!(c.world().world_version(),before);
+        c.apply(player(&c,"advance2",PlayerCommand::AdvanceQuarter)).unwrap();
+        assert_eq!(c.world().commitments()[0].status,CommitmentStatus::Honored);
+        assert_eq!(c.relationship()[0],52);
+        assert_eq!(c.world().treasury().service_spent(),21);
+        c.apply(player(&c,"propose-q3",PlayerCommand::Propose {
+            meeting_id:"q3".into(),allocation:Allocation::draft(20,30,10).unwrap()
+        })).unwrap();
+        assert_eq!(c.world().quarter().value(),3);
+        c.world().validate().unwrap();
+    }
+    #[test]
+    fn game_truth_audit_free_then_paid_and_duplicate_disclosure_does_not_double_move_belief() {
+        use crate::EvidenceRecipients;
+        let mut c=campaign();
+        open(&mut c,Allocation::draft(40,30,20).unwrap());
+        for role in ROLES { first(&mut c,role); }
+        c.apply(Action::FreezeFinal{command_id:"freeze".into()}).unwrap();
+        final_vote(&mut c,Ministry::Finance,Position::Support,1000);
+        final_vote(&mut c,Ministry::Education,Position::Support,500);
+        final_vote(&mut c,Ministry::Infrastructure,Position::Support,1000);
+        c.apply(player(&c,"ratify",PlayerCommand::Ratify {
+            meeting_id:"q1".into(),proposal_version:c.proposal_version().unwrap()
+        })).unwrap();
+        c.apply(player(&c,"advance1",PlayerCommand::AdvanceQuarter)).unwrap();
+        c.apply(player(&c,"advance2",PlayerCommand::AdvanceQuarter)).unwrap();
+        assert_eq!(c.world().quarter().value(),3);
+        assert_eq!(c.reports()[1].due_schedule[0],12);
+        assert_eq!(c.reports()[1].delivered_cumulative[0],6);
+        let free=c.apply(player(&c,"first-audit",PlayerCommand::OrderAudit {
+            family:PolicyFamily::Staffing,inspected_quarter:Quarter::new(2).unwrap()
+        })).unwrap();
+        assert!(free.ledger.is_empty());
+        let first=c.player_audits()[0].clone();
+        assert_eq!(first.cost,0);
+        let disclosed=c.apply(player(&c,"disclose1",PlayerCommand::DiscloseEvidence {
+            evidence_id:first.id.clone(),evidence_version:first.version,
+            recipients:EvidenceRecipients::new(vec![Ministry::Education]).unwrap()
+        })).unwrap();
+        assert_eq!(disclosed.belief_updates.len(),1);
+        assert_eq!(disclosed.belief_updates[0].delta,-80000);
+        assert_eq!(c.belief_for(Ministry::Education),420000);
+        assert_eq!(c.belief_for(Ministry::Infrastructure),500000);
+        let dup=c.apply(player(&c,"disclose2",PlayerCommand::DiscloseEvidence {
+            evidence_id:first.id,evidence_version:first.version,
+            recipients:EvidenceRecipients::new(vec![Ministry::Education]).unwrap()
+        })).unwrap();
+        assert_eq!(dup.belief_updates[0].delta,0);
+        let paid=c.apply(player(&c,"second-audit",PlayerCommand::OrderAudit {
+            family:PolicyFamily::Staffing,inspected_quarter:Quarter::new(2).unwrap()
+        })).unwrap();
+        assert_eq!(paid.ledger.len(),1);
+        assert_eq!(c.world().treasury().audit_spent(),2);
+        assert_eq!(c.player_audits()[1].version.value(),2);
+        let new=c.player_audits()[1].clone();
+        let correction=c.apply(player(&c,"disclose3",PlayerCommand::DiscloseEvidence {
+            evidence_id:new.id,evidence_version:new.version,
+            recipients:EvidenceRecipients::new(vec![Ministry::Education]).unwrap()
+        })).unwrap();
+        assert_eq!(correction.belief_updates[0].delta,0);
+        assert_eq!(c.belief_for(Ministry::Education),420000);
+        c.world().validate().unwrap();
+    }
+    #[test]
+    fn cap_change_invalidates_original_proposal_version_and_cannot_hide_second_amendment(){
+        let mut c=campaign();
+        open(&mut c,Allocation::draft(50,40,10).unwrap());
+        let prior=c.proposal_version().unwrap();
+        c.apply(player(&c,"cap-edit",PlayerCommand::RequestCapacityCap{
+            meeting_id:"q1".into(),caps:CapacityCaps::new(10,8,4).unwrap()
+        })).unwrap();
+        assert_eq!(c.proposal_version().unwrap().value(),prior.value()+1);
+        for role in ROLES {first(&mut c,role);}
+        assert!(c.apply(player(&c,"second-edit",PlayerCommand::Amend{
+            meeting_id:"q1".into(),proposal_version:c.proposal_version().unwrap(),
+            allocation:Allocation::draft(60,30,10).unwrap(),
+        })).is_err());
+        assert_eq!(c.caps().staff(),12);
+        assert_eq!(c.world().treasury().available(),100);
+    }
+    #[test]
     fn signed_coefficients_keep_losing_cells_negative() {
         assert!(cohort_response(2, [1, 0, 0]).unwrap() < 0);
         assert!(cohort_response(3, [1, 0, 0]).unwrap() < 0);
