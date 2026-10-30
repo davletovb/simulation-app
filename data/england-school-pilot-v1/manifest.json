@@ -7,6 +7,8 @@
     "sourced_headline_indicators": 8
   },
   "cutoff_utc": "2026-10-29T23:59:59Z",
+  "narrative_diff_sha256": "e4e8e60923bdd0ca3f79197e603c3520dfe64db6e124af2ccf63c1a7ae0032fc",
+  "news_bundle_sha256": "0d1d1957e5b1c6c3cafabbba8cd2d0843b739c6e3812ca518d042ed86d84a407",
   "observations_sha256": "03d3542e4516584f07f57a937622a4e7b118444b7200d5816db0f260048e5ba3",
   "pack_id": "england-school-delivery-v1",
   "raw_original_pages_archived": true,
