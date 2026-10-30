@@ -83,6 +83,7 @@ struct ErrorBody {
     code: &'static str,
     message: &'static str,
 }
+#[derive(Debug)]
 enum ApiError {
     Invalid,
     Missing,
