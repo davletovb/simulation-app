@@ -49,12 +49,6 @@ jobs:
           fi
           # A fresh runner has no registry index; fetch locked dependencies first.
           cargo fetch --locked
-      - name: Temporary formatter output for P1d review
-        if: steps.workspace.outputs.present == 'true'
-        shell: bash
-        run: |
-          cargo fmt --all
-          git diff -- crates/domain/src crates/contracts/src crates/local-api/src
       - name: Format
         if: steps.workspace.outputs.present == 'true'
         run: cargo fmt --all -- --check
@@ -95,13 +89,7 @@ jobs:
         run: bash .github/scripts/offline-api-smoke.sh
       - name: Verify generated Serde / TS / JSON Schema contract drift
         if: steps.workspace.outputs.present == 'true'
-        run: |
-          cargo run --locked -p myth-contracts --bin export-contracts -- --write
-          for file in apps/web/src/generated/transport.ts docs/contracts/*.schema.json; do
-            echo "MYTH_BEGIN:$file"
-            cat "$file"
-            echo "MYTH_END:$file"
-          done
+        run: cargo run --locked -p myth-contracts --bin export-contracts -- --check
       - name: Detect React workspace
         id: web
         shell: bash
