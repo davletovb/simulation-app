@@ -1448,6 +1448,35 @@ mod tests {
         assert_eq!(c.world().treasury().available(),100);
     }
     #[test]
+    fn player_and_minister_public_views_hide_inspected_truth_before_audit() {
+        let mut c=campaign();
+        open(&mut c,Allocation::draft(50,40,10).unwrap());
+        for m in ROLES {first(&mut c,m);}
+        c.apply(Action::FreezeFinal{command_id:"freeze".into()}).unwrap();
+        final_vote(&mut c,Ministry::Finance,Position::Support,1000);
+        final_vote(&mut c,Ministry::Education,Position::Support,500);
+        final_vote(&mut c,Ministry::Infrastructure,Position::Support,1000);
+        c.apply(player(&c,"ratify",PlayerCommand::Ratify{
+            meeting_id:"q1".into(),proposal_version:c.proposal_version().unwrap()
+        })).unwrap();
+        c.apply(player(&c,"advance1",PlayerCommand::AdvanceQuarter)).unwrap();
+        c.apply(player(&c,"advance2",PlayerCommand::AdvanceQuarter)).unwrap();
+        assert_eq!(c.reports()[1].delivered_cumulative[0],6);
+        let public=c.player_reports();
+        assert_eq!(public[1].reported_cumulative[0],8);
+        assert_eq!(public[1].due_cumulative[0],12);
+        // Public role view is independently constructible only during an open
+        // meeting. No private effort, truth or unpublished audit field is in it.
+        c.apply(player(&c,"propose-q3",PlayerCommand::Propose{
+            meeting_id:"q3".into(),allocation:Allocation::draft(30,20,10).unwrap()
+        })).unwrap();
+        let role=c.role_view(Ministry::Education).unwrap();
+        assert_eq!(role.latest_public_report.unwrap().reported_cumulative[0],8);
+        assert_eq!(role.observation.ministry,Ministry::Education);
+        assert!(role.constituency_support_ppm<=1_000_000);
+        assert_eq!(c.private_effort_for(Ministry::Education),Some(500));
+    }
+    #[test]
     fn signed_coefficients_keep_losing_cells_negative() {
         assert!(cohort_response(2, [1, 0, 0]).unwrap() < 0);
         assert!(cohort_response(3, [1, 0, 0]).unwrap() < 0);
