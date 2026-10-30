@@ -112,6 +112,23 @@ pub fn decide(view: &RoleObservation) -> Result<ScriptDecision, ContractError> {
     })
 }
 
+/// A typed allocation concession is independent of vote/rhetoric and
+/// counts only the minister's own frozen first and final preferences.
+pub fn concession_credits(first:&FirstPosition, final_position:&FinalPosition)
+    -> Result<u16,ContractError>
+{
+    if first.meeting_id()!=final_position.meeting_id()
+        || first.ministry!=final_position.ministry
+        || first.proposal_version!=final_position.proposal_version
+    {return Err(ContractError::InvalidCondition);}
+    let a=first.preferred_allocation.allocation();
+    let b=final_position.preferred_allocation.allocation();
+    a.staff().abs_diff(b.staff())
+        .checked_add(a.repairs().abs_diff(b.repairs()))
+        .and_then(|x|x.checked_add(a.access().abs_diff(b.access())))
+        .ok_or(ContractError::ArithmeticOverflow)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -189,5 +206,23 @@ mod tests {
                 .total()
                 <= 100
         );
+    }
+    #[test]
+    fn five_profile_only_anchor_pairs_do_not_imitate_player_amendments() {
+        let mut pairs=0;
+        for opening_staff in [40_u16,45,50,55,60] {
+            let a=Allocation::draft(opening_staff,30,10).unwrap();
+            let b=Allocation::draft(60-opening_staff+40,30,10).unwrap();
+            for role in [Ministry::Finance,Ministry::Education,Ministry::Infrastructure] {
+                let first_a=decide(&view(role,a,500_000)).unwrap();
+                let first_b=decide(&view(role,b,500_000)).unwrap();
+                let x=first_a.first.preferred_allocation.allocation();
+                let y=first_b.first.preferred_allocation.allocation();
+                assert_eq!(x,y);
+                assert_eq!(concession_credits(&first_a.first,&first_a.final_position).unwrap(),0);
+                pairs+=1;
+            }
+        }
+        assert_eq!(pairs,15);
     }
 }
