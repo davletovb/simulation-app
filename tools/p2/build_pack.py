@@ -75,7 +75,7 @@ HEADLINE_PATTERNS = {
     "teacher_vacancy_rate": r"\bTeacher vacancy rate\b\s+(\d+(?:\.\d+)?%)(?![\d.,])",
     "fsm_eligibility_rate": r"(\d+(?:\.\d+)?%)\s+of pupils are eligible for free school meals\b",
     "school_count": r"\bnumber of schools has increased slightly, by\s+[\d,]+\s+to\s+([\d,]+)\b",
-    "allocated_funding_per_pupil_2026_27": r"\bOn a per-pupil basis.{0,200}?in 2026-27 was\s+(£[\d,]+)(?![\d.,])",
+    "allocated_funding_per_pupil_2026_27": r"\bOn a per-pupil basis.{0,200}?in 2026-27 was\s+(£\d{1,3}(?:,\d{3})*)(?![\d.])",
     "allocated_funding_total_2026_27": r"\btotal funding allocated to schools through the grants covered in this report is\s+(£[\d,.]+ billion)\b",
 }
 
