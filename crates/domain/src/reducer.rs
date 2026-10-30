@@ -312,18 +312,28 @@ impl Campaign {
                         }
                     }
                     crate::PlayerCommand::AdvanceQuarter => self.advance(receipt)?,
-                    crate::PlayerCommand::OrderAudit { family, inspected_quarter } => {
+                    crate::PlayerCommand::OrderAudit {
+                        family,
+                        inspected_quarter,
+                    } => {
                         self.order_audit(*family, *inspected_quarter, receipt)?;
                     }
                     crate::PlayerCommand::DiscloseEvidence {
-                        evidence_id, evidence_version, recipients,
+                        evidence_id,
+                        evidence_version,
+                        recipients,
                     } => {
-                        let evidence = self.audits.iter().find(|a|
-                            a.id == *evidence_id && a.version == *evidence_version
-                        ).ok_or(Rejection::InvalidCondition)?.clone();
+                        let evidence = self
+                            .audits
+                            .iter()
+                            .find(|a| a.id == *evidence_id && a.version == *evidence_version)
+                            .ok_or(Rejection::InvalidCondition)?
+                            .clone();
                         // The recipient list is prevalidated by EvidenceRecipients.
                         for ministry in recipients.roles() {
-                            receipt.belief_updates.push(self.beliefs.observe(&evidence, *ministry)?);
+                            receipt
+                                .belief_updates
+                                .push(self.beliefs.observe(&evidence, *ministry)?);
                         }
                     }
                 }
@@ -531,7 +541,9 @@ impl Campaign {
         Ok(())
     }
     fn order_audit(
-        &mut self, family: PolicyFamily, inspected: Quarter,
+        &mut self,
+        family: PolicyFamily,
+        inspected: Quarter,
         receipt: &mut ReducerReceipt,
     ) -> Result<(), Rejection> {
         // Audit only a committed historical quarter starting in Q3. A minister
@@ -539,23 +551,35 @@ impl Campaign {
         if self.world.quarter().value() < 3
             || inspected > self.world.quarter()
             || self.world.phase() == MeetingPhase::QuarterClosed
-        { return Err(Rejection::InvalidPhase); }
-        let report = self.reports.iter().find(|r| r.quarter == inspected)
+        {
+            return Err(Rejection::InvalidPhase);
+        }
+        let report = self
+            .reports
+            .iter()
+            .find(|r| r.quarter == inspected)
             .ok_or(Rejection::InvalidCondition)?;
         let ix = family_index(family);
-        if report.due_schedule[ix] == 0 { return Err(Rejection::InvalidCondition); }
-        let cost = if self.audits.is_empty() {0} else {2};
+        if report.due_schedule[ix] == 0 {
+            return Err(Rejection::InvalidCondition);
+        }
+        let cost = if self.audits.is_empty() { 0 } else { 2 };
         if cost > 0 {
             let mut parts = self.world.private_checkpoint_parts();
             let movement = LedgerMove::SpendAudit { credits: cost };
             let before = parts.treasury;
             parts.treasury = before.apply(movement)?;
-            receipt.ledger.push(LedgerReceipt::new(before, movement, parts.treasury)?);
+            receipt
+                .ledger
+                .push(LedgerReceipt::new(before, movement, parts.treasury)?);
             self.world = WorldSnapshot::from_parts(parts)?;
         }
-        let number = self.audits.iter().filter(|a|
-            a.family == family && a.inspected_quarter == inspected
-        ).count() + 1;
+        let number = self
+            .audits
+            .iter()
+            .filter(|a| a.family == family && a.inspected_quarter == inspected)
+            .count()
+            + 1;
         let key = match family {
             PolicyFamily::Staffing => "staffing",
             PolicyFamily::Repairs => "repairs",
@@ -617,7 +641,8 @@ impl Campaign {
             )?;
             scheduled[ix] = due_receipt.total_delivered;
             self.scheduled_lifetime[ix] = self.scheduled_lifetime[ix]
-                .checked_add(scheduled[ix]).ok_or(Rejection::Arithmetic)?;
+                .checked_add(scheduled[ix])
+                .ok_or(Rejection::Arithmetic)?;
             let delivery = deliver_family_quarter(
                 *family,
                 caps[ix],
