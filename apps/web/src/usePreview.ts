@@ -13,7 +13,7 @@ const familyKey: Record<ServiceFamily, string> = {
 function parsePreview(raw: unknown): FamilyForecast[] {
   if (typeof raw !== 'object' || raw === null) throw new Error('Bad server preview')
   const response = raw as Partial<ServicePreview>
-  if (response.kind !== 'optimistic_upper_bound' || response.calculator !== 'myth-domain' ||
+  if (response.kind !== 'optimistic_upper_bound' || response.calculator !== 'myth_domain' ||
       response.authoritative_simulation !== false || !Array.isArray(response.families) ||
       response.families.length !== FAMILIES.length) throw new Error('Unexpected preview contract')
   const source = new Map<string, ServiceLine>()
