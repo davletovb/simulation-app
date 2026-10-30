@@ -3,8 +3,9 @@
 //! All state fields are private. Constructors validate inter-ledger consistency.
 //! Private minister effort is deliberately kept outside public projections.
 use crate::{
-    CohortWeights, Commitment, CommitmentStatus, ContractError, DueQuarter, FundedScope, LedgerMove, Ministry,
-    PILOT_CREDITS, PolicyFamily, Quarter, SCHEMA_VERSION, Treasury, WireU64, validate_identifier,
+    CohortWeights, Commitment, CommitmentStatus, ContractError, DueQuarter, FundedScope,
+    LedgerMove, Ministry, PILOT_CREDITS, PolicyFamily, Quarter, SCHEMA_VERSION, Treasury, WireU64,
+    validate_identifier,
 };
 use std::collections::BTreeSet;
 
@@ -43,8 +44,12 @@ impl OrganisationAccount {
         account.validate()?;
         Ok(account)
     }
-    pub const fn id(&self) -> Organisation { self.id }
-    pub const fn resources(&self) -> u32 { self.resources }
+    pub const fn id(&self) -> Organisation {
+        self.id
+    }
+    pub const fn resources(&self) -> u32 {
+        self.resources
+    }
     pub fn validate(&self) -> Result<(), ContractError> {
         let max = match self.id {
             Organisation::SchoolWorkforceAssociation => 20,
@@ -76,7 +81,11 @@ impl QueuedResponse {
         service_spent: u16,
     ) -> Result<Self, ContractError> {
         let candidate = Self {
-            source_event_id, produced_quarter, due_quarter, delivered, service_spent,
+            source_event_id,
+            produced_quarter,
+            due_quarter,
+            delivered,
+            service_spent,
         };
         candidate.validate()?;
         Ok(candidate)
@@ -87,7 +96,8 @@ impl QueuedResponse {
             return Err(ContractError::InvalidQuarter);
         }
         let total = self.delivered.iter().try_fold(0_u16, |acc, units| {
-            acc.checked_add(*units).ok_or(ContractError::ArithmeticOverflow)
+            acc.checked_add(*units)
+                .ok_or(ContractError::ArithmeticOverflow)
         })?;
         if total != self.service_spent || total > PILOT_CREDITS {
             return Err(ContractError::InvalidTreasury);
@@ -192,7 +202,9 @@ impl WorldSnapshot {
         {
             return Err(ContractError::InvalidScope);
         }
-        for org in &self.parts.organisations { org.validate()?; }
+        for org in &self.parts.organisations {
+            org.validate()?;
+        }
         let mut ids = BTreeSet::new();
         let mut totals = [0_u16; 3];
         for scope in &self.parts.scopes {
@@ -201,13 +213,16 @@ impl WorldSnapshot {
                 return Err(ContractError::DuplicateScope);
             }
             if scope.carry_permille() >= crate::EFFORT_DENOMINATOR
-                || scope.activation_quarter() > self.parts.quarter {
+                || scope.activation_quarter() > self.parts.quarter
+            {
                 return Err(ContractError::InvalidScope);
             }
             // Cancellation discards fractional carry and releases unspent
             // credits atomically in P3. Keep the scope for history, not funds.
             if scope.is_terminated() {
-                if scope.carry_permille() != 0 { return Err(ContractError::InvalidScope); }
+                if scope.carry_permille() != 0 {
+                    return Err(ContractError::InvalidScope);
+                }
                 continue;
             }
             let index = family_index(scope.family());
@@ -243,10 +258,12 @@ impl WorldSnapshot {
             }
             let now = u16::from(self.parts.quarter.value());
             if response.produced_quarter() > self.parts.quarter
-                || response.due_quarter().value() < now {
+                || response.due_quarter().value() < now
+            {
                 return Err(ContractError::InvalidQuarter);
             }
-            queued_spend = queued_spend.checked_add(response.service_spent())
+            queued_spend = queued_spend
+                .checked_add(response.service_spent())
                 .ok_or(ContractError::ArithmeticOverflow)?;
         }
         // Already-applied responses have left this queue; not every lifetime
@@ -733,19 +750,32 @@ mod tests {
     }
     #[test]
     fn termination_releases_credits_without_discarding_historical_scope() {
-        let mut parts = WorldSnapshot::initial("c".into(), "pack".into(), weights()).unwrap().parts;
+        let mut parts = WorldSnapshot::initial("c".into(), "pack".into(), weights())
+            .unwrap()
+            .parts;
         parts.treasury = Treasury::from_parts(88, 12, 0, 0, 0, 0).unwrap();
-        parts.scopes.push(FundedScope::new("old".into(), PolicyFamily::Staffing,
-            Quarter::new(1).unwrap(), 12).unwrap());
+        parts.scopes.push(
+            FundedScope::new(
+                "old".into(),
+                PolicyFamily::Staffing,
+                Quarter::new(1).unwrap(),
+                12,
+            )
+            .unwrap(),
+        );
         WorldSnapshot::from_parts(parts.clone()).unwrap();
         let receipt = parts.scopes[0].terminate();
         assert_eq!(receipt.dropped_carry_permille, 0);
         // The mechanical release and termination must be committed atomically
         // by P3. Either half in isolation fails this snapshot invariant.
         assert!(WorldSnapshot::from_parts(parts.clone()).is_err());
-        parts.treasury = parts.treasury.apply(LedgerMove::Release {
-            family: PolicyFamily::Staffing, credits: 12,
-        }).unwrap();
+        parts.treasury = parts
+            .treasury
+            .apply(LedgerMove::Release {
+                family: PolicyFamily::Staffing,
+                credits: 12,
+            })
+            .unwrap();
         let world = WorldSnapshot::from_parts(parts).unwrap();
         assert!(world.scopes()[0].is_terminated());
         assert_eq!(world.scopes()[0].remaining_units(), 12);
@@ -754,85 +784,140 @@ mod tests {
     #[test]
     fn pending_political_funding_rejected_consistently_in_world_and_role_view() {
         let invalid = Commitment {
-            id: "political-1".into(), issuer: Ministry::Finance, beneficiary: Ministry::Education,
+            id: "political-1".into(),
+            issuer: Ministry::Finance,
+            beneficiary: Ministry::Education,
             proposal_version: WireU64::new(0),
-            kind: crate::CommitmentKind::Political, funded_units: 1,
-            trigger: "promise".into(), deadline_quarter: DueQuarter::new(3).unwrap(),
-            status: CommitmentStatus::Pending, resolution_event: None,
+            kind: crate::CommitmentKind::Political,
+            funded_units: 1,
+            trigger: "promise".into(),
+            deadline_quarter: DueQuarter::new(3).unwrap(),
+            status: CommitmentStatus::Pending,
+            resolution_event: None,
         };
         assert!(invalid.validate().is_err());
-        let mut parts = WorldSnapshot::initial("c".into(), "pack".into(), weights()).unwrap().parts;
+        let mut parts = WorldSnapshot::initial("c".into(), "pack".into(), weights())
+            .unwrap()
+            .parts;
         parts.commitments.push(invalid.clone());
         assert!(WorldSnapshot::from_parts(parts).is_err());
         let mut role = crate::RoleObservation::new(crate::RoleObservationInput {
-            campaign_id: "c".into(), meeting_id: "m".into(),
-            proposal_version: WireU64::new(0), ministry: Ministry::Finance,
+            campaign_id: "c".into(),
+            meeting_id: "m".into(),
+            proposal_version: WireU64::new(0),
+            ministry: Ministry::Finance,
             quarter: Quarter::new(1).unwrap(),
             allocation: Allocation::draft(0, 0, 0).unwrap(),
-            available_credits: 100, belief_ppm: crate::BeliefPpm::new(500_000).unwrap(),
-        }).unwrap();
+            available_credits: 100,
+            belief_ppm: crate::BeliefPpm::new(500_000).unwrap(),
+        })
+        .unwrap();
         role.owned_commitments.push(invalid);
         assert!(role.validate().is_err());
     }
     #[test]
     fn future_or_overdue_world_components_and_unspent_queued_effects_fail() {
-        let seed = WorldSnapshot::initial("c".into(), "pack".into(), weights()).unwrap().parts;
+        let seed = WorldSnapshot::initial("c".into(), "pack".into(), weights())
+            .unwrap()
+            .parts;
         let mut scope = seed.clone();
-        scope.scopes.push(FundedScope::new("future".into(), PolicyFamily::Staffing,
-            Quarter::new(2).unwrap(), 1).unwrap());
+        scope.scopes.push(
+            FundedScope::new(
+                "future".into(),
+                PolicyFamily::Staffing,
+                Quarter::new(2).unwrap(),
+                1,
+            )
+            .unwrap(),
+        );
         scope.treasury = Treasury::from_parts(99, 1, 0, 0, 0, 0).unwrap();
         assert!(WorldSnapshot::from_parts(scope).is_err());
 
-        let make = |produced: u8, due: u16| QueuedResponse::new(
-            "source".into(), Quarter::new(produced).unwrap(),
-            DueQuarter::new(due).unwrap(), [2, 1, 0], 3,
-        ).unwrap();
+        let make = |produced: u8, due: u16| {
+            QueuedResponse::new(
+                "source".into(),
+                Quarter::new(produced).unwrap(),
+                DueQuarter::new(due).unwrap(),
+                [2, 1, 0],
+                3,
+            )
+            .unwrap()
+        };
         let mut no_spend = seed.clone();
         no_spend.queued_responses.push(make(1, 2));
-        assert!(matches!(WorldSnapshot::from_parts(no_spend),
-            Err(ContractError::InvalidTreasury)));
+        assert!(matches!(
+            WorldSnapshot::from_parts(no_spend),
+            Err(ContractError::InvalidTreasury)
+        ));
 
         let mut cumulative = seed.clone();
         cumulative.treasury = Treasury::from_parts(95, 0, 0, 0, 5, 0).unwrap();
         cumulative.queued_responses.push(make(1, 2));
-        cumulative.queued_responses.push(QueuedResponse::new(
-            "another".into(), Quarter::new(1).unwrap(),
-            DueQuarter::new(2).unwrap(), [0, 3, 0], 3,
-        ).unwrap());
-        assert!(matches!(WorldSnapshot::from_parts(cumulative),
-            Err(ContractError::InvalidTreasury)));
+        cumulative.queued_responses.push(
+            QueuedResponse::new(
+                "another".into(),
+                Quarter::new(1).unwrap(),
+                DueQuarter::new(2).unwrap(),
+                [0, 3, 0],
+                3,
+            )
+            .unwrap(),
+        );
+        assert!(matches!(
+            WorldSnapshot::from_parts(cumulative),
+            Err(ContractError::InvalidTreasury)
+        ));
 
         let mut future = seed.clone();
         future.treasury = Treasury::from_parts(97, 0, 0, 0, 3, 0).unwrap();
         future.queued_responses.push(make(2, 3));
-        assert!(matches!(WorldSnapshot::from_parts(future),
-            Err(ContractError::InvalidQuarter)));
+        assert!(matches!(
+            WorldSnapshot::from_parts(future),
+            Err(ContractError::InvalidQuarter)
+        ));
 
         let mut overdue = seed.clone();
         overdue.quarter = Quarter::new(4).unwrap();
         overdue.treasury = Treasury::from_parts(97, 0, 0, 0, 3, 0).unwrap();
         overdue.queued_responses.push(make(1, 2));
-        assert!(matches!(WorldSnapshot::from_parts(overdue),
-            Err(ContractError::InvalidQuarter)));
+        assert!(matches!(
+            WorldSnapshot::from_parts(overdue),
+            Err(ContractError::InvalidQuarter)
+        ));
 
         let mut deadline = seed;
         deadline.quarter = Quarter::new(3).unwrap();
         deadline.commitments.push(Commitment {
-            id:"pending".into(), issuer: Ministry::Finance, beneficiary: Ministry::Education,
+            id: "pending".into(),
+            issuer: Ministry::Finance,
+            beneficiary: Ministry::Education,
             proposal_version: WireU64::new(0),
-            kind: crate::CommitmentKind::Political, funded_units: 0,
-            trigger:"trigger".into(), deadline_quarter: DueQuarter::new(2).unwrap(),
-            status: CommitmentStatus::Pending, resolution_event: None,
+            kind: crate::CommitmentKind::Political,
+            funded_units: 0,
+            trigger: "trigger".into(),
+            deadline_quarter: DueQuarter::new(2).unwrap(),
+            status: CommitmentStatus::Pending,
+            resolution_event: None,
         });
-        assert!(matches!(WorldSnapshot::from_parts(deadline),
-            Err(ContractError::InvalidCondition)));
+        assert!(matches!(
+            WorldSnapshot::from_parts(deadline),
+            Err(ContractError::InvalidCondition)
+        ));
     }
     #[test]
     fn queued_effect_recheck_validates_every_field_not_only_sum() {
-        let mut parts = WorldSnapshot::initial("c".into(), "pack".into(), weights()).unwrap().parts;
+        let mut parts = WorldSnapshot::initial("c".into(), "pack".into(), weights())
+            .unwrap()
+            .parts;
         parts.treasury = Treasury::from_parts(97, 0, 0, 0, 3, 0).unwrap();
-        let valid = QueuedResponse::new("source".into(), Quarter::new(1).unwrap(),
-            DueQuarter::new(2).unwrap(), [3, 0, 0], 3).unwrap();
+        let valid = QueuedResponse::new(
+            "source".into(),
+            Quarter::new(1).unwrap(),
+            DueQuarter::new(2).unwrap(),
+            [3, 0, 0],
+            3,
+        )
+        .unwrap();
         parts.queued_responses.push(valid);
         assert!(WorldSnapshot::from_parts(parts.clone()).is_ok());
         parts.queued_responses[0].source_event_id = "".into();
@@ -846,10 +931,16 @@ mod tests {
     }
     #[test]
     fn delivered_event_must_fit_one_family_cap_and_be_positive() {
-        let check = |family, delivered| EventEnvelope::new(
-            "c".into(), "e".into(), WireU64::new(1), WireU64::new(1),
-            Quarter::new(2).unwrap(), EventKind::DeliveryRecorded { family, delivered },
-        );
+        let check = |family, delivered| {
+            EventEnvelope::new(
+                "c".into(),
+                "e".into(),
+                WireU64::new(1),
+                WireU64::new(1),
+                Quarter::new(2).unwrap(),
+                EventKind::DeliveryRecorded { family, delivered },
+            )
+        };
         assert!(check(PolicyFamily::Staffing, 12).is_ok());
         assert!(check(PolicyFamily::Repairs, 10).is_ok());
         assert!(check(PolicyFamily::Access, 5).is_ok());
