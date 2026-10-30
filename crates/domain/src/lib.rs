@@ -1211,7 +1211,7 @@ fn civil_day(date: &str) -> Option<(u32, u32, u32)> {
     }
     Some((year, month, day))
 }
-fn utc_datetime(value: &str) -> Option<((u32, u32, u32), (u32, u32, u32))> {
+fn utc_datetime(value: &str) -> Option<(u32, u32, u32)> {
     let b = value.as_bytes();
     if b.len() != 20
         || b[10] != b'T'
@@ -1232,7 +1232,7 @@ fn utc_datetime(value: &str) -> Option<((u32, u32, u32), (u32, u32, u32))> {
     if hour >= 24 || minute >= 60 || second >= 60 {
         return None;
     }
-    Some((day, (hour, minute, second)))
+    Some(day)
 }
 
 impl EvidenceProvenance {
@@ -1314,7 +1314,7 @@ impl CountryPack {
         for item in &self.evidence {
             item.validate()?;
             let release = civil_day(&item.release_date).ok_or(ContractError::InvalidScope)?;
-            if release > cutoff.0 || !ids.insert(item.stable_variable_id.as_str()) {
+            if release > cutoff || !ids.insert(item.stable_variable_id.as_str()) {
                 return Err(ContractError::InvalidScope);
             }
         }
