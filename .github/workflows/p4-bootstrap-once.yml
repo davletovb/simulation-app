@@ -1,4 +1,4 @@
-name: P4 one-shot lockfile and pinned Hiyal adapter validation
+name: P4 one-shot corrected adapter lock and test
 on:
   push:
     branches: [feat/p4-hiyal-recovery]
@@ -11,7 +11,9 @@ jobs:
     timeout-minutes: 14
     steps:
       - uses: actions/checkout@v4
-        with: {persist-credentials: true}
+        with:
+          persist-credentials: true
+          ref: feat/p4-hiyal-recovery
       - uses: dtolnay/rust-toolchain@stable
         with: {toolchain: '1.99.1', components: 'rustfmt,clippy'}
       - name: Lock approved Hiyal revision, format and test adapter
