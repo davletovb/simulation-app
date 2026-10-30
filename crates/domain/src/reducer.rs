@@ -324,10 +324,16 @@ impl Campaign {
                         if m.id != *meeting_id
                             || self.world.phase() != MeetingPhase::FirstPositionsFrozen
                             || !m.first.is_empty()
+                            || m.amended
                         {
                             return Err(Rejection::InvalidPhase);
                         }
+                        // A cap change is a new proposal version; no old vote
+                        // may authorize it and there is only one amendment.
                         m.caps = *caps;
+                        m.version = WireU64::new(m.version.value()
+                            .checked_add(1).ok_or(Rejection::Arithmetic)?);
+                        m.amended = true;
                     }
                     crate::PlayerCommand::Ratify {
                         meeting_id,
@@ -612,6 +618,13 @@ impl Campaign {
             .filter(|v| v.vote == Position::Support)
         {
             for condition in vote.conditions() {
+                // Only Finance may condition any family; the other two seats
+                // cannot bind funds outside their own delivery remit.
+                if (vote.ministry == Ministry::Education
+                        && condition.family() != PolicyFamily::Staffing)
+                    || (vote.ministry == Ministry::Infrastructure
+                        && condition.family() != PolicyFamily::Repairs)
+                { return Err(Rejection::WrongAuthority); }
                 if condition.due().value() < u16::from(self.world.quarter().value())
                     || condition.due().value() > u16::from(SIX_QUARTERS)
                     || !condition_ids.insert(condition.kind_id().to_string())
