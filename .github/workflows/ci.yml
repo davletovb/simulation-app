@@ -37,7 +37,7 @@ jobs:
         with:
           toolchain: 1.99.1
           components: rustfmt, clippy
-      - name: Verify pinned toolchain and generated lockfile
+      - name: Verify pinned toolchain and locked Cargo dependencies
         if: steps.workspace.outputs.present == 'true'
         shell: bash
         run: |
@@ -49,8 +49,6 @@ jobs:
           fi
           # A fresh runner has no registry index; fetch locked dependencies first.
           cargo fetch --locked
-          cargo generate-lockfile --offline
-          git diff --exit-code -- Cargo.lock
       - name: Format
         if: steps.workspace.outputs.present == 'true'
         run: cargo fmt --all -- --check
