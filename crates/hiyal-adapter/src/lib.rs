@@ -69,7 +69,7 @@ fn allocation_value(a:d::Allocation)->Value {
     json!({"staff":a.staff(),"repairs":a.repairs(),"access":a.access()})
 }
 
-#[derive(Clone,Debug,PartialEq,Eq,Serialize,Deserialize)]
+#[derive(Clone,Copy,Debug,PartialEq,Eq,Serialize,Deserialize)]
 #[serde(rename_all="snake_case")]
 pub enum ActionKind { PlayerCommand, MinisterAction, FreezeFinal }
 
