@@ -45,7 +45,22 @@ def check():
     n = authored["narrative"]
     assert n["source_snapshot_changed"] is False
     assert n["patches"] == [{"field": "repair_capacity_cap", "before": 10, "after": 8}]
-    return {"observations_sha256": obs_hash, "authored_sha256": authored_hash,
+    country, _ = read("country-pack.json")
+    assert country["schema_version"] == 1 and country["country_iso"] == "GB"
+    assert country["simulated_jurisdiction"] == "england"
+    assert country["locale"] == "en-GB" and country["cutoff_utc"] == obs["cutoff_utc"]
+    assert len(country["evidence"]) == 8
+    assert len({e["stable_variable_id"] for e in country["evidence"]}) == 8
+    assert sum(e["missing_reason"] is None for e in country["evidence"]) == 4
+    expected = {x["id"] for x in obs["indicators"]}
+    assert {e["stable_variable_id"] for e in country["evidence"] if e["missing_reason"] is None} == expected
+    for e in country["evidence"]:
+        assert e["sha256_hex"] == obs_hash
+        assert e["source_url"].startswith("https://explore-education-statistics.service.gov.uk/")
+        assert e["release_date"] <= obs["cutoff_utc"][:10]
+        assert e["retrieval_date"] >= e["release_date"]
+        assert "NOT YET CONFIRMED" in e["licence_or_terms"]
+        return {"observations_sha256": obs_hash, "authored_sha256": authored_hash,
             "source_downloads_archived": False, "source_reuse_terms_confirmed": False}
 
 
