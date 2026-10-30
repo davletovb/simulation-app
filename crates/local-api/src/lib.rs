@@ -11,8 +11,8 @@ use axum::{
     routing::{get, post},
 };
 use myth_contracts::{
-    Allocation as WireAllocation, Family, ForecastLine, ForecastResponse, PreviewCalculator,
-    PreviewKind, ScriptedSeatVote, ScriptedVoteKind, ScriptedVotes, Ministry, Vote,
+    Allocation as WireAllocation, ForecastLine, ForecastResponse, Ministry,
+    PreviewCalculator, PreviewKind, ScriptedSeatVote, ScriptedVoteKind, ScriptedVotes, Vote,
 };
 use myth_domain::{self as d, preview::optimistic_preview};
 use serde::{Deserialize, Serialize};
@@ -185,15 +185,27 @@ fn scripted_votes(req: AllocationRequest) -> Result<ScriptedVotes, ApiError> {
     let votes = [
         ScriptedSeatVote {
             ministry: Ministry::Finance,
-            position: if support[0] { Vote::Support } else { Vote::Oppose },
+            position: if support[0] {
+                Vote::Support
+            } else {
+                Vote::Oppose
+            },
         },
         ScriptedSeatVote {
             ministry: Ministry::Education,
-            position: if support[1] { Vote::Support } else { Vote::Oppose },
+            position: if support[1] {
+                Vote::Support
+            } else {
+                Vote::Oppose
+            },
         },
         ScriptedSeatVote {
             ministry: Ministry::Infrastructure,
-            position: if support[2] { Vote::Support } else { Vote::Oppose },
+            position: if support[2] {
+                Vote::Support
+            } else {
+                Vote::Oppose
+            },
         },
     ];
     let count = support.iter().filter(|v| **v).count() as u8;
@@ -203,7 +215,9 @@ fn scripted_votes(req: AllocationRequest) -> Result<ScriptedVotes, ApiError> {
         institutional_ratification: false,
         votes,
         support_count: count,
-        warning: "Illustrative clean-belief snapshot only; no meeting, ratification or treasury mutation".into(),
+        warning:
+            "Illustrative clean-belief snapshot only; no meeting, ratification or treasury mutation"
+                .into(),
     })
 }
 async fn cabinet(Json(req): Json<AllocationRequest>) -> Result<Json<ScriptedVotes>, ApiError> {
@@ -219,8 +233,10 @@ async fn put_record(
     }
     let store = state.store.clone();
     tokio::task::spawn_blocking(move || store.put(record))
-        .await.map_err(|_| ApiError::Storage)?
-        .map(Json).map_err(Into::into)
+        .await
+        .map_err(|_| ApiError::Storage)?
+        .map(Json)
+        .map_err(Into::into)
 }
 async fn get_record(
     State(state): State<AppState>,
@@ -228,8 +244,10 @@ async fn get_record(
 ) -> Result<Json<StoredRecord>, ApiError> {
     let store = state.store.clone();
     tokio::task::spawn_blocking(move || store.get(&id))
-        .await.map_err(|_| ApiError::Storage)?
-        .map(Json).map_err(Into::into)
+        .await
+        .map_err(|_| ApiError::Storage)?
+        .map(Json)
+        .map_err(Into::into)
 }
 
 fn is_allowed_local_authority(host: &str) -> bool {
@@ -331,7 +349,10 @@ mod tests {
             scripted_votes(request(40, 30, 20)).unwrap().support_count,
             1
         );
-        assert!(matches!(scripted_votes(request(60, 40, 10)), Err(ApiError::Invalid)));
+        assert!(matches!(
+            scripted_votes(request(60, 40, 10)),
+            Err(ApiError::Invalid)
+        ));
     }
     #[test]
     fn optimistic_preview_matches_domain_not_typescript() {
