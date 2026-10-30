@@ -545,6 +545,64 @@ impl TryFrom<&d::RoleObservation> for PublicRoleView {
         })
     }
 }
+/// Offline optimistic output types, generated for the browser from Rust.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum PreviewKind {
+    OptimisticUpperBound,
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum PreviewCalculator {
+    MythDomain,
+}
+impl From<d::PolicyFamily> for Family {
+    fn from(value: d::PolicyFamily) -> Self {
+        match value {
+            d::PolicyFamily::Staffing => Self::Staffing,
+            d::PolicyFamily::Repairs => Self::Repairs,
+            d::PolicyFamily::Access => Self::Access,
+        }
+    }
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(deny_unknown_fields)]
+pub struct ForecastLine {
+    pub family: Family,
+    pub per_quarter: [u16; 6],
+    #[schemars(range(min = 0, max = 100))]
+    pub outstanding: u16,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(deny_unknown_fields)]
+pub struct ForecastResponse {
+    pub kind: PreviewKind,
+    pub calculator: PreviewCalculator,
+    pub authoritative_simulation: bool,
+    pub conditional_access_bonus: bool,
+    pub families: Vec<ForecastLine>,
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum ScriptedVoteKind { CleanBeliefScriptedVotes }
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(deny_unknown_fields)]
+pub struct ScriptedSeatVote {
+    pub ministry: Ministry,
+    pub position: Vote,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(deny_unknown_fields)]
+pub struct ScriptedVotes {
+    pub kind: ScriptedVoteKind,
+    pub passes_support_threshold: bool,
+    pub institutional_ratification: bool,
+    pub votes: [ScriptedSeatVote; 3],
+    #[schemars(range(min = 0, max = 3))]
+    pub support_count: u8,
+    pub warning: String,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -711,6 +769,40 @@ mod tests {
                 .get("implementation_effort_permille")
                 .is_none()
         );
+    }
+
+    #[test]
+    fn offline_api_response_contracts_are_serde_and_typescript_stable() {
+        let response = ForecastResponse {
+            kind: PreviewKind::OptimisticUpperBound,
+            calculator: PreviewCalculator::MythDomain,
+            authoritative_simulation: false,
+            conditional_access_bonus: true,
+            families: vec![ForecastLine {
+                family: Family::Access,
+                per_quarter: [4, 5, 5, 5, 5, 1],
+                outstanding: 0,
+            }],
+        };
+        let value = serde_json::to_value(&response).unwrap();
+        assert_eq!(value["calculator"], "myth_domain");
+        assert_eq!(value["families"][0]["family"], "access");
+        assert_eq!(serde_json::from_value::<ForecastResponse>(value).unwrap(), response);
+        assert!(<ForecastResponse as TS>::decl(&ts_rs::Config::default())
+            .contains("families: Array<ForecastLine>"));
+        let vote = ScriptedVotes {
+            kind: ScriptedVoteKind::CleanBeliefScriptedVotes,
+            passes_support_threshold: true, institutional_ratification: false,
+            votes: [
+                ScriptedSeatVote { ministry: Ministry::Finance, position: Vote::Support },
+                ScriptedSeatVote { ministry: Ministry::Education, position: Vote::Support },
+                ScriptedSeatVote { ministry: Ministry::Infrastructure, position: Vote::Support },
+            ],
+            support_count: 3, warning: "Not a ratification".into(),
+        };
+        let wire = serde_json::to_value(&vote).unwrap();
+        assert_eq!(wire["votes"][0]["ministry"], "finance");
+        assert_eq!(serde_json::from_value::<ScriptedVotes>(wire).unwrap(), vote);
     }
 
     #[test]
