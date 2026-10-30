@@ -7,6 +7,7 @@
 
 pub mod fixed;
 pub mod preview;
+pub mod reducer;
 pub mod world;
 
 use std::collections::BTreeSet;
