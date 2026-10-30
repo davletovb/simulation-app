@@ -313,18 +313,31 @@ impl WorldSnapshot {
     /// reveal world truth or other ministers' private effort (not stored here).
     /// Full audit/evidence provenance and authorization remain P3.
     pub fn role_observation(
-        &self, ministry: Ministry, meeting_id: String, proposal_version: WireU64,
-        allocation: crate::Allocation, belief: crate::BeliefPpm,
+        &self,
+        ministry: Ministry,
+        meeting_id: String,
+        proposal_version: WireU64,
+        allocation: crate::Allocation,
+        belief: crate::BeliefPpm,
     ) -> Result<crate::RoleObservation, ContractError> {
         self.validate()?;
         let mut view = crate::RoleObservation::new(crate::RoleObservationInput {
-            campaign_id: self.campaign_id().into(), meeting_id, proposal_version,
-            ministry, quarter: self.quarter(), allocation,
-            available_credits: self.treasury().available(), belief_ppm: belief,
+            campaign_id: self.campaign_id().into(),
+            meeting_id,
+            proposal_version,
+            ministry,
+            quarter: self.quarter(),
+            allocation,
+            available_credits: self.treasury().available(),
+            belief_ppm: belief,
         })?;
-        view.owned_commitments = self.parts.commitments.iter()
+        view.owned_commitments = self
+            .parts
+            .commitments
+            .iter()
             .filter(|item| item.issuer == ministry || item.beneficiary == ministry)
-            .cloned().collect();
+            .cloned()
+            .collect();
         view.validate()?;
         Ok(view)
     }
@@ -494,25 +507,46 @@ mod tests {
     }
     #[test]
     fn role_projection_filters_other_seats_commitments() {
-        let mut parts = WorldSnapshot::initial("c".into(),"pack".into(),
-            CohortWeights::new([200_000, 200_000, 100_000, 150_000, 200_000, 150_000]).unwrap())
-            .unwrap().private_checkpoint_parts();
+        let mut parts = WorldSnapshot::initial(
+            "c".into(),
+            "pack".into(),
+            CohortWeights::new([200_000, 200_000, 100_000, 150_000, 200_000, 150_000]).unwrap(),
+        )
+        .unwrap()
+        .private_checkpoint_parts();
         parts.commitments.push(Commitment {
-            id: "education-only".into(), issuer: Ministry::Education,
-            beneficiary: Ministry::Education, proposal_version: WireU64::new(0),
-            kind: crate::CommitmentKind::Political, funded_units: 0,
-            trigger: "promise".into(), deadline_quarter: DueQuarter::new(2).unwrap(),
-            status: CommitmentStatus::Pending, resolution_event: None,
+            id: "education-only".into(),
+            issuer: Ministry::Education,
+            beneficiary: Ministry::Education,
+            proposal_version: WireU64::new(0),
+            kind: crate::CommitmentKind::Political,
+            funded_units: 0,
+            trigger: "promise".into(),
+            deadline_quarter: DueQuarter::new(2).unwrap(),
+            status: CommitmentStatus::Pending,
+            resolution_event: None,
         });
         let snapshot = WorldSnapshot::from_parts(parts).unwrap();
-        let finance = snapshot.role_observation(
-            Ministry::Finance,"m".into(),WireU64::new(0),
-            Allocation::draft(40,40,20).unwrap(),crate::BeliefPpm::new(500_000).unwrap()).unwrap();
-        let education = snapshot.role_observation(
-            Ministry::Education,"m".into(),WireU64::new(0),
-            Allocation::draft(40,40,20).unwrap(),crate::BeliefPpm::new(500_000).unwrap()).unwrap();
+        let finance = snapshot
+            .role_observation(
+                Ministry::Finance,
+                "m".into(),
+                WireU64::new(0),
+                Allocation::draft(40, 40, 20).unwrap(),
+                crate::BeliefPpm::new(500_000).unwrap(),
+            )
+            .unwrap();
+        let education = snapshot
+            .role_observation(
+                Ministry::Education,
+                "m".into(),
+                WireU64::new(0),
+                Allocation::draft(40, 40, 20).unwrap(),
+                crate::BeliefPpm::new(500_000).unwrap(),
+            )
+            .unwrap();
         assert!(finance.owned_commitments.is_empty());
-        assert_eq!(education.owned_commitments.len(),1);
+        assert_eq!(education.owned_commitments.len(), 1);
     }
 
     #[test]
