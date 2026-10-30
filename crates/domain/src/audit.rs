@@ -37,6 +37,10 @@ impl DeliveryAudit {
                 .saturating_sub(self.inspected_cumulative),
         ) * 1000
             / u32::from(self.reported_cumulative.max(1));
+        // P0-03 deliberately specifies inclusive missed-delivery cutoffs
+        // and STRICT over-reporting cutoffs. Do not silently normalize these:
+        // an exact 20% over-report is moderate; an exact 20% missed
+        // schedule is severe. Any change needs a versioned case-contract edit.
         if missed >= 200 || over > 200 {
             -80_000
         } else if missed >= 50 || over > 50 {
@@ -177,6 +181,21 @@ mod tests {
             issuance_world_version: WireU64::new(10),
             cost: 0,
         }
+    }
+    #[test]
+    fn declared_asymmetric_thresholds_are_intentional_and_exact() {
+        // scheduled10/inspected8 = 200 permille: severe missed delivery.
+        let missed=example(10,8,8);
+        assert_eq!(missed.requested_delta(),-80_000);
+        // reported10/inspected8 = 200 permille: only moderate over-report.
+        let exactly_over=example(8,10,8);
+        assert_eq!(exactly_over.requested_delta(),-20_000);
+        // reported 100/inspected 79 = 210 permille: severe over-report.
+        let severe_over=example(79,100,79);
+        assert_eq!(severe_over.requested_delta(),-80_000);
+        // Exact five-percent gap: inclusive on missed, exclusive on over.
+        assert_eq!(example(20,19,19).requested_delta(),-20_000);
+        assert_eq!(example(19,20,19).requested_delta(),0);
     }
     #[test]
     fn zero_due_never_creates_positive_evidence() {
