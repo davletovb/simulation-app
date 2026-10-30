@@ -47,6 +47,8 @@ jobs:
             echo "Rust toolchain mismatch: file=$pinned active=$active" >&2
             exit 1
           fi
+          # A fresh runner has no registry index; fetch locked dependencies first.
+          cargo fetch --locked
           cargo generate-lockfile --offline
           git diff --exit-code -- Cargo.lock
       - name: Format
