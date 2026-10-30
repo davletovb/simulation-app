@@ -1,0 +1,32 @@
+name: P3 Experiment B final format and frozen report regeneration
+on:
+  push:
+    branches: [feat/p3-pure-reducer]
+    paths: [.github/workflows/p3-experiment-b-freeze-once.yml]
+permissions:
+  contents: write
+jobs:
+  freeze:
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: true}
+      - uses: dtolnay/rust-toolchain@stable
+        with: {components: rustfmt}
+      - name: Canonical formatting, no-network domain tests and result rebuild
+        run: |
+          set -euo pipefail
+          cargo fmt --all
+          cargo test --locked -p myth-domain
+          cargo run --quiet --locked -p myth-domain --example p3_report
+      - name: Commit canonical Rust sources and new authored trial outcomes
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add crates/domain/src/ crates/domain/examples/p3_report.rs docs/p3-sensitivity-report.md data/england-school-pilot-v1/p3-sensitivity-results.csv
+          if ! git diff --cached --quiet; then
+            git commit -m "P3: execute full reducer gates and refreshed distributional sensitivity report"
+            git push origin HEAD:refs/heads/feat/p3-pure-reducer
+          fi
