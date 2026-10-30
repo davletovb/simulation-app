@@ -11,8 +11,8 @@ use axum::{
     routing::{get, post},
 };
 use myth_contracts::{
-    Allocation as WireAllocation, ForecastLine, ForecastResponse, Ministry,
-    PreviewCalculator, PreviewKind, ScriptedSeatVote, ScriptedVoteKind, ScriptedVotes, Vote,
+    Allocation as WireAllocation, ForecastLine, ForecastResponse, Ministry, PreviewCalculator,
+    PreviewKind, ScriptedSeatVote, ScriptedVoteKind, ScriptedVotes, Vote,
 };
 use myth_domain::{self as d, preview::optimistic_preview};
 use serde::{Deserialize, Serialize};
