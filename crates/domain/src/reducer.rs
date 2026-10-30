@@ -146,7 +146,10 @@ pub struct ReducerReceipt {
 struct ConditionProgress {
     id: String,
     family: PolicyFamily,
-    baseline_delivered: u16,
+    /// Credits are earmarked to the scope created by this ratification.
+    /// A unit from any older/other scope cannot satisfy this obligation.
+    scope_id: String,
+    credited: u16,
 }
 #[derive(Clone)]
 pub struct Campaign {
@@ -575,67 +578,40 @@ impl Campaign {
         }
         Ok(())
     }
-    fn protected_scope_units(
-        &self,
-        proposal: Allocation,
-    ) -> Result<BTreeMap<String, u16>, Rejection> {
-        let mut keep = BTreeMap::new();
+    fn protected_scope_units(&self, proposal: Allocation)
+        -> Result<BTreeMap<String,u16>, Rejection>
+    {
+        let mut retained=BTreeMap::<String,u16>::new();
+        let mut family_totals=[0_u16;3];
+        for commitment in self.world.commitments().iter().filter(|item|
+            item.kind==CommitmentKind::Enforceable && item.status==CommitmentStatus::Pending
+        ) {
+            let entry=self.conditions.iter().find(|p|p.id==commitment.id)
+                .ok_or(Rejection::InvalidCondition)?;
+            if entry.credited>commitment.funded_units {
+                return Err(Rejection::InvalidCondition);
+            }
+            let owed=commitment.funded_units-entry.credited;
+            let prior=retained.get(&entry.scope_id).copied().unwrap_or(0);
+            retained.insert(entry.scope_id.clone(),prior.checked_add(owed)
+                .ok_or(Rejection::Arithmetic)?);
+            let ix=family_index(entry.family);
+            family_totals[ix]=family_totals[ix].checked_add(owed)
+                .ok_or(Rejection::Arithmetic)?;
+        }
         for family in FAMILIES {
-            let ix = family_index(family);
-            let mut required = 0_u16;
-            for commitment in self.world.commitments() {
-                if commitment.kind != CommitmentKind::Enforceable
-                    || commitment.status != CommitmentStatus::Pending
-                {
-                    continue;
-                }
-                let info = self
-                    .conditions
-                    .iter()
-                    .find(|p| p.id == commitment.id)
-                    .ok_or(Rejection::InvalidCondition)?;
-                if info.family != family {
-                    continue;
-                }
-                let delivered = self.delivered_lifetime[ix]
-                    .checked_sub(info.baseline_delivered)
-                    .ok_or(Rejection::Arithmetic)?;
-                required = required
-                    .checked_add(commitment.funded_units.saturating_sub(delivered))
-                    .ok_or(Rejection::Arithmetic)?;
-            }
-            if required > proposal.units(family) {
-                return Err(Rejection::ProtectedCommitment);
-            }
-            let mut scopes: Vec<_> = self
-                .world
-                .scopes()
-                .iter()
-                .filter(|scope| {
-                    scope.family() == family
-                        && !scope.is_terminated()
-                        && scope.remaining_units() > 0
-                })
-                .collect();
-            scopes.sort_by(|x, y| {
-                x.activation_quarter()
-                    .cmp(&y.activation_quarter())
-                    .then_with(|| x.id().cmp(y.id()))
-            });
-            let mut remaining = required;
-            for scope in scopes {
-                if remaining == 0 {
-                    break;
-                }
-                let held = scope.remaining_units().min(remaining);
-                keep.insert(scope.id().to_string(), held);
-                remaining -= held;
-            }
-            if remaining != 0 {
+            if family_totals[family_index(family)] > proposal.units(family) {
                 return Err(Rejection::ProtectedCommitment);
             }
         }
-        Ok(keep)
+        for (scope_id,owed) in &retained {
+            let scope=self.world.scopes().iter().find(|s|s.id()==scope_id)
+                .ok_or(Rejection::ProtectedCommitment)?;
+            if scope.is_terminated() || scope.remaining_units()<*owed {
+                return Err(Rejection::ProtectedCommitment);
+            }
+        }
+        Ok(retained)
     }
     fn check_funding(&self, proposal: Allocation) -> Result<(), Rejection> {
         self.protected_scope_units(proposal)?;
@@ -709,6 +685,7 @@ impl Campaign {
                     .push(LedgerReceipt::new(before, movement, parts.treasury)?);
             }
         }
+        let mut freshly_funded = BTreeMap::<PolicyFamily,(String,u16)>::new();
         for family in FAMILIES {
             let units = m
                 .allocation
@@ -738,6 +715,7 @@ impl Campaign {
                 self.world.quarter(),
                 units,
             )?;
+            freshly_funded.insert(family,(scope.id().to_string(),units));
             self.shadow_scopes.push(scope.clone());
             parts.scopes.push(scope);
         }
@@ -766,15 +744,14 @@ impl Campaign {
                 }
                 // Milestones must be demonstrably deliverable by their due date.
                 // An approved but impossible promise is institutionally invalid.
-                let periods = condition
-                    .due()
-                    .value()
-                    .saturating_sub(
-                        u16::from(self.world.quarter().value())
-                            .saturating_add(condition.family().lag_quarters())
-                            .saturating_add(self.rules.delivery_extra_lag),
-                    )
-                    .saturating_add(1);
+                let eligible_q = u16::from(self.world.quarter().value())
+                    .checked_add(condition.family().lag_quarters())
+                    .and_then(|v|v.checked_add(self.rules.delivery_extra_lag))
+                    .ok_or(Rejection::Arithmetic)?;
+                if condition.due().value() < eligible_q {
+                    return Err(Rejection::InvalidCondition);
+                }
+                let periods = condition.due().value() - eligible_q + 1;
                 let family_cap = match condition.family() {
                     PolicyFamily::Staffing => m.caps.staff(),
                     PolicyFamily::Repairs => m.caps.repairs(),
@@ -787,9 +764,12 @@ impl Campaign {
                 protected[ix] = protected[ix]
                     .checked_add(condition.units())
                     .ok_or(Rejection::Arithmetic)?;
-                if protected[ix] > m.allocation.units(condition.family()) {
-                    return Err(Rejection::InvalidCondition);
-                }
+                let (condition_scope,available_new)=freshly_funded.get(&condition.family())
+                    .ok_or(Rejection::InvalidCondition)?;
+                // New conditions must use newly funded credits, not units
+                // still reserved for obligations from earlier meetings.
+                if protected[ix] > *available_new {return Err(Rejection::InvalidCondition);}
+                let condition_scope=condition_scope.clone();
                 let commitment = Commitment {
                     id: format!("{}-{}", m.id, condition.kind_id()),
                     issuer: vote.ministry,
@@ -806,7 +786,8 @@ impl Campaign {
                 self.conditions.push(ConditionProgress {
                     id: commitment.id.clone(),
                     family: condition.family(),
-                    baseline_delivered: self.delivered_lifetime[ix],
+                    scope_id: condition_scope,
+                    credited: 0,
                 });
                 parts.commitments.push(commitment);
             }
@@ -957,6 +938,30 @@ impl Campaign {
                 self.rules.delivery_extra_lag,
                 &mut scoped,
             )?;
+            // Allocate each delivered service unit once, within its funded
+            // scope, to pending obligations ordered by deadline then ID.
+            for completed in &delivery.scopes {
+                let mut unassigned=completed.delivered;
+                let mut claims:Vec<(u16,String,usize)>=self.conditions.iter().enumerate()
+                    .filter_map(|(j,info)| {
+                        if info.scope_id!=completed.scope_id {return None;}
+                        let c=parts.commitments.iter().find(|c|c.id==info.id)?;
+                        if c.status!=CommitmentStatus::Pending {return None;}
+                        Some((c.deadline_quarter.value(),info.id.clone(),j))
+                    }).collect();
+                claims.sort();
+                for (_,id,j) in claims {
+                    if unassigned==0 {break;}
+                    let claim=parts.commitments.iter().find(|c|c.id==id)
+                        .ok_or(Rejection::InvalidCondition)?;
+                    let outstanding=claim.funded_units.checked_sub(self.conditions[j].credited)
+                        .ok_or(Rejection::Arithmetic)?;
+                    let credited=outstanding.min(unassigned);
+                    self.conditions[j].credited=self.conditions[j].credited
+                        .checked_add(credited).ok_or(Rejection::Arithmetic)?;
+                    unassigned-=credited;
+                }
+            }
             delivered[ix] = delivery.total_delivered;
             for (index, updated) in indexes.into_iter().zip(scoped) {
                 parts.scopes[index] = updated;
@@ -1029,10 +1034,7 @@ impl Campaign {
                 .iter()
                 .find(|x| x.id == commitment.id)
                 .ok_or(Rejection::InvalidCondition)?;
-            let actual = self.delivered_lifetime[family_index(progress.family)]
-                .checked_sub(progress.baseline_delivered)
-                .ok_or(Rejection::Arithmetic)?;
-            let honored = actual >= commitment.funded_units;
+            let honored = progress.credited >= commitment.funded_units;
             commitment.status = if honored {
                 CommitmentStatus::Honored
             } else {
