@@ -27,31 +27,49 @@ pub fn optimistic_preview(allocation: Allocation) -> Result<Preview, ContractErr
     }
     let access_bonus_possible = allocation.access() >= 10;
     let mut result = Vec::with_capacity(3);
-    for family in [PolicyFamily::Staffing, PolicyFamily::Repairs, PolicyFamily::Access] {
+    for family in [
+        PolicyFamily::Staffing,
+        PolicyFamily::Repairs,
+        PolicyFamily::Access,
+    ] {
         let funded = allocation.units(family);
         let mut scopes = if funded == 0 {
             Vec::new()
         } else {
             vec![FundedScope::new(
-                "initial".into(), family, Quarter::new(1)?, funded,
+                "initial".into(),
+                family,
+                Quarter::new(1)?,
+                funded,
             )?]
         };
         let mut per_quarter = [0; SIX_QUARTERS as usize];
         for q in 1..=SIX_QUARTERS {
             let bonus = family == PolicyFamily::Access && access_bonus_possible && q >= 2;
             let receipt = deliver_family_quarter(
-                family, family.nominal_capacity(), bonus,
-                EffortPermille::new(1000)?, DueQuarter::new(u16::from(q))?, &mut scopes,
+                family,
+                family.nominal_capacity(),
+                bonus,
+                EffortPermille::new(1000)?,
+                DueQuarter::new(u16::from(q))?,
+                &mut scopes,
             )?;
             per_quarter[usize::from(q - 1)] = receipt.total_delivered;
         }
         let outstanding = scopes.first().map_or(0, FundedScope::remaining_units);
-        result.push(FamilyPreview { family, per_quarter, outstanding });
+        result.push(FamilyPreview {
+            family,
+            per_quarter,
+            outstanding,
+        });
     }
     let families: [FamilyPreview; 3] = result
         .try_into()
         .map_err(|_| ContractError::ArithmeticOverflow)?;
-    Ok(Preview { families, conditional_access_bonus: access_bonus_possible })
+    Ok(Preview {
+        families,
+        conditional_access_bonus: access_bonus_possible,
+    })
 }
 
 #[cfg(test)]
