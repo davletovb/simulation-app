@@ -108,6 +108,23 @@ pub struct QuarterReport {
     pub staff_slowdown_next: bool,
     pub access_bonus_next: bool,
 }
+/// The explicitly public observation boundary. No actual delivered units,
+/// fractional carry, true minister effort or undisclosed audit figures.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PublicQuarterReport {
+    pub quarter: Quarter,
+    pub reported_cumulative: [u16;3],
+    pub due_cumulative: [u16;3],
+    pub weighted_support_ppm: u32,
+    pub staff_slowdown_next: bool,
+    pub access_bonus_next: bool,
+}
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RoleView {
+    pub observation: crate::RoleObservation,
+    pub constituency_support_ppm: u32,
+    pub latest_public_report: Option<PublicQuarterReport>,
+}
 #[derive(Clone, Debug)]
 pub struct ReducerReceipt {
     pub world_version: u64,
@@ -195,8 +212,33 @@ impl Campaign {
     pub fn world(&self) -> &WorldSnapshot {
         &self.world
     }
-    pub fn reports(&self) -> &[QuarterReport] {
+    pub(crate) fn reports(&self) -> &[QuarterReport] {
         &self.reports
+    }
+    pub fn player_reports(&self) -> Vec<PublicQuarterReport> {
+        self.reports.iter().map(|x| PublicQuarterReport {
+            quarter:x.quarter,
+            reported_cumulative:x.reported,
+            due_cumulative:x.due_schedule,
+            weighted_support_ppm:x.weighted_support_ppm,
+            staff_slowdown_next:x.staff_slowdown_next,
+            access_bonus_next:x.access_bonus_next,
+        }).collect()
+    }
+    pub fn role_view(&self, ministry: Ministry) -> Result<RoleView, Rejection> {
+        let observation=self.role_observation(ministry)?;
+        let latest=self.player_reports().into_iter().last();
+        let mut weighted=0_u128;
+        for ix in 0..6 {
+            weighted+=u128::from(self.world.support()[ix].value())
+                *u128::from(self.world.cohort_weights().parts_ppm()[ix]);
+        }
+        Ok(RoleView {
+            observation,
+            constituency_support_ppm: u32::try_from(weighted / 1_000_000)
+                .map_err(|_|Rejection::Arithmetic)?,
+            latest_public_report:latest,
+        })
     }
     /// Game-truth audit records are player-private until explicitly disclosed.
     pub fn player_audits(&self) -> &[DeliveryAudit] {
