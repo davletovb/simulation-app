@@ -3,7 +3,7 @@
 //! All state fields are private. Constructors validate inter-ledger consistency.
 //! Private minister effort is deliberately kept outside public projections.
 use crate::{
-    CohortWeights, Commitment, CommitmentStatus, ContractError, DueQuarter, FundedScope, LedgerMove,
+    CohortWeights, Commitment, CommitmentStatus, ContractError, DueQuarter, FundedScope, LedgerMove, Ministry,
     PILOT_CREDITS, PolicyFamily, Quarter, SCHEMA_VERSION, Treasury, WireU64, validate_identifier,
 };
 use std::collections::BTreeSet;
@@ -650,7 +650,7 @@ mod tests {
             beneficiary: Ministry::Education,
             proposal_version: WireU64::new(1),
             kind: crate::CommitmentKind::Political,
-            funded_units: 2,
+            funded_units: 0,
             trigger: "has budget".into(),
             deadline_quarter: DueQuarter::new(3).unwrap(),
             status: CommitmentStatus::Honored,
