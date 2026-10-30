@@ -385,6 +385,16 @@ impl LedgerMove {
     }
 }
 
+fn treasury_slot<'a>(family: PolicyFamily, staff: &'a mut u16,
+    repairs: &'a mut u16, access: &'a mut u16) -> &'a mut u16
+{
+    match family {
+        PolicyFamily::Staffing => staff,
+        PolicyFamily::Repairs => repairs,
+        PolicyFamily::Access => access,
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Treasury {
     available: u16,
@@ -481,31 +491,24 @@ impl Treasury {
         let mut access = self.encumbered_access;
         let mut service = self.service_spent;
         let mut audit = self.audit_spent;
-        let slot = |family: PolicyFamily, staff: &mut u16, repairs: &mut u16,
-                    access: &mut u16| -> &mut u16 {
-            match family {
-                PolicyFamily::Staffing => staff,
-                PolicyFamily::Repairs => repairs,
-                PolicyFamily::Access => access,
-            }
-        };
+
         match movement {
             LedgerMove::Reserve { family, .. } => {
                 available = available.checked_sub(credits)
                     .ok_or(ContractError::InsufficientAvailableFunds)?;
-                let target = slot(family, &mut staff, &mut repairs, &mut access);
+                let target = treasury_slot(family, &mut staff, &mut repairs, &mut access);
                 *target = target.checked_add(credits)
                     .ok_or(ContractError::ArithmeticOverflow)?;
             }
             LedgerMove::Release { family, .. } => {
-                let target = slot(family, &mut staff, &mut repairs, &mut access);
+                let target = treasury_slot(family, &mut staff, &mut repairs, &mut access);
                 *target = target.checked_sub(credits)
                     .ok_or(ContractError::InvalidTreasury)?;
                 available = available.checked_add(credits)
                     .ok_or(ContractError::ArithmeticOverflow)?;
             }
             LedgerMove::SpendService { family, .. } => {
-                let target = slot(family, &mut staff, &mut repairs, &mut access);
+                let target = treasury_slot(family, &mut staff, &mut repairs, &mut access);
                 *target = target.checked_sub(credits)
                     .ok_or(ContractError::InvalidTreasury)?;
                 service = service.checked_add(credits)
