@@ -1,0 +1,21 @@
+[package]
+name = "myth-hiyal-adapter"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Private offline Hiyal adapter for a single scripted simulation world"
+
+[lints]
+workspace = true
+
+[dependencies]
+myth-domain = { path = "../domain" }
+myth-contracts = { path = "../contracts" }
+hiyal = { git = "https://github.com/davletovb/hiyal", rev = "050d1de094f5d0813817e2020ec5c5da97d5c42e", default-features = false }
+serde = { version = "=1.0.228", features = ["derive"] }
+serde_json = "=1.0.145"
+sha2 = "=0.10.9"
+tokio = { version = "=1.47.1", features = ["macros", "rt-multi-thread"] }
+
+[dev-dependencies]
