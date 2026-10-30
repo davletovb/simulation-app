@@ -12,19 +12,20 @@ use std::{
 use ts_rs::TS;
 
 fn generated_types() -> String {
+    let config = ts_rs::Config::default();
     let declarations = [
-        <Allocation as TS>::decl(),
-        <CapacityCaps as TS>::decl(),
-        <Ministry as TS>::decl(),
-        <Family as TS>::decl(),
-        <Vote as TS>::decl(),
-        <Condition as TS>::decl(),
-        <PlayerAction as TS>::decl(),
-        <CommandEnvelope as TS>::decl(),
-        <Stage as TS>::decl(),
-        <Counterproposal as TS>::decl(),
-        <MinisterAction as TS>::decl(),
-        <PublicRoleView as TS>::decl(),
+        <Allocation as TS>::decl(&config),
+        <CapacityCaps as TS>::decl(&config),
+        <Ministry as TS>::decl(&config),
+        <Family as TS>::decl(&config),
+        <Vote as TS>::decl(&config),
+        <Condition as TS>::decl(&config),
+        <PlayerAction as TS>::decl(&config),
+        <CommandEnvelope as TS>::decl(&config),
+        <Stage as TS>::decl(&config),
+        <Counterproposal as TS>::decl(&config),
+        <MinisterAction as TS>::decl(&config),
+        <PublicRoleView as TS>::decl(&config),
     ];
     format!(
         "// GENERATED from myth-contracts. DO NOT EDIT.\n// All *_version and expected_world_version fields are decimal strings.\n\n{}\n",
