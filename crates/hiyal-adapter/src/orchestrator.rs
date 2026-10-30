@@ -1,0 +1,273 @@
+//! Scripted P4 Hiyal orchestration and allowlisted zero-side-effect tool.
+//! The effect journal is always bound to the trial by Hiyal before dispatch.
+//! A tool receipt precedes a player-command action; no user data or provider
+//! connection is used here.
+use crate::{ACTORS,ActionKind,GameAction,GameObservation,GameWorld,PLAYER,PERIOD,WORLD_KIND};
+use hiyal::{
+    core::AgentId,
+    effects::EffectResult,
+    experiment::{EffectPolicy,Step,Trial},
+    runtime::{Backend,BillingDisposition,BoxResult,EffectSpec,Receipt},
+    scheduler::Scheduling,
+    storage::Durability,
+};
+use serde_json::{Value,json};
+use std::{path::Path,sync::{Arc,atomic::{AtomicBool,Ordering}}};
+
+#[derive(Default,Clone)]
+pub struct GamePolicy {
+    /// Test-only interrupted-after-receipt injection, never configured for live.
+    pub fail_once_after_receipt: Option<Arc<AtomicBool>>,
+}
+impl GamePolicy {
+    fn specification(obs:&GameObservation)->Result<Vec<EffectSpec>,String>{
+        if obs.action.kind!=ActionKind::PlayerCommand || obs.actor!=PLAYER.0 as u8 {
+            return Ok(vec![]);
+        }
+        let body=&obs.action.payload;
+        let id=body["command_id"].as_str().ok_or("player command id missing")?;
+        let operation_id=format!("game-{id}-v{}",obs.expected_world_version);
+        Ok(vec![EffectSpec::Tool {
+            name:"player_command".into(),
+            input:json!({
+                "schema_version":1,
+                "operation_id":operation_id,
+                "actor":obs.actor,
+                "expected_world_version":obs.expected_world_version,
+                "command_body":body,
+            }),
+        }])
+    }
+}
+impl EffectPolicy<GameWorld> for GamePolicy {
+    fn requests(&self,actor:AgentId,obs:&GameObservation)->Result<Vec<EffectSpec>,String>{
+        if actor.0!=u64::from(obs.actor) {return Err("observation actor mismatch".into());}
+        Self::specification(obs)
+    }
+    fn decide(&self,actor:AgentId,obs:&GameObservation,receipts:&[Receipt])
+        ->Result<GameAction,String>
+    {
+        if actor.0!=u64::from(obs.actor){return Err("forged minister id".into());}
+        let expected=Self::specification(obs)?;
+        if expected.len()!=receipts.len() {return Err("effect receipt count mismatch".into());}
+        for (spec,receipt) in expected.iter().zip(receipts) {
+            if receipt.spec!=*spec
+                || receipt.billing!=BillingDisposition::NotCharged
+                || !matches!((&receipt.result,spec),
+                    (EffectResult::Tool{output},EffectSpec::Tool{input,..}) if output==input)
+            {return Err("untrusted or changed player effect receipt".into());}
+        }
+        if actor==PLAYER && expected.len()==1
+            && self.fail_once_after_receipt.as_ref()
+                .is_some_and(|flag|flag.swap(false,Ordering::SeqCst))
+        {
+            panic!("P4 TEST FAILPOINT after receipt fsync; before world action");
+        }
+        Ok(obs.action.clone())
+    }
+}
+
+/// The tool validates and echoes typed data; it writes no file, issues no
+/// model request, and cannot access the game directory or financial ledger.
+#[derive(Default)]
+pub struct PlayerCommandTool;
+impl Backend for PlayerCommandTool {
+    fn permits_tools(&self)->bool{true}
+    fn unsupported_is_pre_dispatch(&self)->bool{true}
+    fn backend_id(&self)->&'static str{"p4-offline-allowlist"}
+    fn billing_disposition(&self,_:&EffectSpec,_:&EffectResult)->BillingDisposition {
+        BillingDisposition::NotCharged
+    }
+    fn resolve<'a>(&'a self,request:&'a EffectSpec)->BoxResult<'a>{
+        Box::pin(async move {
+            let EffectSpec::Tool{name,input}=request else {
+                return Ok(EffectResult::UnsupportedCapability{
+                    capability:"P4 model dispatch disabled".into()
+                });
+            };
+            if name!="player_command" || input["schema_version"]!=1
+                || input["actor"]!=0
+                || input["command_body"]["schema_version"]!=1
+            {return Ok(EffectResult::UnsupportedCapability{
+                capability:"unapproved P4 effect".into()
+            });}
+            let operation=input["operation_id"].as_str()
+                .ok_or("missing stable operation id")?;
+            let command=input["command_body"]["command_id"].as_str()
+                .ok_or("missing command id")?;
+            let version=input["expected_world_version"].as_str()
+                .ok_or("missing expected version")?;
+            if operation!=format!("game-{command}-v{version}")
+                || input["command_body"]["expected_world_version"]!=version
+                || serde_json::to_vec(input).map_err(|e|e.to_string())?.len()>12_288
+            {return Err("invalid or oversized player effect".into());}
+            myth_contracts::parse_command(
+                &input["command_body"].to_string()).map_err(|e|format!("{e:?}"))?;
+            Ok(EffectResult::Tool{output:input.clone()})
+        })
+    }
+}
+pub type GameTrial=Trial<GameWorld,GamePolicy>;
+pub fn create(dir:&Path,name:&str,seed:u64)->Result<GameTrial,String>{
+    let mut trial=Trial::create(
+        dir,name,seed,WORLD_KIND,GameWorld::initial("p4-pilot")?,
+        GamePolicy::default(),Arc::new(PlayerCommandTool),ACTORS.to_vec(),
+        Scheduling::RoundRobin,
+    )?;
+    trial.store.set_durability(Durability::EveryEvent)?;
+    Ok(trial)
+}
+pub fn resume(dir:&Path,replay_only:bool)->Result<GameTrial,String>{
+    let mut trial=Trial::resume(
+        dir,WORLD_KIND,GamePolicy::default(),Arc::new(PlayerCommandTool),replay_only
+    )?;
+    trial.store.set_durability(Durability::EveryEvent)?;
+    trial.store.world().verify()?;
+    Ok(trial)
+}
+fn enable(trial:&mut GameTrial,allowed:&[AgentId])->Result<(),String>{
+    for actor in ACTORS {
+        let is_paused=trial.store.schedule.paused.contains(&actor);
+        let should_pause=!allowed.contains(&actor);
+        if is_paused!=should_pause {
+            if should_pause {trial.pause_actor(actor)?}
+            else {trial.resume_actor(actor)?}
+        }
+    }
+    Ok(())
+}
+fn check_step(step:Step<GameWorld>)->Result<(),String>{
+    match step {
+        Step::Accepted(_)=>Ok(()),
+        Step::Rejected{reason,actor}=>Err(format!("actor {} rejected: {reason}",actor.0)),
+        Step::NoEligible=>Err("no eligible actor".into()),
+    }
+}
+/// One explicitly chosen logical action or three frozen minister decisions.
+/// Scheduling changes are Hiyal durable control records, *not* calendar time.
+pub async fn advance_slice(trial:&mut GameTrial)->Result<bool,String>{
+    if trial.store.world().is_closed(){return Ok(false);}
+    let phase=trial.store.world().phase.clone();
+    match phase.as_str() {
+        "quarter_open"|"amendment_window"|"final_positions_frozen"=>{
+            enable(trial,&[PLAYER])?;
+            check_step(trial.step().await)?;
+        }
+        "resolved"=>{
+            enable(trial,&[PERIOD])?;
+            check_step(trial.step().await)?;
+            trial.checkpoint()?;
+        }
+        "first_positions_frozen"=>{
+            enable(trial,&crate::ACTORS[1..4])?;
+            let steps=trial.run_round(3).await?;
+            if steps.len()!=3 {return Err("incomplete first frozen round".into());}
+            for step in steps {check_step(step)?;}
+        }
+        _=>return Err("unsupported or missing cabinet phase".into()),
+    }
+    trial.store.world().verify()?;
+    Ok(true)
+}
+pub async fn run_until_closed(trial:&mut GameTrial)->Result<(),String>{
+    for _ in 0..100 {
+        if !advance_slice(trial).await? {
+            trial.checkpoint()?;
+            return Ok(());
+        }
+    }
+    Err("bounded scripted run did not close".into())
+}
+/// Strict, read-only full Hiyal journal verification plus independent complete
+/// P3 action-fold validation. Does not call the backend or repair files.
+pub fn inspect(dir:&Path)->Result<(String,String,u64),String>{
+    use hiyal::storage::Store;
+    let validated=Store::<GameWorld,GameAction>::inspect_read_only(dir)?;
+    validated.world.verify()?;
+    Ok((validated.world.private_state_sha256,validated.chain_head,validated.sequence))
+}
+
+/// Never confuse replay-only (no new tool or model dispatch) with the
+/// operational resume mode (which can admit new offline player tool calls).
+pub fn final_private_hash(dir:&Path)->Result<String,String>{
+    Ok(inspect(dir)?.0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use hiyal::runtime::EffectJournal;
+    use std::time::{SystemTime,UNIX_EPOCH};
+    fn temp(name:&str)->std::path::PathBuf {
+        let nonce=SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        std::env::temp_dir().join(format!("p4-{name}-{}-{nonce}",std::process::id()))
+    }
+    #[tokio::test]
+    async fn six_quarters_save_resume_matches_full_validation_without_network(){
+        let path=temp("replay");
+        let expected;
+        {
+            let mut trial=create(&path,"scripted-pilot",43).unwrap();
+            advance_slice(&mut trial).await.unwrap();
+            advance_slice(&mut trial).await.unwrap(); // frozen first round
+            assert_eq!(trial.store.world().phase,"amendment_window");
+            trial.checkpoint().unwrap();
+            let prior=inspect(&path).unwrap();
+            assert!(!prior.0.is_empty());
+        }
+        {
+            let mut resumed=resume(&path,false).unwrap();
+            run_until_closed(&mut resumed).await.unwrap();
+            assert_eq!(resumed.store.world().quarter,6);
+            assert!(resumed.store.world().is_closed());
+            assert_eq!(resumed.store.world().actions.iter()
+                .filter(|a|a.kind==ActionKind::MinisterAction).count(),36);
+            expected=resumed.store.world().private_state_sha256.clone();
+        }
+        let (restored,chain,_sequence)=inspect(&path).unwrap();
+        assert_eq!(restored,expected);
+        assert_eq!(chain.len(),64);
+        let strict=resume(&path,true).unwrap();
+        assert_eq!(strict.store.world().private_state_sha256,expected);
+        drop(strict);
+        std::fs::remove_dir_all(path).unwrap();
+    }
+    #[tokio::test]
+    async fn typed_tool_is_allowlisted_and_never_billed(){
+        let path=temp("tool");
+        let trial=create(&path,"tool-receipt",44).unwrap();
+        let obs=trial.store.world().observe(PLAYER).unwrap();
+        let spec=GamePolicy::specification(&obs).unwrap();
+        assert_eq!(spec.len(),1);
+        let backend=PlayerCommandTool;
+        let result=backend.resolve(&spec[0]).await.unwrap();
+        assert!(matches!(result,EffectResult::Tool{..}));
+        assert_eq!(backend.billing_disposition(&spec[0],&result),
+            BillingDisposition::NotCharged);
+        let disallowed=EffectSpec::Tool{name:"shell".into(),input:json!({})};
+        assert!(matches!(backend.resolve(&disallowed).await.unwrap(),
+            EffectResult::UnsupportedCapability{..}));
+        drop(trial);
+        std::fs::remove_dir_all(path).unwrap();
+    }
+    #[tokio::test]
+    async fn receipt_survives_panic_before_world_commit_and_is_reused(){
+        let path=temp("receipt-panic");
+        let mut trial=create(&path,"receipt-recovery",45).unwrap();
+        enable(&mut trial,&[PLAYER]).unwrap();
+        trial.policy.fail_once_after_receipt=Some(Arc::new(AtomicBool::new(true)));
+        let task=tokio::spawn(async move {trial.step().await});
+        assert!(task.await.unwrap_err().is_panic());
+        let receipts=EffectJournal::inspect_read_only(
+            &path,&hiyal::core::TrialId::new("receipt-recovery",45).0).unwrap();
+        assert_eq!(receipts,1);
+        let mut resumed=resume(&path,true).unwrap();
+        assert_eq!(resumed.store.world().actions.len(),0);
+        check_step(resumed.step().await.unwrap()).unwrap();
+        assert_eq!(resumed.store.world().actions.len(),1);
+        drop(resumed);
+        assert_eq!(EffectJournal::inspect_read_only(
+            &path,&hiyal::core::TrialId::new("receipt-recovery",45).0).unwrap(),1);
+        std::fs::remove_dir_all(path).unwrap();
+    }
+}
