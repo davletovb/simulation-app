@@ -857,7 +857,7 @@ mod p2_frozen_pack_tests {
         assert_eq!(pack.country_iso, "GB");
         assert_eq!(pack.simulated_jurisdiction, "england");
         assert_eq!(pack.cutoff_utc, "2026-10-29T23:59:59Z");
-        assert_eq!(pack.evidence.len(), 12);
+        assert_eq!(pack.evidence.len(), 8);
         assert_eq!(
             pack.evidence
                 .iter()
@@ -865,5 +865,61 @@ mod p2_frozen_pack_tests {
                 .count(),
             8
         );
+    }
+
+    #[test]
+    fn p2_authored_mechanics_match_pure_rust_domain() {
+        let authored: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../data/england-school-pilot-v1/authored.json"
+        ))
+        .unwrap();
+        let pilot = &authored["pilot"];
+        assert_eq!(
+            pilot["credits"].as_u64(),
+            Some(u64::from(myth_domain::PILOT_CREDITS))
+        );
+        assert_eq!(
+            authored["quarters"].as_u64(),
+            Some(u64::from(myth_domain::SIX_QUARTERS))
+        );
+        for (family, key) in [
+            (myth_domain::PolicyFamily::Staffing, "staffing"),
+            (myth_domain::PolicyFamily::Repairs, "repairs"),
+            (myth_domain::PolicyFamily::Access, "access"),
+        ] {
+            assert_eq!(
+                pilot["capacity"][key].as_u64(),
+                Some(u64::from(family.nominal_capacity())),
+                "capacity drift: {key}"
+            );
+            assert_eq!(
+                pilot["activation_lag"][key].as_u64(),
+                Some(u64::from(family.lag_quarters())),
+                "lag drift: {key}"
+            );
+        }
+        assert_eq!(
+            authored["narrative"]["patches"][0]["before"].as_u64(),
+            pilot["capacity"]["repairs"].as_u64()
+        );
+        let board = &authored["board"];
+        assert_eq!(board["initial_commitments"].as_array().unwrap().len(), 0);
+        assert!(board.get("initial_political_promises").is_none());
+        assert!(board.get("initial_enforceable_commitments").is_none());
+        assert!(board["commitment_ledger"].get("political_initial").is_none());
+    }
+
+    #[test]
+    fn p2_missing_empirical_variables_are_not_fake_dfe_provenance() {
+        let manifest: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../data/england-school-pilot-v1/manifest.json"
+        ))
+        .unwrap();
+        let gaps = manifest["missing_variables"].as_array().unwrap();
+        assert_eq!(gaps.len(), 4);
+        for item in gaps {
+            assert_eq!(item["origin"].as_str(), Some("authored_unobserved_gap"));
+            assert!(item["source_url"].is_null());
+        }
     }
 }
