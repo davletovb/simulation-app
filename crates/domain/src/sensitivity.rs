@@ -4,8 +4,8 @@ use crate::reducer::{Action, Campaign, Rejection, Rules};
 use crate::scripted;
 use crate::world::MeetingPhase;
 use crate::{
-    Allocation, CohortWeights, CommandEnvelope, ContractError, EffortPermille, Ministry,
-    PlayerCommand, PolicyFamily, PrivateEffortDeclaration, WireU64,
+    Allocation, CohortWeights, CommandEnvelope, EffortPermille, Ministry,
+    PlayerCommand, PolicyFamily, PrivateEffortDeclaration,
 };
 
 pub const COHORT_TABLES: [(&str, [u32; 6]); 3] = [
@@ -132,12 +132,13 @@ pub fn run_one(
         Ok(()) => {
             let support = minister_round(&mut c, "q1")?;
             if support >= 2 {
+                let proposal_version = c.proposal_version().ok_or(Rejection::InvalidPhase)?;
                 submit(
                     &mut c,
                     "q1-ratify",
                     PlayerCommand::Ratify {
                         meeting_id: "q1".into(),
-                        proposal_version: c.proposal_version().ok_or(Rejection::InvalidPhase)?,
+                        proposal_version,
                     },
                 )?;
                 Admission::Ratified
