@@ -410,6 +410,50 @@ mod tests {
             WireU64::new(0),q,EventKind::CommandAdmitted{command_id:"c".into()}).is_err());
     }
     #[test]
+    fn invalid_commitments_and_duplicate_delayed_events_fail_closed() {
+        let mut parts = WorldSnapshot::initial("campaign".into(),"pack".into(),weights())
+            .unwrap().parts;
+        parts.commitments.push(Commitment {
+            id:"condition".into(), issuer:Ministry::Finance, beneficiary:Ministry::Education,
+            proposal_version:WireU64::new(1),
+            kind:crate::CommitmentKind::Political, funded_units:2,
+            trigger:"has budget".into(), deadline_quarter:DueQuarter::new(3).unwrap(),
+            status:CommitmentStatus::Honored, resolution_event:None,
+        });
+        assert!(matches!(WorldSnapshot::from_parts(parts.clone()),
+            Err(ContractError::InvalidCondition)));
+        parts.commitments[0].resolution_event = Some("event".into());
+        WorldSnapshot::from_parts(parts.clone()).unwrap();
+        parts.commitments[0].status=CommitmentStatus::Pending;
+        assert!(matches!(WorldSnapshot::from_parts(parts.clone()),
+            Err(ContractError::InvalidCondition)));
+        parts.commitments.clear();
+        let response=QueuedResponse::new("source-1".into(),Quarter::new(1).unwrap(),
+            DueQuarter::new(2).unwrap(),[2,0,1],3).unwrap();
+        parts.queued_responses=vec![response.clone(),response];
+        assert!(matches!(WorldSnapshot::from_parts(parts),
+            Err(ContractError::DuplicateScope)));
+    }
+    #[test]
+    fn organisation_registry_order_is_checked_not_just_two_entries() {
+        let mut parts=WorldSnapshot::initial("campaign".into(),"pack".into(),weights())
+            .unwrap().parts;
+        parts.organisations.swap(0,1);
+        assert!(matches!(WorldSnapshot::from_parts(parts),Err(ContractError::InvalidScope)));
+    }
+    #[test]
+    fn mechanical_receipt_rejects_overspend_from_wrong_account() {
+        let before=Treasury::from_parts(90,10,0,0,0,0).unwrap();
+        let after=Treasury::from_parts(90,0,0,0,10,0).unwrap();
+        assert!(LedgerReceipt::new(before,LedgerMove::SpendService{
+            family:PolicyFamily::Repairs,credits:10,
+        },after).is_err());
+        assert!(LedgerReceipt::new(before,LedgerMove::Release{
+            family:PolicyFamily::Staffing,credits:11,
+        },Treasury::initial()).is_err());
+    }
+
+    #[test]
     fn overbudget_draft_does_not_create_world_financial_entries() {
         let allocation=Allocation::draft(60,40,10).unwrap();
         assert!(Treasury::initial().can_fund(allocation).is_err());
