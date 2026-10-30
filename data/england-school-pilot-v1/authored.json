@@ -199,11 +199,6 @@
         "interest": "repair sequencing"
       }
     ],
-    "initial_enforceable_commitments": [],
-    "initial_political_promises": [
-      "Finance seeks funded milestones",
-      "Education seeks staffing continuity"
-    ],
     "minister_authorities": {
       "finance": [
         "vote",
@@ -229,16 +224,15 @@
       "no automatic quarter advance"
     ],
     "commitment_ledger": {
-      "enforceable_initial": [],
-      "political_initial": [
-        "Finance asks for audited tranches",
-        "Education publicly promises staffing continuity"
-      ],
       "honored_relationship_delta": 2,
       "broken_relationship_delta": -5
     },
     "initial_commitments": [],
-    "opening_statements_are_not_registry_commitments": true
+    "opening_statements_are_not_registry_commitments": true,
+    "opening_statements": [
+      "Finance seeks funded milestones",
+      "Education seeks staffing continuity"
+    ]
   },
   "groups": [
     {
