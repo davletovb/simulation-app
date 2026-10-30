@@ -907,9 +907,9 @@ impl Campaign {
             staff_resources - if next_slowdown { 4 } else { 0 },
         )?;
         let access_resources = parts.organisations[1].resources().saturating_add(1).min(12);
-        let next_bonus = parts.treasury.encumbered(PolicyFamily::Access) > 0
-            && self.delivered_lifetime[2] + parts.treasury.encumbered(PolicyFamily::Access) >= 10
-            && access_resources > 0;
+        let next_bonus = q.value() < SIX_QUARTERS
+            && parts.treasury.encumbered(PolicyFamily::Access) > 0
+            && self.active_package.access() >= 10 && access_resources > 0;
         parts.organisations[1] = OrganisationAccount::new(
             Organisation::CommunityAccessNetwork,
             access_resources - u32::from(next_bonus),
