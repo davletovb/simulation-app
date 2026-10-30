@@ -1,0 +1,368 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "PrivateCheckpoint",
+  "description": "Only persist server-side to an operator-controlled directory.",
+  "type": "object",
+  "properties": {
+    "campaign_id": {
+      "type": "string"
+    },
+    "cohort_weights_ppm": {
+      "type": "array",
+      "items": {
+        "type": "integer",
+        "format": "uint32",
+        "minimum": 0
+      },
+      "maxItems": 6,
+      "minItems": 6
+    },
+    "commitments": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Commitment"
+      }
+    },
+    "organisations": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/OrganisationAccount"
+      },
+      "maxItems": 2,
+      "minItems": 2
+    },
+    "pack_id": {
+      "type": "string"
+    },
+    "pack_sha256": {
+      "type": "string"
+    },
+    "phase": {
+      "$ref": "#/$defs/Phase"
+    },
+    "quarter": {
+      "type": "integer",
+      "format": "uint8",
+      "maximum": 255,
+      "minimum": 0
+    },
+    "queued_responses": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/QueuedResponse"
+      }
+    },
+    "schema_version": {
+      "type": "integer",
+      "format": "uint16",
+      "maximum": 65535,
+      "minimum": 0
+    },
+    "scopes": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Scope"
+      }
+    },
+    "support_ppm": {
+      "type": "array",
+      "items": {
+        "type": "integer",
+        "format": "uint32",
+        "minimum": 0
+      },
+      "maxItems": 6,
+      "minItems": 6
+    },
+    "treasury": {
+      "$ref": "#/$defs/Treasury"
+    },
+    "world_version": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]{0,19})$"
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "campaign_id",
+    "pack_id",
+    "pack_sha256",
+    "world_version",
+    "quarter",
+    "phase",
+    "treasury",
+    "scopes",
+    "cohort_weights_ppm",
+    "support_ppm",
+    "organisations",
+    "commitments",
+    "queued_responses"
+  ],
+  "$defs": {
+    "Commitment": {
+      "type": "object",
+      "properties": {
+        "beneficiary": {
+          "$ref": "#/$defs/Ministry"
+        },
+        "deadline_quarter": {
+          "type": "integer",
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0
+        },
+        "funded_units": {
+          "type": "integer",
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0
+        },
+        "id": {
+          "type": "string"
+        },
+        "issuer": {
+          "$ref": "#/$defs/Ministry"
+        },
+        "kind": {
+          "$ref": "#/$defs/CommitmentKind"
+        },
+        "proposal_version": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]{0,19})$"
+        },
+        "resolution_event": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "status": {
+          "$ref": "#/$defs/CommitmentStatus"
+        },
+        "trigger": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "issuer",
+        "beneficiary",
+        "proposal_version",
+        "kind",
+        "funded_units",
+        "trigger",
+        "deadline_quarter",
+        "status"
+      ]
+    },
+    "CommitmentKind": {
+      "type": "string",
+      "enum": [
+        "enforceable",
+        "political"
+      ]
+    },
+    "CommitmentStatus": {
+      "type": "string",
+      "enum": [
+        "pending",
+        "honored",
+        "broken"
+      ]
+    },
+    "Family": {
+      "type": "string",
+      "enum": [
+        "staffing",
+        "repairs",
+        "access"
+      ]
+    },
+    "Ministry": {
+      "type": "string",
+      "enum": [
+        "finance",
+        "education",
+        "infrastructure"
+      ]
+    },
+    "Organisation": {
+      "type": "string",
+      "enum": [
+        "school_workforce_association",
+        "community_access_network"
+      ]
+    },
+    "OrganisationAccount": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/Organisation"
+        },
+        "resources": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "resources"
+      ]
+    },
+    "Phase": {
+      "type": "string",
+      "enum": [
+        "quarter_open",
+        "first_positions_frozen",
+        "amendment_window",
+        "final_positions_frozen",
+        "resolved",
+        "quarter_closed"
+      ]
+    },
+    "QueuedResponse": {
+      "type": "object",
+      "properties": {
+        "delivered": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "format": "uint16",
+            "maximum": 65535,
+            "minimum": 0
+          },
+          "maxItems": 3,
+          "minItems": 3
+        },
+        "due_quarter": {
+          "type": "integer",
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0
+        },
+        "produced_quarter": {
+          "type": "integer",
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0
+        },
+        "service_spent": {
+          "type": "integer",
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0
+        },
+        "source_event_id": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "source_event_id",
+        "produced_quarter",
+        "due_quarter",
+        "delivered",
+        "service_spent"
+      ]
+    },
+    "Scope": {
+      "type": "object",
+      "properties": {
+        "activation_quarter": {
+          "type": "integer",
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0
+        },
+        "blocked": {
+          "type": "boolean"
+        },
+        "carry_permille": {
+          "type": "integer",
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0
+        },
+        "family": {
+          "$ref": "#/$defs/Family"
+        },
+        "id": {
+          "type": "string"
+        },
+        "remaining_units": {
+          "type": "integer",
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0
+        },
+        "terminated": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "family",
+        "activation_quarter",
+        "remaining_units",
+        "carry_permille",
+        "blocked",
+        "terminated"
+      ]
+    },
+    "Treasury": {
+      "type": "object",
+      "properties": {
+        "audit_spent": {
+          "type": "integer",
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0
+        },
+        "available": {
+          "type": "integer",
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0
+        },
+        "encumbered_access": {
+          "type": "integer",
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0
+        },
+        "encumbered_repairs": {
+          "type": "integer",
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0
+        },
+        "encumbered_staff": {
+          "type": "integer",
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0
+        },
+        "service_spent": {
+          "type": "integer",
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "available",
+        "encumbered_staff",
+        "encumbered_repairs",
+        "encumbered_access",
+        "service_spent",
+        "audit_spent"
+      ]
+    }
+  }
+}
