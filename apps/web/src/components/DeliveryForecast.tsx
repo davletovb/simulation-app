@@ -1,8 +1,9 @@
-import { QUARTERS, bestCaseSchedule, draftStatus, lastQuarterLabel, type Allocation } from '../game'
+import type { PreviewResult } from '../usePreview'
+import { QUARTERS, draftStatus, lastQuarterLabel, type Allocation } from '../game'
 import { Icon } from './Icon'
 
 /** Best-case delivery ceiling per family and quarter for the current draft. */
-export function DeliveryForecast({ allocation }: { allocation: Allocation }) {
+export function DeliveryForecast({ allocation, preview }: { allocation: Allocation; preview: PreviewResult }) {
   const status = draftStatus(allocation)
   if (status !== 'valid') {
     return (
@@ -15,10 +16,28 @@ export function DeliveryForecast({ allocation }: { allocation: Allocation }) {
     )
   }
 
-  const rows = bestCaseSchedule(allocation)
+  if (!preview.rows) {
+    return (
+      <div className="forecast-empty" role="status">
+        <Icon name="hourglass" size={22} />
+        <p>{preview.status === 'loading'
+          ? 'Calculating the optimistic delivery ceiling with the local Rust service…'
+          : 'Rust delivery preview unavailable. Start the loopback service (cargo run -p myth-local-api) to see a verified estimate. No TypeScript fallback is substituted.'}</p>
+        {preview.status === 'unavailable' && (
+          <button type="button" onClick={preview.retry}>Retry Rust preview</button>
+        )}
+      </div>
+    )
+  }
+  const rows = preview.rows
   const shortfalls = rows.filter(r => r.outstanding > 0)
   return (
     <>
+      <p className="panel-note" role="status">
+        {preview.status === 'updating'
+          ? 'Updating Rust estimate… showing the previous allocation only. These values do not describe the new draft.'
+          : 'Optimistic ceiling · calculated by Rust · not a simulated result'}
+      </p>
       <div className="forecast-scroll">
         <table className="forecast-table">
           <caption className="sr-only">
@@ -59,7 +78,7 @@ export function DeliveryForecast({ allocation }: { allocation: Allocation }) {
           </tbody>
         </table>
       </div>
-      {shortfalls.length > 0 && (
+      {preview.status === 'ready' && shortfalls.length > 0 && (
         <ul className="forecast-warnings">
           {shortfalls.map(r => (
             <li key={r.family.id}>

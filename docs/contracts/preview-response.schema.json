@@ -1,0 +1,87 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ForecastResponse",
+  "type": "object",
+  "properties": {
+    "authoritative_simulation": {
+      "type": "boolean"
+    },
+    "calculator": {
+      "$ref": "#/$defs/PreviewCalculator"
+    },
+    "conditional_access_bonus": {
+      "type": "boolean"
+    },
+    "families": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/ForecastLine"
+      }
+    },
+    "kind": {
+      "$ref": "#/$defs/PreviewKind"
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "kind",
+    "calculator",
+    "authoritative_simulation",
+    "conditional_access_bonus",
+    "families"
+  ],
+  "$defs": {
+    "Family": {
+      "type": "string",
+      "enum": [
+        "staffing",
+        "repairs",
+        "access"
+      ]
+    },
+    "ForecastLine": {
+      "type": "object",
+      "properties": {
+        "family": {
+          "$ref": "#/$defs/Family"
+        },
+        "outstanding": {
+          "type": "integer",
+          "format": "uint16",
+          "maximum": 100,
+          "minimum": 0
+        },
+        "per_quarter": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "format": "uint16",
+            "maximum": 65535,
+            "minimum": 0
+          },
+          "maxItems": 6,
+          "minItems": 6
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "family",
+        "per_quarter",
+        "outstanding"
+      ]
+    },
+    "PreviewCalculator": {
+      "type": "string",
+      "enum": [
+        "myth_domain"
+      ]
+    },
+    "PreviewKind": {
+      "description": "Offline optimistic output types, generated for the browser from Rust.",
+      "type": "string",
+      "enum": [
+        "optimistic_upper_bound"
+      ]
+    }
+  }
+}

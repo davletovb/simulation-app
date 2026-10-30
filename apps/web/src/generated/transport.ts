@@ -26,3 +26,17 @@ export type MinisterAction = { "stage": "first", schema_version: number, meeting
 export type PublicCommitment = { id: string, issuer: Ministry, beneficiary: Ministry, proposal_version: string, kind: string, funded_units: number, trigger: string, deadline_quarter: number, status: string, resolution_event?: string, };
 
 export type PublicRoleView = { schema_version: number, campaign_id: string, meeting_id: string, proposal_version: string, ministry: Ministry, quarter: number, allocation: Allocation, available_credits: number, belief_ppm: number, owned_commitments: Array<PublicCommitment>, visible_evidence_ids: Array<string>, };
+
+export type PreviewKind = "optimistic_upper_bound";
+
+export type PreviewCalculator = "myth_domain";
+
+export type ForecastLine = { family: Family, per_quarter: [number, number, number, number, number, number], outstanding: number, };
+
+export type ForecastResponse = { kind: PreviewKind, calculator: PreviewCalculator, authoritative_simulation: boolean, conditional_access_bonus: boolean, families: Array<ForecastLine>, };
+
+export type ScriptedVoteKind = "clean_belief_scripted_votes";
+
+export type ScriptedSeatVote = { ministry: Ministry, position: Vote, };
+
+export type ScriptedVotes = { kind: ScriptedVoteKind, passes_support_threshold: boolean, institutional_ratification: boolean, votes: [ScriptedSeatVote, ScriptedSeatVote, ScriptedSeatVote], support_count: number, warning: string, };

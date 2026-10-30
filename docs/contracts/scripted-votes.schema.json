@@ -1,0 +1,82 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ScriptedVotes",
+  "type": "object",
+  "properties": {
+    "institutional_ratification": {
+      "type": "boolean"
+    },
+    "kind": {
+      "$ref": "#/$defs/ScriptedVoteKind"
+    },
+    "passes_support_threshold": {
+      "type": "boolean"
+    },
+    "support_count": {
+      "type": "integer",
+      "format": "uint8",
+      "maximum": 3,
+      "minimum": 0
+    },
+    "votes": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/ScriptedSeatVote"
+      },
+      "maxItems": 3,
+      "minItems": 3
+    },
+    "warning": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "kind",
+    "passes_support_threshold",
+    "institutional_ratification",
+    "votes",
+    "support_count",
+    "warning"
+  ],
+  "$defs": {
+    "Ministry": {
+      "type": "string",
+      "enum": [
+        "finance",
+        "education",
+        "infrastructure"
+      ]
+    },
+    "ScriptedSeatVote": {
+      "type": "object",
+      "properties": {
+        "ministry": {
+          "$ref": "#/$defs/Ministry"
+        },
+        "position": {
+          "$ref": "#/$defs/Vote"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "ministry",
+        "position"
+      ]
+    },
+    "ScriptedVoteKind": {
+      "type": "string",
+      "enum": [
+        "clean_belief_scripted_votes"
+      ]
+    },
+    "Vote": {
+      "type": "string",
+      "enum": [
+        "support",
+        "conditional",
+        "oppose"
+      ]
+    }
+  }
+}

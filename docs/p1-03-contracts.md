@@ -23,6 +23,8 @@
 | `docs/contracts/command.schema.json` | schemars | Command shape, allocation/cap and playable-quarter limits, canonical decimal version pattern |
 | `docs/contracts/minister-action.schema.json` | schemars | Distinct first/final response candidates with required/forbidden stage fields; effort and credit bounds |
 | `docs/contracts/public-role-view.schema.json` | schemars | Public role view plus owned commitment summaries; never includes private effort |
+| `docs/contracts/preview-response.schema.json` | schemars | Typed offline Rust upper-bound preview response |
+| `docs/contracts/scripted-votes.schema.json` | schemars | Typed clean-belief scripted vote snapshot; not ratification |
 
 Regenerate and check:
 
@@ -43,6 +45,6 @@ Routine CI uses **`--check`**, runs `cargo fetch --locked` to enforce the commit
 - Domain-owned validation now covers funded-condition construction, IDs and public rationales. It rejects ASCII controls and known Unicode bidi/zero-width formatting characters. This does **not** constitute HTML escaping or prompt-injection defense; render rationales as text and do not treat them as instructions. The P3 reducer must validate every state entry point.
 - LF line endings are enforced for generated contract files in `.gitattributes` to avoid false drift on Windows; actual second-OS replay remains outstanding.
 - P1-02 still needs authoritative world/institution/event/receipt models and additional validation. P1-04 needs an offline Axum service with role-scoped server-side commands and save/restore. P3 must implement full command admission, member organizations, enforceable conditions and the shared-family schedule. P4 is the Hiyal adapter.
-- The existing `apps/web/src/game.ts` best-case calculation is display-only. **Rust must own the eventual preview; TypeScript should only render it.** The temporary browser calculator must be removed before the connected C′ slice.
+- P1d has removed the duplicated `apps/web/src/game.ts` best-case calculation and now calls a Rust-domain optimistic capacity preview through the loopback Axum adapter. This is still not a P3 authoritative world/treasury reducer; TypeScript only renders its validated response.
 - Organization interests and contextual warnings are public; first-playable exact authored trigger rules should be inspectable on request. Private minister effort and unobserved preferences must remain private. The current preview's exact trigger copy is a UX follow-up, not authorization to reveal private agent state.
 - No cross-platform replay, user-data ingestion, invoice verification, API key loading or real policy outcomes have been verified here.

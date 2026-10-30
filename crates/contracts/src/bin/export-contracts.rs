@@ -1,8 +1,10 @@
 //! Regenerate checked-in TypeScript and JSON Schema from the Serde wire DTOs.
 //! --check fails on drift, --write regenerates from the Rust source.
 use myth_contracts::{
-    Allocation, CapacityCaps, CommandEnvelope, Condition, Counterproposal, Family, MinisterAction,
-    Ministry, PlayerAction, PublicCommitment, PublicRoleView, Stage, Vote,
+    Allocation, CapacityCaps, CommandEnvelope, Condition, Counterproposal, Family, ForecastLine,
+    ForecastResponse, MinisterAction, Ministry, PlayerAction, PreviewCalculator, PreviewKind,
+    PublicCommitment, PublicRoleView, ScriptedSeatVote, ScriptedVoteKind, ScriptedVotes, Stage,
+    Vote,
 };
 use schemars::schema_for;
 use std::{
@@ -27,6 +29,13 @@ fn generated_types() -> String {
         <MinisterAction as TS>::decl(&config),
         <PublicCommitment as TS>::decl(&config),
         <PublicRoleView as TS>::decl(&config),
+        <PreviewKind as TS>::decl(&config),
+        <PreviewCalculator as TS>::decl(&config),
+        <ForecastLine as TS>::decl(&config),
+        <ForecastResponse as TS>::decl(&config),
+        <ScriptedVoteKind as TS>::decl(&config),
+        <ScriptedSeatVote as TS>::decl(&config),
+        <ScriptedVotes as TS>::decl(&config),
     ];
     format!(
         "// GENERATED from myth-contracts. DO NOT EDIT.\n// All *_version and expected_world_version fields are decimal strings.\n\n{}\n",
@@ -88,6 +97,18 @@ fn main() {
         &root,
         "docs/contracts/public-role-view.schema.json",
         &generated_schema::<PublicRoleView>(),
+        &mode,
+    );
+    put(
+        &root,
+        "docs/contracts/preview-response.schema.json",
+        &generated_schema::<ForecastResponse>(),
+        &mode,
+    );
+    put(
+        &root,
+        "docs/contracts/scripted-votes.schema.json",
+        &generated_schema::<ScriptedVotes>(),
         &mode,
     );
 }

@@ -1,11 +1,12 @@
 import { useRef, useState, type CSSProperties, type KeyboardEvent } from 'react'
 import { OFFLINE_PILOT } from '../contracts'
 import {
-  DEFAULT_CARD, FACTIONS, FAMILIES, POLICY_CARDS, QUARTERS, bestCaseSchedule, committed, draftStatus,
+  DEFAULT_CARD, FACTIONS, FAMILIES, POLICY_CARDS, QUARTERS, committed, draftStatus,
   lastQuarterLabel, sameAllocation, type Allocation, type Family, type FamilyInfo, type PolicyCard,
 } from '../game'
 import { CreditMeter } from '../components/CreditMeter'
 import { DeliveryForecast } from '../components/DeliveryForecast'
+import { usePreview, type PreviewResult } from '../usePreview'
 import { Icon } from '../components/Icon'
 import { Mechanics } from '../components/Mechanics'
 
@@ -107,14 +108,15 @@ function FamilyControl({ family, value, onChange }: {
   )
 }
 
-function Pressures({ allocation }: { allocation: Allocation }) {
+function Pressures({ allocation, preview }: { allocation: Allocation; preview: PreviewResult }) {
   const reactions = FACTIONS.flatMap(f => {
     const pressure = f.pressure(allocation)
     return pressure ? [{ faction: f, pressure }] : []
   })
-  const valid = draftStatus(allocation) === 'valid'
-  const shortfall = valid ? bestCaseSchedule(allocation).reduce((sum, r) => sum + r.outstanding, 0) : 0
-  if (reactions.length === 0 && shortfall === 0) return null
+  const fresh = preview.status === 'ready'
+  const shortfall = fresh ? preview.rows?.reduce((sum, row) => sum + row.outstanding, 0) ?? 0 : 0
+  const pending = preview.status === 'loading' || preview.status === 'updating' || preview.status === 'unavailable'
+  if (reactions.length === 0 && shortfall === 0 && !pending) return null
   return (
     <ul className="pressures" aria-label="Likely reactions to this draft">
       {reactions.map(({ faction, pressure }) => (
@@ -126,7 +128,17 @@ function Pressures({ allocation }: { allocation: Allocation }) {
           </span>
         </li>
       ))}
-      {shortfall > 0 && (
+      {pending && (
+        <li className="pressure pressure-neutral" role="status">
+          <Icon name="hourglass" size={16} />
+          <span><strong>Delivery horizon</strong>
+            {preview.status === 'unavailable'
+              ? 'Rust preview unavailable. The delivery shortfall is unknown until the local service responds.'
+              : 'Checking the delivery horizon with Rust. The current draft has no verified forecast yet.'}
+          </span>
+        </li>
+      )}
+      {fresh && shortfall > 0 && (
         <li className="pressure pressure-risk">
           <Icon name="hourglass" size={16} />
           <span><strong>Delivery horizon</strong>{shortfall} funded unit{shortfall === 1 ? '' : 's'} can’t arrive
@@ -142,6 +154,7 @@ export function CommandView({ allocation, onChange }: {
   onChange: (next: Allocation) => void
 }) {
   const setFamily = (family: Family, value: number) => onChange({ ...allocation, [family]: value })
+  const preview = usePreview(allocation)
 
   return (
     <>
@@ -172,7 +185,7 @@ export function CommandView({ allocation, onChange }: {
               <FamilyControl key={f.id} family={f} value={allocation[f.id]} onChange={v => setFamily(f.id, v)} />
             ))}
           </div>
-          <Pressures allocation={allocation} />
+          <Pressures allocation={allocation} preview={preview} />
           <div className="cta-row">
             <button type="button" className="btn btn-primary" disabled aria-describedby="cta-why">
               <Icon name="lock" size={18} />Convene the board
@@ -183,7 +196,7 @@ export function CommandView({ allocation, onChange }: {
             </button>
           </div>
           <p id="cta-why" className="cta-why">
-            Voting needs the simulation service, which isn’t connected in this preview.
+            Real cabinet votes require the full simulation. The local service supplies scripted baseline snapshots only, without ratification.
           </p>
         </section>
 
@@ -194,8 +207,8 @@ export function CommandView({ allocation, onChange }: {
           </div>
           <p className="panel-lede">The most each family could deliver if this package were ratified before the first
             advance, with full effort and no slowdowns or shocks. For access funding of 10 or more, the optimistic ceiling includes the Community Access Network’s attainable +1 capacity from Q2 onward, which requires its volunteer action. It is not guaranteed; real delivery may be lower.
-            This is a temporary in-browser illustration; the simulation engine will supply the authoritative preview.</p>
-          <DeliveryForecast allocation={allocation} />
+            The local Rust service calculates this conditional optimistic ceiling. Actual outcomes still require the P3 simulation engine.</p>
+          <DeliveryForecast allocation={allocation} preview={preview} />
         </section>
       </div>
     </>
