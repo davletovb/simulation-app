@@ -304,6 +304,16 @@ impl GameWorld {
     }
     pub fn is_closed(&self)->bool{self.phase=="quarter_closed"}
     fn meeting_id(&self)->String{format!("q{}",self.quarter)}
+    pub fn final_votes_this_meeting(&self)->usize{
+        let mut count=0;
+        for record in self.actions.iter().rev() {
+            if record.kind==ActionKind::PlayerCommand
+                && record.payload["command"]["kind"]=="propose" {break;}
+            if record.kind==ActionKind::MinisterAction
+                && record.payload["stage"]=="final" {count+=1;}
+        }
+        count
+    }
     fn planned(&self,actor:AgentId)->Result<GameAction,String>{
         let campaign=self.fold()?;
         let meeting=self.meeting_id();
@@ -326,6 +336,9 @@ impl GameWorld {
                         json!({"staff":0,"repairs":0,"access":0})
                     }}),
                 "final_positions_frozen"=>{
+                    if self.final_votes_this_meeting()!=3 {
+                        return Err("must finish frozen final votes before player decision".into());
+                    }
                     let mut supporting=0;
                     for record in self.actions.iter().rev() {
                         if record.kind==ActionKind::PlayerCommand
