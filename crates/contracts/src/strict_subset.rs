@@ -59,7 +59,7 @@ pub fn final_action(ministry:&str)->Value{
     }
     object(fields(a))
 }
-/// Artifact contains five stage/role profiles. One schema is selected per
+/// Artifact contains nine stage/role profiles. One schema is selected per
 /// request. All limits omitted here MUST be enforced by checked Rust parsing.
 pub fn profiles()->Value{
     json!({
@@ -67,8 +67,12 @@ pub fn profiles()->Value{
         "status":"candidate_not_provider_certified",
         "required_provider_verification":"P5-01",
         "profiles":{
+            "first_new_typed_finance":first("finance",false),
+            "first_menu_finance":first("finance",true),
             "first_new_typed_education":first("education",false),
             "first_menu_education":first("education",true),
+            "first_new_typed_infrastructure":first("infrastructure",false),
+            "first_menu_infrastructure":first("infrastructure",true),
             "final_finance":final_action("finance"),
             "final_education":final_action("education"),
             "final_infrastructure":final_action("infrastructure"),
@@ -94,7 +98,7 @@ mod tests{
     fn every_candidate_is_in_small_strict_schema_subset(){
         let content=profiles();
         let p=content["profiles"].as_object().unwrap();
-        assert_eq!(p.len(),5);
+        assert_eq!(p.len(),9);
         for schema in p.values(){inspect(schema);}
         assert!(p["final_education"]["properties"].get("implementation_effort_permille").is_some());
         assert!(p["final_finance"]["properties"].get("implementation_effort_permille").is_none());
