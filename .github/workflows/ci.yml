@@ -87,7 +87,7 @@ jobs:
       - name: Offline loopback API smoke
         if: steps.workspace.outputs.present == 'true'
         run: bash .github/scripts/offline-api-smoke.sh
-      - name: Private checkpoint save / restart / tamper smoke
+      - name: Private checkpoint save / restart / corruption smoke
         if: steps.workspace.outputs.present == 'true'
         run: bash .github/scripts/checkpoint-smoke.sh
       - name: Verify generated Serde / TS / JSON Schema contract drift
