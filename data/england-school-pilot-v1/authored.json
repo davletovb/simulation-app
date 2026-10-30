@@ -117,29 +117,32 @@
           70000,
           80000,
           50000
-        ]
+        ],
+        "basis": "authored reference marginal shares, not England survey estimates"
       },
       {
-        "id": "authored_rural_shift",
+        "id": "low_rural_association",
         "weights_ppm": [
-          220000,
-          270000,
-          180000,
-          110000,
-          130000,
-          90000
-        ]
+          250000,
+          340000,
+          210000,
+          80000,
+          60000,
+          60000
+        ],
+        "basis": "same authored residence and income margins, weaker urban-low association"
       },
       {
-        "id": "authored_income_interaction",
+        "id": "strong_rural_middle_association",
         "weights_ppm": [
-          300000,
-          260000,
-          240000,
-          30000,
-          140000,
-          30000
-        ]
+          290000,
+          280000,
+          230000,
+          40000,
+          120000,
+          40000
+        ],
+        "basis": "same authored residence and income margins, stronger rural-middle association"
       }
     ],
     "observed_constraints": [
@@ -156,7 +159,18 @@
       "parent_carer_linked_ppm": 250000,
       "both_ppm": 20000,
       "source": "authored values per cell, overlap included; do not add to population"
-    }
+    },
+    "authored_residence_marginals_ppm": {
+      "urban": 800000,
+      "rural": 200000
+    },
+    "authored_income_marginals_ppm": {
+      "low": 330000,
+      "middle": 400000,
+      "high": 270000
+    },
+    "marginal_evidence_status": "not observed: these are held fixed only to isolate joint association sensitivity",
+    "membership_accounting": "Within each cell: teacher-only=3%, parent-only=23%, both=2%, neither=72% (all authored); teacher/parent affiliations overlap but do not increase beneficiary count."
   },
   "board": {
     "name": "Fictional Education Delivery Board",
@@ -222,7 +236,9 @@
       ],
       "honored_relationship_delta": 2,
       "broken_relationship_delta": -5
-    }
+    },
+    "initial_commitments": [],
+    "opening_statements_are_not_registry_commitments": true
   },
   "groups": [
     {
@@ -298,7 +314,9 @@
         "after": 8
       }
     ],
-    "source_snapshot_changed": false
+    "source_snapshot_changed": false,
+    "baseline_value_source": "pilot.capacity.repairs",
+    "overlay_applies_only_to": "Q2 active scenario capacity, never baseline or country-pack"
   },
   "news": [
     {
