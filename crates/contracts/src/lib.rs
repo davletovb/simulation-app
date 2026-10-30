@@ -11,7 +11,8 @@ pub const VERSION: u16 = d::SCHEMA_VERSION;
 // Absence is allowed for Finance; explicitly sending null is not. This keeps
 // Serde, optional TypeScript, and JSON Schema consistent.
 fn deserialize_present_effort<'de, D>(deserializer: D) -> Result<Option<u16>, D::Error>
-where D: Deserializer<'de>
+where
+    D: Deserializer<'de>,
 {
     u16::deserialize(deserializer).map(Some)
 }
