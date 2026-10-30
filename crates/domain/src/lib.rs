@@ -602,6 +602,25 @@ impl FundedScope {
     pub const fn carry_permille(&self) -> u16 {
         self.carry_permille
     }
+    pub const fn is_blocked(&self) -> bool {
+        self.blocked
+    }
+    /// Deserialize checked scope state; never restore directly into unchecked fields.
+    pub fn restore(
+        id: String, family: PolicyFamily, activation_quarter: Quarter,
+        remaining_units: u16, carry_permille: u16, blocked: bool, terminated: bool,
+    ) -> Result<Self, ContractError> {
+        validate_identifier(&id)?;
+        if remaining_units > PILOT_CREDITS || carry_permille >= EFFORT_DENOMINATOR
+            || (terminated && carry_permille != 0)
+        {
+            return Err(ContractError::InvalidScope);
+        }
+        Ok(Self {
+            id, family, activation_quarter, remaining_units, carry_permille,
+            blocked, terminated,
+        })
+    }
     pub fn set_blocked(&mut self, blocked: bool) {
         self.blocked = blocked;
     }
@@ -1123,6 +1142,64 @@ pub struct CountryPack {
     pub cutoff_utc: String,
     pub locale: String,
     pub evidence: Vec<EvidenceProvenance>,
+}
+
+impl EvidenceProvenance {
+    pub fn validate(&self) -> Result<(), ContractError> {
+        validate_identifier(&self.stable_variable_id)?;
+        for field in [
+            &self.geographic_scope, &self.definition, &self.publisher,
+            &self.reference_period, &self.release_date, &self.retrieval_date,
+            &self.raw_unit, &self.normalized_unit, &self.transformation,
+            &self.licence_or_terms,
+        ] {
+            if field.is_empty() || field.len() > 2048 || field.chars().any(char::is_control) {
+                return Err(ContractError::InvalidScope);
+            }
+        }
+        if !self.source_url.starts_with("https://") || self.source_url.len() > 2048 {
+            return Err(ContractError::InvalidScope);
+        }
+        if self.sha256_hex.len() != 64 ||
+            !self.sha256_hex.bytes().all(|c| c.is_ascii_digit() || (b'a'..=b'f').contains(&c)) {
+            return Err(ContractError::InvalidScope);
+        }
+        if let Some(reason) = &self.missing_reason {
+            if reason.is_empty() || reason.len() > 1024 { return Err(ContractError::InvalidScope); }
+        }
+        Ok(())
+    }
+}
+impl CountryPack {
+    pub fn validate(&self) -> Result<(), ContractError> {
+        if self.schema_version != SCHEMA_VERSION ||
+            self.country_iso.len() != 2 ||
+            !self.country_iso.bytes().all(|c| c.is_ascii_uppercase()) {
+            return Err(ContractError::InvalidSchema);
+        }
+        validate_identifier(&self.simulated_jurisdiction)?;
+        validate_identifier(&self.locale)?;
+        if self.cutoff_utc.len() != 20 ||
+            !self.cutoff_utc.ends_with('Z') ||
+            !self.cutoff_utc.is_ascii() ||
+            !self.cutoff_utc.bytes().enumerate().all(|(i,c)| {
+                if [4,7].contains(&i) { c == b'-' }
+                else if i == 10 { c == b'T' }
+                else if [13,16].contains(&i) { c == b':' }
+                else if i == 19 { c == b'Z' }
+                else { c.is_ascii_digit() }
+            }) {
+            return Err(ContractError::InvalidSchema);
+        }
+        let mut ids = BTreeSet::new();
+        for item in &self.evidence {
+            item.validate()?;
+            if !ids.insert(item.stable_variable_id.as_str()) {
+                return Err(ContractError::InvalidScope);
+            }
+        }
+        Ok(())
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
