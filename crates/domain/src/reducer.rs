@@ -230,6 +230,28 @@ impl Campaign {
     pub fn world(&self) -> &WorldSnapshot {
         &self.world
     }
+    /// Counterfactual *reporting* projection only. Q6's authoritative score is
+    /// unchanged; apply already-queued responses through their fixed due dates
+    /// without inventing future deliveries or charging additional credits.
+    pub(crate) fn settle_pending_support(&self) -> Result<([u32;6],usize),Rejection> {
+        let mut cells=[0_u32;6];
+        for (ix,cell) in cells.iter_mut().enumerate(){
+            *cell=self.world.support()[ix].value();
+        }
+        let mut pending=self.world.queued_responses().to_vec();
+        pending.sort_by(|a,b|a.due_quarter().cmp(&b.due_quarter())
+            .then_with(||a.source_event_id().cmp(b.source_event_id())));
+        for event in &pending {
+            for (ix,cell) in cells.iter_mut().enumerate() {
+                let delta=cohort_response_scaled(
+                    ix,event.delivered(),self.rules.magnitude_percent)?;
+                *cell=u32::try_from((i64::from(*cell)+delta).clamp(0,1_000_000))
+                    .map_err(|_|Rejection::Arithmetic)?;
+            }
+        }
+        Ok((cells,pending.len()))
+    }
+
     pub(crate) fn reports(&self) -> &[QuarterReport] {
         &self.reports
     }
