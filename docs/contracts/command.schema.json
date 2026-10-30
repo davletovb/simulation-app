@@ -13,7 +13,8 @@
       "type": "string"
     },
     "expected_world_version": {
-      "type": "string"
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]{0,19})$"
     },
     "schema_version": {
       "type": "integer",
@@ -37,19 +38,19 @@
         "access": {
           "type": "integer",
           "format": "uint16",
-          "maximum": 65535,
+          "maximum": 100,
           "minimum": 0
         },
         "repairs": {
           "type": "integer",
           "format": "uint16",
-          "maximum": 65535,
+          "maximum": 100,
           "minimum": 0
         },
         "staff": {
           "type": "integer",
           "format": "uint16",
-          "maximum": 65535,
+          "maximum": 100,
           "minimum": 0
         }
       },
@@ -66,19 +67,19 @@
         "access": {
           "type": "integer",
           "format": "uint16",
-          "maximum": 65535,
+          "maximum": 4,
           "minimum": 0
         },
         "repairs": {
           "type": "integer",
           "format": "uint16",
-          "maximum": 65535,
+          "maximum": 10,
           "minimum": 0
         },
         "staff": {
           "type": "integer",
           "format": "uint16",
-          "maximum": 65535,
+          "maximum": 12,
           "minimum": 0
         }
       },
@@ -142,7 +143,8 @@
               "type": "string"
             },
             "proposal_version": {
-              "type": "string"
+              "type": "string",
+              "pattern": "^(0|[1-9][0-9]{0,19})$"
             }
           },
           "additionalProperties": false,
@@ -164,7 +166,8 @@
               "type": "string"
             },
             "proposal_version": {
-              "type": "string"
+              "type": "string",
+              "pattern": "^(0|[1-9][0-9]{0,19})$"
             }
           },
           "additionalProperties": false,
@@ -204,8 +207,8 @@
             "inspected_quarter": {
               "type": "integer",
               "format": "uint8",
-              "maximum": 255,
-              "minimum": 0
+              "maximum": 6,
+              "minimum": 1
             },
             "kind": {
               "type": "string",
@@ -226,7 +229,8 @@
               "type": "string"
             },
             "evidence_version": {
-              "type": "string"
+              "type": "string",
+              "pattern": "^(0|[1-9][0-9]{0,19})$"
             },
             "kind": {
               "type": "string",
