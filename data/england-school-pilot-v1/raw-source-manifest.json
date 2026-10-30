@@ -1,0 +1,38 @@
+{
+  "captured_utc": "2026-10-30T14:39:49Z",
+  "evidence_cutoff_utc": "2026-10-29T23:59:59Z",
+  "note": "Acquired AFTER cutoff. Only previously published release values can be admitted.",
+  "sources": [
+    {
+      "archived_gzip_sha256": "ca1f73f646395bee26476d566ab4f05267da90b0d3e6533a4402aae9e9899370",
+      "capture_kind": "published_official_release_html",
+      "expected_last_update": "17 August 2026",
+      "file": "raw/workforce.html.gz",
+      "source_bytes_sha256": "8e76af6a222fa85be148a23b1a88e275bfa0cfc9495b7014fc2f5f1dc8418f6b",
+      "source_id": "workforce",
+      "uncompressed_length": 317123,
+      "url": "https://explore-education-statistics.service.gov.uk/find-statistics/school-workforce-in-england/2025"
+    },
+    {
+      "archived_gzip_sha256": "4e0bc904371f34984fa4457105d7bb5df94906b0c862cf2bf531b50652b67bff",
+      "capture_kind": "published_official_release_html",
+      "expected_last_update": "16 October 2026",
+      "file": "raw/pupils.html.gz",
+      "source_bytes_sha256": "22260725e61d269d031e97381216582033477bc17ab507e6678781ec08618ea3",
+      "source_id": "pupils",
+      "uncompressed_length": 168704,
+      "url": "https://explore-education-statistics.service.gov.uk/find-statistics/school-pupils-and-their-characteristics/2025-26"
+    },
+    {
+      "archived_gzip_sha256": "50f9d9ce0e4ce906a6eb5eb1079a39db71c520e61e2c8e47d42253e92a3321e2",
+      "capture_kind": "published_official_release_html",
+      "expected_last_update": "29 July 2026",
+      "file": "raw/funding.html.gz",
+      "source_bytes_sha256": "929737d33daf7412e1101ca68bda99f9798d7c30cb1a033bf5ccbb3771e9dc12",
+      "source_id": "funding",
+      "uncompressed_length": 101241,
+      "url": "https://explore-education-statistics.service.gov.uk/find-statistics/school-funding-statistics/2025-26"
+    }
+  ],
+  "version": 1
+}

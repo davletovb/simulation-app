@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "cutoff_utc": "2026-10-29T23:59:59Z",
+  "sources": [
+    {
+      "id": "workforce",
+      "slug": "school-workforce-in-england/2025",
+      "published": "2026-06-04",
+      "updated": "17 August 2026",
+      "reference_period": "November 2025",
+      "needles": [
+        "466,372",
+        "295,183",
+        "17.9",
+        "0.4%"
+      ]
+    },
+    {
+      "id": "pupils",
+      "slug": "school-pupils-and-their-characteristics/2025-26",
+      "published": "2026-06-04",
+      "updated": "16 October 2026",
+      "reference_period": "January 2026 census / academic year 2025/26",
+      "needles": [
+        "24,499",
+        "26.5%"
+      ]
+    },
+    {
+      "id": "funding",
+      "slug": "school-funding-statistics/2025-26",
+      "published": "2026-01-29",
+      "updated": "29 July 2026",
+      "reference_period": "2026-27 financial-year allocations",
+      "needles": [
+        "65.9",
+        "8,580"
+      ]
+    }
+  ]
+}

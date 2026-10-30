@@ -1,0 +1,49 @@
+{
+  "authored_sha256": "893aede9ea6d6586b08328fae446fb9f3f120337d0e834be1bb00cede32349d8",
+  "country_pack_sha256": "578577433018638561b4ba08cbc8aff3049a4a09154a6faec38974065517a901",
+  "coverage": {
+    "explicit_missing_variables": 4,
+    "joint_distribution_empirically_supported": false,
+    "sourced_headline_indicators": 8
+  },
+  "cutoff_utc": "2026-10-29T23:59:59Z",
+  "missing_variables": [
+    {
+      "missing_reason": "Joint distribution of school-service beneficiaries by residence and income; unsupported",
+      "origin": "authored_unobserved_gap",
+      "source_url": null,
+      "stable_variable_id": "beneficiary_income_residence_joint"
+    },
+    {
+      "missing_reason": "Fictional programme access-unit demand has no official measure",
+      "origin": "authored_unobserved_gap",
+      "source_url": null,
+      "stable_variable_id": "school_access_gaps"
+    },
+    {
+      "missing_reason": "Fictional programme repair-unit demand has no official measure",
+      "origin": "authored_unobserved_gap",
+      "source_url": null,
+      "stable_variable_id": "school_repair_backlog"
+    },
+    {
+      "missing_reason": "Teacher-linked and parent-linked beneficiary overlap; unsupported",
+      "origin": "authored_unobserved_gap",
+      "source_url": null,
+      "stable_variable_id": "teacher_parent_overlap"
+    }
+  ],
+  "narrative_diff_sha256": "ef3ee26c75dc30fa14f8e12c62f4732184414d0117ce5dc2c77ed44bb9bfba72",
+  "news_bundle_sha256": "0d1d1957e5b1c6c3cafabbba8cd2d0843b739c6e3812ca518d042ed86d84a407",
+  "observations_sha256": "03d3542e4516584f07f57a937622a4e7b118444b7200d5816db0f260048e5ba3",
+  "pack_id": "england-school-delivery-v1",
+  "raw_original_pages_archived": true,
+  "schema_version": 1,
+  "scope": "Fictional England data twin; no empirical policy forecast or GBP mapping",
+  "snapshot_capture_utc": "2026-10-30T14:39:49Z",
+  "source_catalog_sha256": "08e578716452b4c30b8bab30432455cefee4871b882085e863a34a37b3a7df47",
+  "source_manifest_sha256": "e3374f2dd960d097abcdc5d97dc23c5364d25a2c7f0362d28858bf1ab70dc6ac",
+  "source_reuse_terms": "OGL-v3-except-third-party-material",
+  "underlying_csv_datasets_archived": false,
+  "values_sha256": "144e293cd6bd7ead481acb5d19f8177785af4d0aa99f9ff8591c65eeed0be543"
+}
