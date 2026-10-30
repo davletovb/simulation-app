@@ -202,6 +202,9 @@ mod tests {
         let store = SaveStore::new(root.clone()).unwrap();
         let original = store.put(record("test-1")).unwrap();
         assert_eq!(store.get("test-1").unwrap(), original);
+        // Verify persisted records survive reopening the storage owner.
+        let restarted = SaveStore::new(root.clone()).unwrap();
+        assert_eq!(restarted.get("test-1").unwrap(), original);
         let mut corrupted = serde_json::to_value(&original).unwrap();
         corrupted["payload"]["choices"][0]["allocation"]["staff"] = 49.into();
         fs::write(
