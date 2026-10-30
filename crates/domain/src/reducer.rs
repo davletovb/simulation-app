@@ -1716,6 +1716,56 @@ mod tests {
         assert_eq!(c.private_effort_for(Ministry::Education), Some(500));
     }
     #[test]
+    fn missed_funded_staffing_deadline_changes_relationship_once_without_double_spend() {
+        use crate::FundedCondition;
+        let mut c=campaign();
+        open(&mut c,Allocation::draft(50,40,10).unwrap());
+        for role in ROLES {first(&mut c,role);}
+        c.apply(Action::FreezeFinal{command_id:"freeze".into()}).unwrap();
+        let mut finance=FinalPosition::new("q1".into(),c.proposal_version().unwrap(),
+            Ministry::Finance,Position::Support,
+            PreferredAllocation::assess(Allocation::draft(50,40,10).unwrap(),100).unwrap()).unwrap();
+        finance.set_public_details(vec![FundedCondition::new("staff-by-q2".into(),
+            PolicyFamily::Staffing,12,DueQuarter::new(2).unwrap()).unwrap()],
+            vec![],"enforceable staffing deadline".into()).unwrap();
+        c.apply(Action::Final(finance,None)).unwrap();
+        final_vote(&mut c,Ministry::Education,Position::Support,0);
+        final_vote(&mut c,Ministry::Infrastructure,Position::Support,1000);
+        c.apply(player(&c,"ratify",PlayerCommand::Ratify{
+            meeting_id:"q1".into(),proposal_version:c.proposal_version().unwrap()
+        })).unwrap();
+        c.apply(player(&c,"advance1",PlayerCommand::AdvanceQuarter)).unwrap();
+        c.apply(player(&c,"advance2",PlayerCommand::AdvanceQuarter)).unwrap();
+        assert_eq!(c.world().commitments()[0].status,CommitmentStatus::Broken);
+        assert_eq!(c.relationship()[0],45);
+        assert_eq!(c.world().treasury().encumbered(PolicyFamily::Staffing),50);
+        assert_eq!(c.world().treasury().service_spent(),9);
+        c.apply(player(&c,"advance3",PlayerCommand::AdvanceQuarter)).unwrap();
+        assert_eq!(c.relationship()[0],45);
+        c.world().validate().unwrap();
+    }
+    #[test]
+    fn organisation_actions_consume_resources_only_for_next_quarter(){
+        let mut no_policy=campaign();
+        let a=no_policy.apply(player(&no_policy,"advance1",PlayerCommand::AdvanceQuarter)).unwrap();
+        assert!(a.report.unwrap().staff_slowdown_next);
+        assert_eq!(no_policy.world().organisations()[0].resources(),8);
+        assert_eq!(no_policy.world().organisations()[1].resources(),5);
+        let mut funded=campaign();
+        open(&mut funded,Allocation::draft(50,40,10).unwrap());
+        votes(&mut funded,[true,true,true]);
+        funded.apply(player(&funded,"ratify",PlayerCommand::Ratify{
+            meeting_id:"q1".into(),proposal_version:funded.proposal_version().unwrap()
+        })).unwrap();
+        let q1=funded.apply(player(&funded,"advance1",PlayerCommand::AdvanceQuarter)).unwrap();
+        assert_eq!(q1.delivered[2],4);
+        assert!(q1.report.unwrap().access_bonus_next);
+        assert_eq!(funded.world().organisations()[1].resources(),4);
+        let q2=funded.apply(player(&funded,"advance2",PlayerCommand::AdvanceQuarter)).unwrap();
+        assert_eq!(q2.delivered[2],5);
+        assert_eq!(funded.world().treasury().service_spent(),4+q2.delivered.iter().sum::<u16>());
+    }
+    #[test]
     fn signed_coefficients_keep_losing_cells_negative() {
         assert!(cohort_response(2, [1, 0, 0]).unwrap() < 0);
         assert!(cohort_response(3, [1, 0, 0]).unwrap() < 0);
