@@ -18,6 +18,7 @@ use std::{path::Path,sync::{Arc,atomic::{AtomicBool,Ordering}}};
 pub struct GamePolicy {
     /// Test-only interrupted-after-receipt injection, never configured for live.
     pub fail_once_after_receipt: Option<Arc<AtomicBool>>,
+    pub fail_role_once: Option<(AgentId,Arc<AtomicBool>)>,
 }
 impl GamePolicy {
     fn specification(obs:&GameObservation)->Result<Vec<EffectSpec>,String>{
@@ -87,6 +88,10 @@ impl EffectPolicy<GameWorld> for GamePolicy {
                 .is_some_and(|flag|flag.swap(false,Ordering::SeqCst))
         {
             panic!("P4 TEST FAILPOINT after receipt fsync; before world action");
+        }
+        if self.fail_role_once.as_ref()
+            .is_some_and(|(id,flag)|*id==actor && flag.swap(false,Ordering::SeqCst)) {
+            panic!("P4 TEST FAILPOINT inside durable frozen minister round");
         }
         Ok(obs.action.clone())
     }
@@ -213,7 +218,9 @@ pub async fn advance_slice(trial:&mut GameTrial)->Result<bool,String>{
         "first_positions_frozen"|"final_positions_frozen"=>{
             enable(trial,&crate::ACTORS[1..4])?;
             let steps=trial.run_round(3).await?;
-            if steps.len()!=3 {return Err("incomplete minister frozen round".into());}
+            if steps.len()>3 {return Err("more than three frozen actions".into());}
+            // On a recovered frozen plan, previously committed actors must
+            // not be replayed; Hiyal returns only the unfinished suffix.
             for step in steps {check_step(step)?;}
         }
         _=>return Err("unsupported or missing cabinet phase".into()),
@@ -282,6 +289,31 @@ mod tests {
         let strict=resume(&path,true).unwrap();
         assert_eq!(strict.store.world().private_state_sha256,expected);
         drop(strict);
+        std::fs::remove_dir_all(path).unwrap();
+    }
+    #[tokio::test]
+    async fn interrupted_frozen_round_replays_only_pending_ministers(){
+        let path=temp("frozen-recovery");
+        let mut trial=create(&path,"frozen-round",47).unwrap();
+        enable(&mut trial,&[PLAYER]).unwrap();
+        check_step(trial.step().await.unwrap()).unwrap();
+        assert_eq!(trial.store.world().phase,"first_positions_frozen");
+        enable(&mut trial,&crate::ACTORS[1..4]).unwrap();
+        trial.policy.fail_role_once=Some((EDUCATION,Arc::new(AtomicBool::new(true))));
+        let task=tokio::spawn(async move {trial.run_round(3).await});
+        assert!(task.await.unwrap_err().is_panic());
+        assert!(path.join("pending-round.json").is_file());
+        let mut restored=resume(&path,false).unwrap();
+        let remaining=restored.run_round(3).await.unwrap();
+        assert!(!remaining.is_empty());
+        for event in remaining {check_step(event).unwrap();}
+        assert_eq!(restored.store.world().phase,"amendment_window");
+        assert_eq!(restored.store.world().actions.iter()
+            .filter(|x|x.kind==ActionKind::MinisterAction).count(),3);
+        run_until_closed(&mut restored).await.unwrap();
+        let hash=restored.store.world().private_state_sha256.clone();
+        drop(restored);
+        assert_eq!(inspect(&path).unwrap().0,hash);
         std::fs::remove_dir_all(path).unwrap();
     }
     #[tokio::test]
