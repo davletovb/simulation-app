@@ -89,36 +89,7 @@ export interface FamilyForecast {
   outstanding: number
 }
 
-/**
- * Optimistic upper bound for one scope ratified before Q1, with full effort,
- * no blocked tranches, slowdown or shock. In the access family, include the
- * *attainable*, never guaranteed Community Access Network +1 next-quarter
- * bonus if access funding >=10 and eligible funded access remains. The first
- * bonus cannot operate until Q2 because Q1's faction action affects Q2.
- * Access resources are sufficient for each Q2..Q6 bonus: initial 4 volunteer
- * days plus the authored replenishment per quarter.
- *
- * This is a display-only best-case ceiling, not a deterministic prediction or
- * a substitute for the authoritative future P3 society/treasury reducer.
- * Temporary by decision: the Rust engine owns all authoritative previews, so
- * replace this with its preview endpoint once one exists.
- */
-export function bestCaseSchedule(a: Allocation): FamilyForecast[] {
-  return FAMILIES.map(family => {
-    let remaining = a[family.id]
-    const perQuarter = QUARTERS.map((_, i) => {
-      if (i < family.lag) return 0
-      const attainableAccessBonus =
-        family.id === 'access' && i > 0 && a.access >= 10 && remaining > 0 ? 1 : 0
-      const familyCapacity = family.quarterCap + attainableAccessBonus
-      const delivered = Math.min(remaining, familyCapacity)
-      remaining -= delivered
-      return delivered
-    })
-    return { family, perQuarter, outstanding: remaining }
-  })
-}
-
+/** Delivery values are calculated only by the Rust offline service. */
 export interface SeatInfo {
   name: Seat
   title: string
