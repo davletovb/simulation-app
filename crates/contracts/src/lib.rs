@@ -3,10 +3,19 @@
 #![forbid(unsafe_code)]
 use myth_domain as d;
 use schemars::JsonSchema;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use ts_rs::TS;
 
 pub const VERSION: u16 = d::SCHEMA_VERSION;
+
+// Absence is allowed for Finance; explicitly sending null is not. This keeps
+// Serde, optional TypeScript, and JSON Schema consistent.
+fn deserialize_present_effort<'de, D>(deserializer: D) -> Result<Option<u16>, D::Error>
+where D: Deserializer<'de>
+{
+    u16::deserialize(deserializer).map(Some)
+}
+
 #[derive(Debug, PartialEq)]
 pub enum WireError {
     Json(String),
@@ -307,9 +316,9 @@ pub enum MinisterAction {
         conditions: Vec<Condition>,
         evidence_ids: Vec<String>,
         rationale_summary: String,
-        #[serde(default)]
+        #[serde(default, deserialize_with = "deserialize_present_effort")]
         #[ts(optional)]
-        #[schemars(range(min = 0, max = 1000))]
+        #[schemars(with = "u16", range(min = 0, max = 1000))]
         implementation_effort_permille: Option<u16>,
     },
 }
@@ -661,6 +670,7 @@ mod tests {
             panic!("wrong stage");
         }
         assert!(parse_minister_action(&minister("final", "finance", "800"), 100).is_err());
+        assert!(parse_minister_action(&minister("final", "finance", "null"), 100).is_err());
         assert!(parse_minister_action(&minister("final", "education", "null"), 100).is_err());
         assert!(parse_minister_action(&minister("final", "education", "1001"), 100).is_err());
         assert!(parse_minister_action(&minister("first", "education", "800"), 100).is_ok());
