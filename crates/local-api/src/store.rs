@@ -9,8 +9,11 @@ use std::{
     fs::{self, File, OpenOptions},
     io::{Read, Write},
     path::{Path, PathBuf},
-    sync::Mutex,
+    sync::{Mutex, atomic::{AtomicU64, Ordering}},
+    time::{SystemTime, UNIX_EPOCH},
 };
+
+static TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 const MAX_RECORD_BYTES: usize = 65_536;
 
@@ -58,7 +61,7 @@ fn valid_filename(id: &str) -> bool {
         && id.len() <= 64
         && id
             .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_' || b == b'-')
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -127,19 +130,44 @@ impl SaveStore {
         }
         let path = self.path(&stored.payload.record_id)?;
         let _guard = self.lock.lock().map_err(|_| StoreError::Corrupt)?;
-        let tmp = path.with_extension(format!("tmp-{}", std::process::id()));
-        let mut file = OpenOptions::new().write(true).create_new(true).open(&tmp)?;
+        // Uniqueness across fast saves, PID reuse and container PID 1 restarts.
+        // Always create_new and retry rather than deleting unknown crash orphans.
+        let mut opened = None;
+        for _ in 0..8 {
+            let timestamp = SystemTime::now().duration_since(UNIX_EPOCH)
+                .map_err(|_| StoreError::Corrupt)?.as_nanos();
+            let nonce = TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+            let candidate = path.with_extension(format!(
+                "tmp-{}-{timestamp}-{nonce}", std::process::id()
+            ));
+            match OpenOptions::new().write(true).create_new(true).open(&candidate) {
+                Ok(file) => { opened = Some((candidate, file)); break; }
+                Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                Err(err) => return Err(StoreError::Io(err)),
+            }
+        }
+        let (tmp, mut file) = opened.ok_or(StoreError::Corrupt)?;
         let write = (|| -> Result<(), StoreError> {
             file.write_all(&bytes)?;
             file.sync_all()?;
             fs::rename(&tmp, &path)?;
-            File::open(&self.root)?.sync_all()?;
             Ok(())
         })();
         if write.is_err() {
             let _ = fs::remove_file(&tmp);
         }
         write?;
+        // Rename has already replaced the visible record. A subsequent
+        // directory-sync error cannot honestly be reported as a failed save.
+        // On platforms without directory fsync, the process cannot promise
+        // crash durability; P4/P7 need separately tested recovery semantics.
+        #[cfg(unix)]
+        match File::open(&self.root).and_then(|directory| directory.sync_all()) {
+            Ok(()) => {}
+            Err(error) => eprintln!(
+                "Warning: saved choice record was replaced, but directory durability is unconfirmed: {error}"
+            ),
+        }
         Ok(stored)
     }
     pub fn get(&self, id: &str) -> Result<StoredRecord, StoreError> {
@@ -228,12 +256,29 @@ mod tests {
             store.get("bad/name"),
             Err(StoreError::InvalidRecord)
         ));
+        assert!(matches!(
+            store.put(record("Pilot1")),
+            Err(StoreError::InvalidRecord)
+        ));
         let mut bad = record("safe");
         bad.choices[0].allocation.staff = 99;
         assert!(matches!(store.put(bad), Err(StoreError::InvalidRecord)));
         let mut dup = record("safe");
         dup.choices.push(dup.choices[0].clone());
         assert!(matches!(store.put(dup), Err(StoreError::InvalidRecord)));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn stale_crash_temporary_file_cannot_block_new_save() {
+        let root = temp();
+        let store = SaveStore::new(root.clone()).unwrap();
+        let stale = store.path("pilot").unwrap()
+            .with_extension(format!("tmp-{}", std::process::id()));
+        fs::write(&stale, b"stale interrupted write").unwrap();
+        let saved = store.put(record("pilot")).unwrap();
+        assert_eq!(store.get("pilot").unwrap(), saved);
+        assert!(stale.exists(), "do not delete temp files from unknown owners");
         fs::remove_dir_all(root).unwrap();
     }
 
