@@ -82,6 +82,9 @@ pub struct GameAction {
     pub payload: Value,
     /// Exact role observation digest at the moment the decision was made.
     pub observation_sha256: String,
+    /// Versioned role-visible typed evidence supplied to the actor. Unlike
+    /// a free-text transcript, this is the exact permitted action context.
+    pub role_observation: Option<Value>,
 }
 #[derive(Clone,Debug,PartialEq,Eq,Serialize,Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -198,7 +201,14 @@ impl GameWorld {
             ActionKind::MinisterAction=>{
                 let role=actor_role(AgentId(u64::from(record.actor)))
                     .ok_or("unapproved minister actor")?;
-                let available=campaign.role_observation(role).map_err(error)?.available_credits;
+                let role_view=campaign.role_observation(role).map_err(error)?;
+                let audited=serde_json::to_value(
+                    myth_contracts::PublicRoleView::try_from(&role_view).map_err(error)?
+                ).map_err(error)?;
+                if record.role_observation.as_ref()!=Some(&audited) {
+                    return Err("minister role observation changed since frozen decision".into());
+                }
+                let available=role_view.available_credits;
                 let parsed=parse_minister_action(&record.payload.to_string(),available)
                     .map_err(error)?;
                 let expected_role=match &parsed.public {
@@ -319,6 +329,7 @@ impl GameWorld {
         let meeting=self.meeting_id();
         let kind:ActionKind;
         let payload:Value;
+        let mut role_observation=None;
         if actor==PLAYER {
             kind=ActionKind::PlayerCommand;
             if self.phase=="amendment_window" {
@@ -326,6 +337,7 @@ impl GameWorld {
                     actor:actor.0 as u8,kind:ActionKind::FreezeFinal,
                     payload:json!({"command_id":format!("{meeting}-freeze")}),
                     observation_sha256:self.private_state_sha256.clone(),
+                    role_observation:None,
                 });
             }
             let body=match self.phase.as_str(){
@@ -383,6 +395,9 @@ impl GameWorld {
                 {return Err("minister already acted in frozen round".into());}
             }
             let view=campaign.role_observation(role).map_err(error)?;
+            role_observation=Some(serde_json::to_value(
+                myth_contracts::PublicRoleView::try_from(&view).map_err(error)?
+            ).map_err(error)?);
             let decision=scripted::decide(&view).map_err(error)?;
             let first=round=="first_positions_frozen";
             let preference=if first {decision.first.preferred_allocation.allocation()}
@@ -419,6 +434,7 @@ impl GameWorld {
             observation_sha256:if actor_role(actor).is_some() {
                 self.frozen_role_anchor.clone().ok_or("missing frozen role anchor")?
             } else { self.private_state_sha256.clone() },
+            role_observation,
         })
     }
 }
