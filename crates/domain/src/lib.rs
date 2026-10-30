@@ -702,7 +702,13 @@ pub fn deliver_family_quarter(
     scopes: &mut [FundedScope],
 ) -> Result<FamilyDeliveryReceipt, ContractError> {
     deliver_family_quarter_with_lag(
-        family, authorized_capacity, access_bonus, effort, quarter, 0, scopes
+        family,
+        authorized_capacity,
+        access_bonus,
+        effort,
+        quarter,
+        0,
+        scopes,
     )
 }
 

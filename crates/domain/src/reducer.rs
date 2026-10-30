@@ -26,17 +26,29 @@ pub struct Rules {
 }
 impl Default for Rules {
     fn default() -> Self {
-        Self { magnitude_percent: 100, delivery_extra_lag: 0, response_lag: 1,
-               shocks: [[0; 6]; 6], q2_repair_cap: None }
+        Self {
+            magnitude_percent: 100,
+            delivery_extra_lag: 0,
+            response_lag: 1,
+            shocks: [[0; 6]; 6],
+            q2_repair_cap: None,
+        }
     }
 }
 impl Rules {
     pub fn validate(&self) -> Result<(), Rejection> {
-        if ![50,100,150].contains(&self.magnitude_percent)
-            || self.delivery_extra_lag > 1 || !(1..=2).contains(&self.response_lag)
+        if ![50, 100, 150].contains(&self.magnitude_percent)
+            || self.delivery_extra_lag > 1
+            || !(1..=2).contains(&self.response_lag)
             || self.q2_repair_cap.is_some_and(|x| x > 10)
-            || self.shocks.iter().flatten().any(|v| v.unsigned_abs() > 8_000)
-        { return Err(Rejection::InvalidCondition); }
+            || self
+                .shocks
+                .iter()
+                .flatten()
+                .any(|v| v.unsigned_abs() > 8_000)
+        {
+            return Err(Rejection::InvalidCondition);
+        }
         Ok(())
     }
 }
@@ -152,7 +164,10 @@ impl Campaign {
         Self::with_rules(campaign_id, pack_id, weights, Rules::default())
     }
     pub fn with_rules(
-        campaign_id: &str, pack_id: &str, weights: CohortWeights, rules: Rules,
+        campaign_id: &str,
+        pack_id: &str,
+        weights: CohortWeights,
+        rules: Rules,
     ) -> Result<Self, Rejection> {
         rules.validate()?;
         Ok(Self {
@@ -464,25 +479,43 @@ impl Campaign {
                 if c.kind != CommitmentKind::Enforceable || c.status != CommitmentStatus::Pending {
                     continue;
                 }
-                let progress = self.conditions.iter().find(|x| x.id == c.id)
+                let progress = self
+                    .conditions
+                    .iter()
+                    .find(|x| x.id == c.id)
                     .ok_or(Rejection::InvalidCondition)?;
-                if progress.family != family { continue; }
-                let done = self.delivered_lifetime[ix].checked_sub(progress.baseline_delivered)
+                if progress.family != family {
+                    continue;
+                }
+                let done = self.delivered_lifetime[ix]
+                    .checked_sub(progress.baseline_delivered)
                     .ok_or(Rejection::Arithmetic)?;
-                required = required.checked_add(c.funded_units.saturating_sub(done))
+                required = required
+                    .checked_add(c.funded_units.saturating_sub(done))
                     .ok_or(Rejection::Arithmetic)?;
             }
-            if required == 0 { continue; }
-            let mut candidates: Vec<_> = self.world.scopes().iter()
-                .filter(|s| s.family() == family && !s.is_terminated()
-                    && s.remaining_units() > 0)
+            if required == 0 {
+                continue;
+            }
+            let mut candidates: Vec<_> = self
+                .world
+                .scopes()
+                .iter()
+                .filter(|s| s.family() == family && !s.is_terminated() && s.remaining_units() > 0)
                 .collect();
-            candidates.sort_by(|a,b| a.activation_quarter().cmp(&b.activation_quarter())
-                .then_with(||a.id().cmp(b.id())));
+            candidates.sort_by(|a, b| {
+                a.activation_quarter()
+                    .cmp(&b.activation_quarter())
+                    .then_with(|| a.id().cmp(b.id()))
+            });
             let mut retained = 0_u16;
             for scope in candidates {
-                if retained >= required { break; }
-                retained = retained.checked_add(scope.remaining_units()).ok_or(Rejection::Arithmetic)?;
+                if retained >= required {
+                    break;
+                }
+                retained = retained
+                    .checked_add(scope.remaining_units())
+                    .ok_or(Rejection::Arithmetic)?;
                 keep.insert(scope.id().to_string());
             }
             if retained < required || retained > proposal.units(family) {
@@ -494,7 +527,10 @@ impl Campaign {
     fn check_funding(&self, proposal: Allocation) -> Result<(), Rejection> {
         self.protected_scope_ids(proposal)?;
         let stock = u32::from(self.world.treasury().available())
-            + FAMILIES.iter().map(|f| u32::from(self.world.treasury().encumbered(*f))).sum::<u32>();
+            + FAMILIES
+                .iter()
+                .map(|f| u32::from(self.world.treasury().encumbered(*f)))
+                .sum::<u32>();
         if proposal.total() > stock {
             return Err(Rejection::InsufficientFunding);
         }
@@ -508,41 +544,60 @@ impl Campaign {
         let protected = self.protected_scope_ids(m.allocation)?;
         let mut kept = [0_u16; 3];
         for scope in &mut parts.scopes {
-            if scope.is_terminated() || scope.remaining_units() == 0 { continue; }
+            if scope.is_terminated() || scope.remaining_units() == 0 {
+                continue;
+            }
             if protected.contains(scope.id()) {
                 let ix = family_index(scope.family());
-                kept[ix] = kept[ix].checked_add(scope.remaining_units())
+                kept[ix] = kept[ix]
+                    .checked_add(scope.remaining_units())
                     .ok_or(Rejection::Arithmetic)?;
                 continue;
             }
             let family = scope.family();
             let units = scope.remaining_units();
             scope.terminate();
-            if let Some(shadow) = self.shadow_scopes.iter_mut().find(|s| s.id()==scope.id()) {
+            if let Some(shadow) = self.shadow_scopes.iter_mut().find(|s| s.id() == scope.id()) {
                 shadow.terminate();
             }
-            let movement = LedgerMove::Release { family, credits: units };
+            let movement = LedgerMove::Release {
+                family,
+                credits: units,
+            };
             let before = parts.treasury;
             parts.treasury = before.apply(movement)?;
-            receipt.ledger.push(LedgerReceipt::new(before, movement, parts.treasury)?);
+            receipt
+                .ledger
+                .push(LedgerReceipt::new(before, movement, parts.treasury)?);
         }
         for family in FAMILIES {
-            let units = m.allocation.units(family)
+            let units = m
+                .allocation
+                .units(family)
                 .checked_sub(kept[family_index(family)])
                 .ok_or(Rejection::ProtectedCommitment)?;
-            if units == 0 { continue; }
-            let movement = LedgerMove::Reserve { family, credits: units };
+            if units == 0 {
+                continue;
+            }
+            let movement = LedgerMove::Reserve {
+                family,
+                credits: units,
+            };
             let before = parts.treasury;
             parts.treasury = before.apply(movement)?;
-            receipt.ledger.push(LedgerReceipt::new(before, movement, parts.treasury)?);
+            receipt
+                .ledger
+                .push(LedgerReceipt::new(before, movement, parts.treasury)?);
             let key = match family {
                 PolicyFamily::Staffing => "staff",
                 PolicyFamily::Repairs => "repairs",
                 PolicyFamily::Access => "access",
             };
             let scope = FundedScope::new(
-                format!("{}-v{}-{key}",m.id,m.version.value()),
-                family,self.world.quarter(),units,
+                format!("{}-v{}-{key}", m.id, m.version.value()),
+                family,
+                self.world.quarter(),
+                units,
             )?;
             self.shadow_scopes.push(scope.clone());
             parts.scopes.push(scope);
@@ -563,10 +618,14 @@ impl Campaign {
                 }
                 // Milestones must be demonstrably deliverable by their due date.
                 // An approved but impossible promise is institutionally invalid.
-                let periods = condition.due().value()
-                    .saturating_sub(u16::from(self.world.quarter().value())
-                        .saturating_add(condition.family().lag_quarters())
-                        .saturating_add(self.rules.delivery_extra_lag))
+                let periods = condition
+                    .due()
+                    .value()
+                    .saturating_sub(
+                        u16::from(self.world.quarter().value())
+                            .saturating_add(condition.family().lag_quarters())
+                            .saturating_add(self.rules.delivery_extra_lag),
+                    )
                     .saturating_add(1);
                 let family_cap = match condition.family() {
                     PolicyFamily::Staffing => m.caps.staff(),
@@ -682,11 +741,17 @@ impl Campaign {
             return Err(Rejection::InvalidPhase);
         }
         let mut parts = self.world.private_checkpoint_parts();
-        let caps = [self.caps.staff(),
-            if q.value() == 2 { self.rules.q2_repair_cap.map_or(
-                self.caps.repairs(), |v| v.min(self.caps.repairs())
-            ) } else { self.caps.repairs() },
-            self.caps.access()];
+        let caps = [
+            self.caps.staff(),
+            if q.value() == 2 {
+                self.rules
+                    .q2_repair_cap
+                    .map_or(self.caps.repairs(), |v| v.min(self.caps.repairs()))
+            } else {
+                self.caps.repairs()
+            },
+            self.caps.access(),
+        ];
         let private_staff =
             self.private_efforts[0]
                 .value()
@@ -707,25 +772,41 @@ impl Campaign {
                 indexes.iter().map(|i| parts.scopes[*i].clone()).collect();
             // Maintain a separate full-effort due-schedule scope ledger.
             // Actual minister effort never rewrites historical scheduled work.
-            let shadow_ids: Vec<usize> = self.shadow_scopes.iter().enumerate()
-                .filter(|(_,s)| s.family() == *family).map(|(i,_)| i).collect();
-            let mut shadow_family: Vec<FundedScope> = shadow_ids.iter()
-                .map(|i| self.shadow_scopes[*i].clone()).collect();
+            let shadow_ids: Vec<usize> = self
+                .shadow_scopes
+                .iter()
+                .enumerate()
+                .filter(|(_, s)| s.family() == *family)
+                .map(|(i, _)| i)
+                .collect();
+            let mut shadow_family: Vec<FundedScope> = shadow_ids
+                .iter()
+                .map(|i| self.shadow_scopes[*i].clone())
+                .collect();
             let due = deliver_family_quarter_with_lag(
-                *family, caps[ix], ix == 2 && self.bonus_due,
-                EffortPermille::new(1000)?, DueQuarter::from(q),
-                self.rules.delivery_extra_lag, &mut shadow_family,
+                *family,
+                caps[ix],
+                ix == 2 && self.bonus_due,
+                EffortPermille::new(1000)?,
+                DueQuarter::from(q),
+                self.rules.delivery_extra_lag,
+                &mut shadow_family,
             )?;
             for (index, updated) in shadow_ids.into_iter().zip(shadow_family) {
                 self.shadow_scopes[index] = updated;
             }
             scheduled[ix] = due.total_delivered;
             self.scheduled_lifetime[ix] = self.scheduled_lifetime[ix]
-                .checked_add(due.total_delivered).ok_or(Rejection::Arithmetic)?;
+                .checked_add(due.total_delivered)
+                .ok_or(Rejection::Arithmetic)?;
             let delivery = deliver_family_quarter_with_lag(
-                *family, caps[ix], ix == 2 && self.bonus_due,
-                EffortPermille::new(efforts[ix])?, DueQuarter::from(q),
-                self.rules.delivery_extra_lag, &mut scoped,
+                *family,
+                caps[ix],
+                ix == 2 && self.bonus_due,
+                EffortPermille::new(efforts[ix])?,
+                DueQuarter::from(q),
+                self.rules.delivery_extra_lag,
+                &mut scoped,
             )?;
             delivered[ix] = delivery.total_delivered;
             for (index, updated) in indexes.into_iter().zip(scoped) {
@@ -753,10 +834,9 @@ impl Campaign {
         for ix in 0..6 {
             let candidate = (i64::from(parts.support[ix].value())
                 + i64::from(self.rules.shocks[usize::from(q.value() - 1)][ix]))
-                .clamp(0,1_000_000);
-            parts.support[ix] = SupportPpm::new(
-                u32::try_from(candidate).map_err(|_| Rejection::Arithmetic)?
-            )?;
+            .clamp(0, 1_000_000);
+            parts.support[ix] =
+                SupportPpm::new(u32::try_from(candidate).map_err(|_| Rejection::Arithmetic)?)?;
         }
         // Apply prior response events due NOW, after this quarter's delivery.
         // The response for newly delivered units may first affect next quarter.
@@ -771,7 +851,8 @@ impl Campaign {
         });
         for response in &due {
             for ix in 0..6 {
-                let delta = cohort_response_scaled(ix, response.delivered(), self.rules.magnitude_percent)?;
+                let delta =
+                    cohort_response_scaled(ix, response.delivered(), self.rules.magnitude_percent)?;
                 let previous = i64::from(parts.support[ix].value());
                 let updated = (previous + delta).clamp(0, 1_000_000);
                 parts.support[ix] =
@@ -905,8 +986,11 @@ const fn role_index(m: Ministry) -> usize {
 fn cohort_response(ix: usize, delivered: [u16; 3]) -> Result<i64, Rejection> {
     cohort_response_scaled(ix, delivered, 100)
 }
-fn cohort_response_scaled(ix: usize, delivered: [u16; 3], magnitude_percent: u16)
-    -> Result<i64, Rejection> {
+fn cohort_response_scaled(
+    ix: usize,
+    delivered: [u16; 3],
+    magnitude_percent: u16,
+) -> Result<i64, Rejection> {
     let geography: [[i128; 4]; 2] = [[100, 100, 100, 100], [80, 130, 140, 100]];
     let income: [[i128; 4]; 3] = [
         [120, 90, 130, 130],
@@ -929,8 +1013,10 @@ fn cohort_response_scaled(ix: usize, delivered: [u16; 3], magnitude_percent: u16
         + terms[1] * i128::from(delivered[1])
         + terms[2] * i128::from(delivered[2])
         - terms[3] * spent;
-    let scaled = result.checked_mul(i128::from(magnitude_percent))
-        .ok_or(Rejection::Arithmetic)? / 100;
+    let scaled = result
+        .checked_mul(i128::from(magnitude_percent))
+        .ok_or(Rejection::Arithmetic)?
+        / 100;
     i64::try_from(scaled.clamp(-8000, 8000)).map_err(|_| Rejection::Arithmetic)
 }
 
