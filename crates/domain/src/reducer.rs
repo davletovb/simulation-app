@@ -287,6 +287,14 @@ impl Campaign {
             ministry,meeting.id.clone(),meeting.version,meeting.allocation,
             crate::BeliefPpm::new(self.beliefs.belief(ministry))?,
         )?;
+        // A replacement proposal can release undelivered, unprotected
+        // encumbrances. The role sees the net fundable campaign stock, not just
+        // the current 'available' treasury bucket; legal protection is checked
+        // independently at proposal admission and ratification.
+        let fundable=u32::from(self.world.treasury().available())
+            +[PolicyFamily::Staffing,PolicyFamily::Repairs,PolicyFamily::Access]
+                .iter().map(|f|u32::from(self.world.treasury().encumbered(*f))).sum::<u32>();
+        view.available_credits=u16::try_from(fundable).map_err(|_|Rejection::Arithmetic)?;
         view.visible_evidence_ids=self.disclosed.get(&ministry)
             .map_or_else(Vec::new,|ids|ids.iter().cloned().collect());
         view.validate()?;
