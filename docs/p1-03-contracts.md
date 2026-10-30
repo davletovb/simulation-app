@@ -23,6 +23,8 @@
 | `docs/contracts/command.schema.json` | schemars | Command shape, allocation/cap and playable-quarter limits, canonical decimal version pattern |
 | `docs/contracts/minister-action.schema.json` | schemars | Distinct first/final response candidates with required/forbidden stage fields; effort and credit bounds |
 | `docs/contracts/public-role-view.schema.json` | schemars | Public role view plus owned commitment summaries; never includes private effort |
+| `docs/contracts/preview-response.schema.json` | schemars | Typed offline Rust upper-bound preview response |
+| `docs/contracts/scripted-votes.schema.json` | schemars | Typed clean-belief scripted vote snapshot; not ratification |
 
 Regenerate and check:
 
