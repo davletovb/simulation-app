@@ -138,6 +138,7 @@ pub struct Campaign {
     reports: Vec<QuarterReport>,
     rules: Rules,
     shadow_scopes: Vec<FundedScope>,
+    active_package: Allocation,
     scheduled_lifetime: [u16; 3],
     audits: Vec<DeliveryAudit>,
     beliefs: BeliefLedger,
@@ -185,6 +186,7 @@ impl Campaign {
             reports: vec![],
             rules,
             shadow_scopes: vec![],
+            active_package: Allocation::default(),
             scheduled_lifetime: [0; 3],
             audits: vec![],
             beliefs: BeliefLedger::default(),
@@ -664,6 +666,7 @@ impl Campaign {
             }
         }
         self.caps = m.caps;
+        self.active_package = m.allocation;
         for (index, maybe) in m.pending_efforts.into_iter().enumerate() {
             if let Some(effort) = maybe {
                 self.private_efforts[index] = effort;
@@ -896,13 +899,9 @@ impl Campaign {
                 (self.relationship[ix] + if honored { 2 } else { -5 }).clamp(0, 100);
         }
         // Two distinct fictional organizations regenerate at end of advance.
-        let funded_staffing = parts
-            .treasury
-            .encumbered(PolicyFamily::Staffing)
-            .checked_add(self.delivered_lifetime[0])
-            .ok_or(Rejection::Arithmetic)?;
+        let funded_staffing = self.active_package.staff();
         let staff_resources = parts.organisations[0].resources().saturating_add(2).min(20);
-        let next_slowdown = funded_staffing < 50 && staff_resources >= 4;
+        let next_slowdown = q.value() < SIX_QUARTERS && funded_staffing < 50 && staff_resources >= 4;
         parts.organisations[0] = OrganisationAccount::new(
             Organisation::SchoolWorkforceAssociation,
             staff_resources - if next_slowdown { 4 } else { 0 },
