@@ -473,10 +473,20 @@ mod tests {
     #[test]
     fn private_action_rejects_extra_fields_and_public_view_is_separate() {
         let raw = minister("final", "education", "800");
-        let extra = raw.replace("\"rationale_summary\":\"\"", "\"rationale_summary\":\"\",\"private_leak\":true");
-        assert!(matches!(parse_minister_action(&extra, 100), Err(WireError::Json(_))));
+        let extra = raw.replace(
+            "\"rationale_summary\":\"\"",
+            "\"rationale_summary\":\"\",\"private_leak\":true",
+        );
+        assert!(matches!(
+            parse_minister_action(&extra, 100),
+            Err(WireError::Json(_))
+        ));
         let schema = serde_json::to_value(schemars::schema_for!(PublicRoleView)).unwrap();
-        assert!(schema["properties"].get("implementation_effort_permille").is_none());
+        assert!(
+            schema["properties"]
+                .get("implementation_effort_permille")
+                .is_none()
+        );
     }
 
     #[test]
