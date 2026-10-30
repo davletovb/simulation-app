@@ -124,6 +124,7 @@ pub struct RoleView {
     pub observation: crate::RoleObservation,
     pub constituency_support_ppm: u32,
     pub latest_public_report: Option<PublicQuarterReport>,
+    pub visible_audits: Vec<DeliveryAudit>,
 }
 #[derive(Clone, Debug)]
 pub struct ReducerReceipt {
@@ -159,6 +160,7 @@ pub struct Campaign {
     scheduled_lifetime: [u16; 3],
     audits: Vec<DeliveryAudit>,
     beliefs: BeliefLedger,
+    disclosed: BTreeMap<Ministry,BTreeSet<String>>,
 }
 
 pub enum Action {
@@ -207,6 +209,7 @@ impl Campaign {
             scheduled_lifetime: [0; 3],
             audits: vec![],
             beliefs: BeliefLedger::default(),
+            disclosed: BTreeMap::new(),
         })
     }
     pub fn world(&self) -> &WorldSnapshot {
@@ -241,6 +244,9 @@ impl Campaign {
             constituency_support_ppm: u32::try_from(weighted / 1_000_000)
                 .map_err(|_| Rejection::Arithmetic)?,
             latest_public_report: latest,
+            visible_audits: self.audits.iter().filter(|audit|
+                self.disclosed.get(&ministry).is_some_and(|ids|ids.contains(&audit.id))
+            ).cloned().collect(),
         })
     }
     /// Game-truth audit records are player-private until explicitly disclosed.
@@ -277,13 +283,14 @@ impl Campaign {
         ministry: Ministry,
     ) -> Result<crate::RoleObservation, Rejection> {
         let meeting = self.meeting.as_ref().ok_or(Rejection::InvalidPhase)?;
-        Ok(self.world.role_observation(
-            ministry,
-            meeting.id.clone(),
-            meeting.version,
-            meeting.allocation,
+        let mut view=self.world.role_observation(
+            ministry,meeting.id.clone(),meeting.version,meeting.allocation,
             crate::BeliefPpm::new(self.beliefs.belief(ministry))?,
-        )?)
+        )?;
+        view.visible_evidence_ids=self.disclosed.get(&ministry)
+            .map_or_else(Vec::new,|ids|ids.iter().cloned().collect());
+        view.validate()?;
+        Ok(view)
     }
     pub fn apply(&mut self, action: Action) -> Result<ReducerReceipt, Rejection> {
         let mut candidate = self.clone();
