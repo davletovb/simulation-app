@@ -208,13 +208,11 @@ impl WorldSnapshot {
         let mut ids = BTreeSet::new();
         let mut totals = [0_u16; 3];
         for scope in &self.parts.scopes {
-            validate_identifier(scope.id())?;
+            scope.validate()?;
             if !ids.insert(scope.id()) {
                 return Err(ContractError::DuplicateScope);
             }
-            if scope.carry_permille() >= crate::EFFORT_DENOMINATOR
-                || scope.activation_quarter() > self.parts.quarter
-            {
+            if scope.activation_quarter() > self.parts.quarter {
                 return Err(ContractError::InvalidScope);
             }
             // Cancellation discards fractional carry and releases unspent
@@ -320,7 +318,8 @@ impl WorldSnapshot {
         allocation: crate::Allocation,
         belief: crate::BeliefPpm,
     ) -> Result<crate::RoleObservation, ContractError> {
-        self.validate()?;
+        // WorldSnapshot has already passed from_parts validation and cannot
+        // be externally mutated; only validate the newly constructed view.
         let mut view = crate::RoleObservation::new(crate::RoleObservationInput {
             campaign_id: self.campaign_id().into(),
             meeting_id,
@@ -345,6 +344,10 @@ impl WorldSnapshot {
     /// Do not expose this from HTTP, browser, or player reports.
     pub fn private_checkpoint_parts(&self) -> WorldParts {
         self.parts.clone()
+    }
+    /// Borrow for wire capture without copying the whole private world.
+    pub fn private_checkpoint_parts_ref(&self) -> &WorldParts {
+        &self.parts
     }
 }
 const fn family_index(family: PolicyFamily) -> usize {
