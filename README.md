@@ -39,7 +39,7 @@ Start the loopback-only Axum backend with `cargo +1.99.1 run --locked -p myth-lo
 
 ## P1 type/checkpoint completion
 
-Private world checkpoint, country pack, event and ledger receipt formats are versioned Rust DTOs with strict Serde input validation and generated schemas. The pure domain supports checked fixed-point apportionment with explicit rounding residuals. A private local CLI can save and verify an **illustrative** world fixture without an API key; see [P1 operating and verification contract](docs/p1-operating-contract.md). Do not confuse this private checkpoint with an authoritative P3 campaign reducer or P4 Hiyal replay. The pinned Hiyal candidate is recorded in `config/hiyal-pin.toml` but is intentionally **not yet linked**.
+Private world checkpoint, country pack, event and ledger receipt formats are versioned Rust DTOs with strict Serde input validation and generated schemas. The pure domain supports checked fixed-point apportionment with explicit rounding residuals. A private local CLI can save and verify an **illustrative** world fixture without an API key; the stored SHA-256 is an accidental-corruption check, not tamper authentication, and Unix checkpoints are owner-only. see [P1 operating and verification contract](docs/p1-operating-contract.md). Do not confuse this private checkpoint with an authoritative P3 campaign reducer or P4 Hiyal replay. The pinned Hiyal candidate is recorded in `config/hiyal-pin.toml` but is intentionally **not yet linked**.
 
 ## Typed transport contracts (P1c)
 
