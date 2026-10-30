@@ -233,23 +233,26 @@ impl Campaign {
     /// Counterfactual *reporting* projection only. Q6's authoritative score is
     /// unchanged; apply already-queued responses through their fixed due dates
     /// without inventing future deliveries or charging additional credits.
-    pub(crate) fn settle_pending_support(&self) -> Result<([u32;6],usize),Rejection> {
-        let mut cells=[0_u32;6];
-        for (ix,cell) in cells.iter_mut().enumerate(){
-            *cell=self.world.support()[ix].value();
+    pub(crate) fn settle_pending_support(&self) -> Result<([u32; 6], usize), Rejection> {
+        let mut cells = [0_u32; 6];
+        for (ix, cell) in cells.iter_mut().enumerate() {
+            *cell = self.world.support()[ix].value();
         }
-        let mut pending=self.world.queued_responses().to_vec();
-        pending.sort_by(|a,b|a.due_quarter().cmp(&b.due_quarter())
-            .then_with(||a.source_event_id().cmp(b.source_event_id())));
+        let mut pending = self.world.queued_responses().to_vec();
+        pending.sort_by(|a, b| {
+            a.due_quarter()
+                .cmp(&b.due_quarter())
+                .then_with(|| a.source_event_id().cmp(b.source_event_id()))
+        });
         for event in &pending {
-            for (ix,cell) in cells.iter_mut().enumerate() {
-                let delta=cohort_response_scaled(
-                    ix,event.delivered(),self.rules.magnitude_percent)?;
-                *cell=u32::try_from((i64::from(*cell)+delta).clamp(0,1_000_000))
-                    .map_err(|_|Rejection::Arithmetic)?;
+            for (ix, cell) in cells.iter_mut().enumerate() {
+                let delta =
+                    cohort_response_scaled(ix, event.delivered(), self.rules.magnitude_percent)?;
+                *cell = u32::try_from((i64::from(*cell) + delta).clamp(0, 1_000_000))
+                    .map_err(|_| Rejection::Arithmetic)?;
             }
         }
-        Ok((cells,pending.len()))
+        Ok((cells, pending.len()))
     }
 
     pub(crate) fn reports(&self) -> &[QuarterReport] {
@@ -606,25 +609,32 @@ impl Campaign {
         }
         Ok(())
     }
-    fn protected_scope_units(&self, proposal: Allocation)
-        -> Result<BTreeMap<String,u16>, Rejection>
-    {
-        let mut retained=BTreeMap::<String,u16>::new();
-        let mut family_totals=[0_u16;3];
-        for commitment in self.world.commitments().iter().filter(|item|
-            item.kind==CommitmentKind::Enforceable && item.status==CommitmentStatus::Pending
-        ) {
-            let entry=self.conditions.iter().find(|p|p.id==commitment.id)
+    fn protected_scope_units(
+        &self,
+        proposal: Allocation,
+    ) -> Result<BTreeMap<String, u16>, Rejection> {
+        let mut retained = BTreeMap::<String, u16>::new();
+        let mut family_totals = [0_u16; 3];
+        for commitment in self.world.commitments().iter().filter(|item| {
+            item.kind == CommitmentKind::Enforceable && item.status == CommitmentStatus::Pending
+        }) {
+            let entry = self
+                .conditions
+                .iter()
+                .find(|p| p.id == commitment.id)
                 .ok_or(Rejection::InvalidCondition)?;
-            if entry.credited>commitment.funded_units {
+            if entry.credited > commitment.funded_units {
                 return Err(Rejection::InvalidCondition);
             }
-            let owed=commitment.funded_units-entry.credited;
-            let prior=retained.get(&entry.scope_id).copied().unwrap_or(0);
-            retained.insert(entry.scope_id.clone(),prior.checked_add(owed)
-                .ok_or(Rejection::Arithmetic)?);
-            let ix=family_index(entry.family);
-            family_totals[ix]=family_totals[ix].checked_add(owed)
+            let owed = commitment.funded_units - entry.credited;
+            let prior = retained.get(&entry.scope_id).copied().unwrap_or(0);
+            retained.insert(
+                entry.scope_id.clone(),
+                prior.checked_add(owed).ok_or(Rejection::Arithmetic)?,
+            );
+            let ix = family_index(entry.family);
+            family_totals[ix] = family_totals[ix]
+                .checked_add(owed)
                 .ok_or(Rejection::Arithmetic)?;
         }
         for family in FAMILIES {
@@ -632,10 +642,14 @@ impl Campaign {
                 return Err(Rejection::ProtectedCommitment);
             }
         }
-        for (scope_id,owed) in &retained {
-            let scope=self.world.scopes().iter().find(|s|s.id()==scope_id)
+        for (scope_id, owed) in &retained {
+            let scope = self
+                .world
+                .scopes()
+                .iter()
+                .find(|s| s.id() == scope_id)
                 .ok_or(Rejection::ProtectedCommitment)?;
-            if scope.is_terminated() || scope.remaining_units()<*owed {
+            if scope.is_terminated() || scope.remaining_units() < *owed {
                 return Err(Rejection::ProtectedCommitment);
             }
         }
@@ -713,7 +727,7 @@ impl Campaign {
                     .push(LedgerReceipt::new(before, movement, parts.treasury)?);
             }
         }
-        let mut freshly_funded = BTreeMap::<PolicyFamily,(String,u16)>::new();
+        let mut freshly_funded = BTreeMap::<PolicyFamily, (String, u16)>::new();
         for family in FAMILIES {
             let units = m
                 .allocation
@@ -743,7 +757,7 @@ impl Campaign {
                 self.world.quarter(),
                 units,
             )?;
-            freshly_funded.insert(family,(scope.id().to_string(),units));
+            freshly_funded.insert(family, (scope.id().to_string(), units));
             self.shadow_scopes.push(scope.clone());
             parts.scopes.push(scope);
         }
@@ -774,7 +788,7 @@ impl Campaign {
                 // An approved but impossible promise is institutionally invalid.
                 let eligible_q = u16::from(self.world.quarter().value())
                     .checked_add(condition.family().lag_quarters())
-                    .and_then(|v|v.checked_add(self.rules.delivery_extra_lag))
+                    .and_then(|v| v.checked_add(self.rules.delivery_extra_lag))
                     .ok_or(Rejection::Arithmetic)?;
                 if condition.due().value() < eligible_q {
                     return Err(Rejection::InvalidCondition);
@@ -792,12 +806,15 @@ impl Campaign {
                 protected[ix] = protected[ix]
                     .checked_add(condition.units())
                     .ok_or(Rejection::Arithmetic)?;
-                let (condition_scope,available_new)=freshly_funded.get(&condition.family())
+                let (condition_scope, available_new) = freshly_funded
+                    .get(&condition.family())
                     .ok_or(Rejection::InvalidCondition)?;
                 // New conditions must use newly funded credits, not units
                 // still reserved for obligations from earlier meetings.
-                if protected[ix] > *available_new {return Err(Rejection::InvalidCondition);}
-                let condition_scope=condition_scope.clone();
+                if protected[ix] > *available_new {
+                    return Err(Rejection::InvalidCondition);
+                }
+                let condition_scope = condition_scope.clone();
                 let commitment = Commitment {
                     id: format!("{}-{}", m.id, condition.kind_id()),
                     issuer: vote.ministry,
@@ -969,25 +986,42 @@ impl Campaign {
             // Allocate each delivered service unit once, within its funded
             // scope, to pending obligations ordered by deadline then ID.
             for completed in &delivery.scopes {
-                let mut unassigned=completed.delivered;
-                let mut claims:Vec<(u16,String,usize)>=self.conditions.iter().enumerate()
-                    .filter_map(|(j,info)| {
-                        if info.scope_id!=completed.scope_id {return None;}
-                        let c=parts.commitments.iter().find(|c|c.id==info.id)?;
-                        if c.status!=CommitmentStatus::Pending {return None;}
-                        Some((c.deadline_quarter.value(),info.id.clone(),j))
-                    }).collect();
+                let mut unassigned = completed.delivered;
+                let mut claims: Vec<(u16, String, usize)> = self
+                    .conditions
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(j, info)| {
+                        if info.scope_id != completed.scope_id {
+                            return None;
+                        }
+                        let c = parts.commitments.iter().find(|c| c.id == info.id)?;
+                        if c.status != CommitmentStatus::Pending {
+                            return None;
+                        }
+                        Some((c.deadline_quarter.value(), info.id.clone(), j))
+                    })
+                    .collect();
                 claims.sort();
-                for (_,id,j) in claims {
-                    if unassigned==0 {break;}
-                    let claim=parts.commitments.iter().find(|c|c.id==id)
+                for (_, id, j) in claims {
+                    if unassigned == 0 {
+                        break;
+                    }
+                    let claim = parts
+                        .commitments
+                        .iter()
+                        .find(|c| c.id == id)
                         .ok_or(Rejection::InvalidCondition)?;
-                    let outstanding=claim.funded_units.checked_sub(self.conditions[j].credited)
+                    let outstanding = claim
+                        .funded_units
+                        .checked_sub(self.conditions[j].credited)
                         .ok_or(Rejection::Arithmetic)?;
-                    let credited=outstanding.min(unassigned);
-                    self.conditions[j].credited=self.conditions[j].credited
-                        .checked_add(credited).ok_or(Rejection::Arithmetic)?;
-                    unassigned-=credited;
+                    let credited = outstanding.min(unassigned);
+                    self.conditions[j].credited = self.conditions[j]
+                        .credited
+                        .checked_add(credited)
+                        .ok_or(Rejection::Arithmetic)?;
+                    unassigned -= credited;
                 }
             }
             delivered[ix] = delivery.total_delivered;
@@ -1927,105 +1961,218 @@ mod tests {
     }
     #[test]
     fn reused_meeting_id_fails_before_consuming_next_quarter_meeting() {
-        let mut c=campaign();
-        open(&mut c,Allocation::draft(50,40,10).unwrap());
-        votes(&mut c,[true,true,true]);
-        let v=c.proposal_version().unwrap();
-        c.apply(player(&c,"ratify",PlayerCommand::Ratify{
-            meeting_id:"q1".into(),proposal_version:v
-        })).unwrap();
-        c.apply(player(&c,"advance1",PlayerCommand::AdvanceQuarter)).unwrap();
-        let version=c.world().world_version();
-        assert_eq!(c.apply(player(&c,"reuse",PlayerCommand::Propose {
-            meeting_id:"q1".into(),allocation:Allocation::draft(30,20,10).unwrap(),
-        })).err(),Some(Rejection::MeetingAlreadyUsed));
-        assert_eq!(c.world().world_version(),version);
-        c.apply(player(&c,"fresh",PlayerCommand::Propose {
-            meeting_id:"q2".into(),allocation:Allocation::draft(30,20,10).unwrap(),
-        })).unwrap();
-        assert_eq!(c.phase(),MeetingPhase::FirstPositionsFrozen);
+        let mut c = campaign();
+        open(&mut c, Allocation::draft(50, 40, 10).unwrap());
+        votes(&mut c, [true, true, true]);
+        let v = c.proposal_version().unwrap();
+        c.apply(player(
+            &c,
+            "ratify",
+            PlayerCommand::Ratify {
+                meeting_id: "q1".into(),
+                proposal_version: v,
+            },
+        ))
+        .unwrap();
+        c.apply(player(&c, "advance1", PlayerCommand::AdvanceQuarter))
+            .unwrap();
+        let version = c.world().world_version();
+        assert_eq!(
+            c.apply(player(
+                &c,
+                "reuse",
+                PlayerCommand::Propose {
+                    meeting_id: "q1".into(),
+                    allocation: Allocation::draft(30, 20, 10).unwrap(),
+                }
+            ))
+            .err(),
+            Some(Rejection::MeetingAlreadyUsed)
+        );
+        assert_eq!(c.world().world_version(), version);
+        c.apply(player(
+            &c,
+            "fresh",
+            PlayerCommand::Propose {
+                meeting_id: "q2".into(),
+                allocation: Allocation::draft(30, 20, 10).unwrap(),
+            },
+        ))
+        .unwrap();
+        assert_eq!(c.phase(), MeetingPhase::FirstPositionsFrozen);
     }
-    fn conditional_vote(c:&mut Campaign,role:Ministry,id:&str,due:u16,units:u16){
+    fn conditional_vote(c: &mut Campaign, role: Ministry, id: &str, due: u16, units: u16) {
         use crate::FundedCondition;
-        let mut vote=FinalPosition::new("q1".into(),c.proposal_version().unwrap(),role,
-            Position::Support,PreferredAllocation::assess(
-                Allocation::draft(50,40,10).unwrap(),100).unwrap()).unwrap();
-        vote.set_public_details(vec![FundedCondition::new(
-            id.into(),PolicyFamily::Staffing,units,DueQuarter::new(due).unwrap()
-        ).unwrap()],vec![],"funded scope commitment".into()).unwrap();
-        let effort=if role==Ministry::Finance {None} else {
-            Some(PrivateEffortDeclaration::new("q1".into(),role,
-                EffortPermille::new(1000).unwrap()).unwrap())
+        let mut vote = FinalPosition::new(
+            "q1".into(),
+            c.proposal_version().unwrap(),
+            role,
+            Position::Support,
+            PreferredAllocation::assess(Allocation::draft(50, 40, 10).unwrap(), 100).unwrap(),
+        )
+        .unwrap();
+        vote.set_public_details(
+            vec![
+                FundedCondition::new(
+                    id.into(),
+                    PolicyFamily::Staffing,
+                    units,
+                    DueQuarter::new(due).unwrap(),
+                )
+                .unwrap(),
+            ],
+            vec![],
+            "funded scope commitment".into(),
+        )
+        .unwrap();
+        let effort = if role == Ministry::Finance {
+            None
+        } else {
+            Some(
+                PrivateEffortDeclaration::new(
+                    "q1".into(),
+                    role,
+                    EffortPermille::new(1000).unwrap(),
+                )
+                .unwrap(),
+            )
         };
-        c.apply(Action::Final(vote,effort)).unwrap();
+        c.apply(Action::Final(vote, effort)).unwrap();
     }
     #[test]
     fn two_funded_promises_cannot_count_one_delivery_twice() {
-        let mut c=campaign();
-        open(&mut c,Allocation::draft(50,40,10).unwrap());
-        for role in ROLES {first(&mut c,role);}
-        c.apply(Action::FreezeFinal{command_id:"freeze".into()}).unwrap();
-        conditional_vote(&mut c,Ministry::Finance,"finance-staff",2,10);
-        conditional_vote(&mut c,Ministry::Education,"education-staff",2,10);
-        final_vote(&mut c,Ministry::Infrastructure,Position::Support,1000);
-        let v=c.proposal_version().unwrap();
-        c.apply(player(&c,"ratify",PlayerCommand::Ratify {
-            meeting_id:"q1".into(),proposal_version:v
-        })).unwrap();
-        c.apply(player(&c,"advance1",PlayerCommand::AdvanceQuarter)).unwrap();
-        c.apply(player(&c,"advance2",PlayerCommand::AdvanceQuarter)).unwrap();
-        assert_eq!(c.reports()[1].delivered[0],12);
-        let honored=c.world().commitments().iter().filter(|x|
-            x.status==CommitmentStatus::Honored).count();
-        let broken=c.world().commitments().iter().filter(|x|
-            x.status==CommitmentStatus::Broken).count();
-        assert_eq!((honored,broken),(1,1));
+        let mut c = campaign();
+        open(&mut c, Allocation::draft(50, 40, 10).unwrap());
+        for role in ROLES {
+            first(&mut c, role);
+        }
+        c.apply(Action::FreezeFinal {
+            command_id: "freeze".into(),
+        })
+        .unwrap();
+        conditional_vote(&mut c, Ministry::Finance, "finance-staff", 2, 10);
+        conditional_vote(&mut c, Ministry::Education, "education-staff", 2, 10);
+        final_vote(&mut c, Ministry::Infrastructure, Position::Support, 1000);
+        let v = c.proposal_version().unwrap();
+        c.apply(player(
+            &c,
+            "ratify",
+            PlayerCommand::Ratify {
+                meeting_id: "q1".into(),
+                proposal_version: v,
+            },
+        ))
+        .unwrap();
+        c.apply(player(&c, "advance1", PlayerCommand::AdvanceQuarter))
+            .unwrap();
+        c.apply(player(&c, "advance2", PlayerCommand::AdvanceQuarter))
+            .unwrap();
+        assert_eq!(c.reports()[1].delivered[0], 12);
+        let honored = c
+            .world()
+            .commitments()
+            .iter()
+            .filter(|x| x.status == CommitmentStatus::Honored)
+            .count();
+        let broken = c
+            .world()
+            .commitments()
+            .iter()
+            .filter(|x| x.status == CommitmentStatus::Broken)
+            .count();
+        assert_eq!((honored, broken), (1, 1));
         // Lexicographic commitment IDs give Education the first ten units.
-        assert_eq!(c.relationship(),[45,52,50]);
+        assert_eq!(c.relationship(), [45, 52, 50]);
         c.world().validate().unwrap();
     }
     #[test]
     fn pending_shared_family_obligations_protect_remaining_claims() {
-        let mut c=campaign();
-        open(&mut c,Allocation::draft(50,40,10).unwrap());
-        for role in ROLES {first(&mut c,role);}
-        c.apply(Action::FreezeFinal{command_id:"freeze".into()}).unwrap();
-        conditional_vote(&mut c,Ministry::Finance,"finance-staff",3,10);
-        conditional_vote(&mut c,Ministry::Education,"education-staff",3,10);
-        final_vote(&mut c,Ministry::Infrastructure,Position::Support,1000);
-        c.apply(player(&c,"ratify",PlayerCommand::Ratify {
-            meeting_id:"q1".into(),proposal_version:c.proposal_version().unwrap()
-        })).unwrap();
-        c.apply(player(&c,"advance1",PlayerCommand::AdvanceQuarter)).unwrap();
-        c.apply(player(&c,"advance2",PlayerCommand::AdvanceQuarter)).unwrap();
-        assert_eq!(c.reports()[1].delivered[0],12);
-        assert!(c.world().commitments().iter().all(|x|x.status==CommitmentStatus::Pending));
+        let mut c = campaign();
+        open(&mut c, Allocation::draft(50, 40, 10).unwrap());
+        for role in ROLES {
+            first(&mut c, role);
+        }
+        c.apply(Action::FreezeFinal {
+            command_id: "freeze".into(),
+        })
+        .unwrap();
+        conditional_vote(&mut c, Ministry::Finance, "finance-staff", 3, 10);
+        conditional_vote(&mut c, Ministry::Education, "education-staff", 3, 10);
+        final_vote(&mut c, Ministry::Infrastructure, Position::Support, 1000);
+        c.apply(player(
+            &c,
+            "ratify",
+            PlayerCommand::Ratify {
+                meeting_id: "q1".into(),
+                proposal_version: c.proposal_version().unwrap(),
+            },
+        ))
+        .unwrap();
+        c.apply(player(&c, "advance1", PlayerCommand::AdvanceQuarter))
+            .unwrap();
+        c.apply(player(&c, "advance2", PlayerCommand::AdvanceQuarter))
+            .unwrap();
+        assert_eq!(c.reports()[1].delivered[0], 12);
+        assert!(
+            c.world()
+                .commitments()
+                .iter()
+                .all(|x| x.status == CommitmentStatus::Pending)
+        );
         // Only 12 credited; 8 separate protected credits remain.
-        assert_eq!(c.protected_scope_units(Allocation::draft(0,30,10).unwrap()).err(),
-            Some(Rejection::ProtectedCommitment));
-        assert_eq!(c.protected_scope_units(Allocation::draft(7,30,10).unwrap()).err(),
-            Some(Rejection::ProtectedCommitment));
-        let protected=c.protected_scope_units(Allocation::draft(8,30,10).unwrap()).unwrap();
-        assert_eq!(protected.values().copied().sum::<u16>(),8);
-        c.apply(player(&c,"advance3",PlayerCommand::AdvanceQuarter)).unwrap();
-        assert!(c.world().commitments().iter().all(|x|x.status==CommitmentStatus::Honored));
-        assert_eq!(c.relationship(),[52,52,50]);
+        assert_eq!(
+            c.protected_scope_units(Allocation::draft(0, 30, 10).unwrap())
+                .err(),
+            Some(Rejection::ProtectedCommitment)
+        );
+        assert_eq!(
+            c.protected_scope_units(Allocation::draft(7, 30, 10).unwrap())
+                .err(),
+            Some(Rejection::ProtectedCommitment)
+        );
+        let protected = c
+            .protected_scope_units(Allocation::draft(8, 30, 10).unwrap())
+            .unwrap();
+        assert_eq!(protected.values().copied().sum::<u16>(), 8);
+        c.apply(player(&c, "advance3", PlayerCommand::AdvanceQuarter))
+            .unwrap();
+        assert!(
+            c.world()
+                .commitments()
+                .iter()
+                .all(|x| x.status == CommitmentStatus::Honored)
+        );
+        assert_eq!(c.relationship(), [52, 52, 50]);
     }
     #[test]
     fn staff_milestone_due_before_activation_is_rejected_atomically() {
-        let mut c=campaign();
-        open(&mut c,Allocation::draft(50,40,10).unwrap());
-        for role in ROLES {first(&mut c,role);}
-        c.apply(Action::FreezeFinal{command_id:"freeze".into()}).unwrap();
-        conditional_vote(&mut c,Ministry::Finance,"impossible-q1",1,12);
-        final_vote(&mut c,Ministry::Education,Position::Support,1000);
-        final_vote(&mut c,Ministry::Infrastructure,Position::Support,1000);
-        let old=c.world().world_version();
-        assert_eq!(c.apply(player(&c,"ratify",PlayerCommand::Ratify{
-            meeting_id:"q1".into(),proposal_version:c.proposal_version().unwrap()
-        })).err(),Some(Rejection::InvalidCondition));
-        assert_eq!(c.world().world_version(),old);
-        assert_eq!(c.world().treasury().available(),100);
+        let mut c = campaign();
+        open(&mut c, Allocation::draft(50, 40, 10).unwrap());
+        for role in ROLES {
+            first(&mut c, role);
+        }
+        c.apply(Action::FreezeFinal {
+            command_id: "freeze".into(),
+        })
+        .unwrap();
+        conditional_vote(&mut c, Ministry::Finance, "impossible-q1", 1, 12);
+        final_vote(&mut c, Ministry::Education, Position::Support, 1000);
+        final_vote(&mut c, Ministry::Infrastructure, Position::Support, 1000);
+        let old = c.world().world_version();
+        assert_eq!(
+            c.apply(player(
+                &c,
+                "ratify",
+                PlayerCommand::Ratify {
+                    meeting_id: "q1".into(),
+                    proposal_version: c.proposal_version().unwrap()
+                }
+            ))
+            .err(),
+            Some(Rejection::InvalidCondition)
+        );
+        assert_eq!(c.world().world_version(), old);
+        assert_eq!(c.world().treasury().available(), 100);
         assert!(c.world().commitments().is_empty());
     }
     #[test]

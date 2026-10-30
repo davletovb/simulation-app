@@ -96,9 +96,16 @@ pub fn decide(view: &RoleObservation) -> Result<ScriptDecision, ContractError> {
     };
     let choice = PreferredAllocation::assess(preferred, view.available_credits)?;
     let first = FirstPosition::new(
-        view.meeting_id.clone(), view.proposal_version, view.ministry,
-        if supports(view, bad) { Position::Support } else { Position::Oppose },
-        choice, origin,
+        view.meeting_id.clone(),
+        view.proposal_version,
+        view.ministry,
+        if supports(view, bad) {
+            Position::Support
+        } else {
+            Position::Oppose
+        },
+        choice,
+        origin,
     )?;
     let vote = if supports(view, bad) {
         Position::Support
@@ -219,14 +226,17 @@ mod tests {
     }
     #[test]
     fn later_quarter_counteroffer_remains_feasible_below_menu_floor() {
-        let allocation=Allocation::draft(30,20,10).unwrap();
-        for budget in [79_u16,60,10,0] {
-            let mut obs=view(Ministry::Education,allocation,500_000);
-            obs.available_credits=budget;
-            let decision=decide(&obs).unwrap();
+        let allocation = Allocation::draft(30, 20, 10).unwrap();
+        for budget in [79_u16, 60, 10, 0] {
+            let mut obs = view(Ministry::Education, allocation, 500_000);
+            obs.available_credits = budget;
+            let decision = decide(&obs).unwrap();
             assert!(decision.first.preferred_allocation.allocation().total() <= u32::from(budget));
-            assert_eq!(decision.first.proposal_version,obs.proposal_version);
-            assert_eq!(decision.final_position.proposal_version,obs.proposal_version);
+            assert_eq!(decision.first.proposal_version, obs.proposal_version);
+            assert_eq!(
+                decision.final_position.proposal_version,
+                obs.proposal_version
+            );
         }
     }
     #[test]

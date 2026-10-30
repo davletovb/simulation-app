@@ -185,17 +185,17 @@ mod tests {
     #[test]
     fn declared_asymmetric_thresholds_are_intentional_and_exact() {
         // scheduled10/inspected8 = 200 permille: severe missed delivery.
-        let missed=example(10,8,8);
-        assert_eq!(missed.requested_delta(),-80_000);
+        let missed = example(10, 8, 8);
+        assert_eq!(missed.requested_delta(), -80_000);
         // reported10/inspected8 = 200 permille: only moderate over-report.
-        let exactly_over=example(8,10,8);
-        assert_eq!(exactly_over.requested_delta(),-20_000);
+        let exactly_over = example(8, 10, 8);
+        assert_eq!(exactly_over.requested_delta(), -20_000);
         // reported 100/inspected 79 = 210 permille: severe over-report.
-        let severe_over=example(79,100,79);
-        assert_eq!(severe_over.requested_delta(),-80_000);
+        let severe_over = example(79, 100, 79);
+        assert_eq!(severe_over.requested_delta(), -80_000);
         // Exact five-percent gap: inclusive on missed, exclusive on over.
-        assert_eq!(example(20,19,19).requested_delta(),-20_000);
-        assert_eq!(example(19,20,19).requested_delta(),0);
+        assert_eq!(example(20, 19, 19).requested_delta(), -20_000);
+        assert_eq!(example(19, 20, 19).requested_delta(), 0);
     }
     #[test]
     fn zero_due_never_creates_positive_evidence() {
