@@ -1641,6 +1641,15 @@ mod tests {
             .unwrap();
         assert_eq!(correction.belief_updates[0].delta, 0);
         assert_eq!(c.belief_for(Ministry::Education), 420000);
+        c.apply(player(&c,"q3-proposal",PlayerCommand::Propose{
+            meeting_id:"q3".into(),allocation:Allocation::draft(30,20,10).unwrap()
+        })).unwrap();
+        let education=c.role_view(Ministry::Education).unwrap();
+        let infrastructure=c.role_view(Ministry::Infrastructure).unwrap();
+        assert_eq!(education.visible_audits.len(),2);
+        assert_eq!(education.observation.visible_evidence_ids.len(),2);
+        assert_eq!(infrastructure.visible_audits.len(),0);
+        assert!(infrastructure.observation.visible_evidence_ids.is_empty());
         c.world().validate().unwrap();
     }
     #[test]
