@@ -209,7 +209,7 @@ struct Vote {
 #[derive(Serialize)]
 struct ScriptedVotes {
     kind: &'static str,
-    final_package_approved: bool,
+    passes_support_threshold: bool,
     institutional_ratification: bool,
     votes: [Vote; 3],
     support_count: u8,
@@ -242,7 +242,7 @@ fn scripted_votes(req: AllocationRequest) -> Result<ScriptedVotes, ApiError> {
     let count = support.iter().filter(|v| **v).count() as u8;
     Ok(ScriptedVotes {
         kind: "clean_belief_scripted_votes",
-        final_package_approved: count >= 2,
+        passes_support_threshold: count >= 2,
         institutional_ratification: false,
         votes,
         support_count: count,
