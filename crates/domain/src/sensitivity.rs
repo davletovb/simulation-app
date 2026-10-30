@@ -4,8 +4,8 @@ use crate::reducer::{Action, Campaign, Rejection, Rules};
 use crate::scripted;
 use crate::world::MeetingPhase;
 use crate::{
-    Allocation, CohortWeights, CommandEnvelope, EffortPermille, Ministry,
-    PlayerCommand, PolicyFamily, PrivateEffortDeclaration,
+    Allocation, CohortWeights, CommandEnvelope, EffortPermille, Ministry, PlayerCommand,
+    PolicyFamily, PrivateEffortDeclaration,
 };
 
 pub const COHORT_TABLES: [(&str, [u32; 6]); 3] = [

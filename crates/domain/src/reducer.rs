@@ -331,8 +331,12 @@ impl Campaign {
                         // A cap change is a new proposal version; no old vote
                         // may authorize it and there is only one amendment.
                         m.caps = *caps;
-                        m.version = WireU64::new(m.version.value()
-                            .checked_add(1).ok_or(Rejection::Arithmetic)?);
+                        m.version = WireU64::new(
+                            m.version
+                                .value()
+                                .checked_add(1)
+                                .ok_or(Rejection::Arithmetic)?,
+                        );
                         m.amended = true;
                     }
                     crate::PlayerCommand::Ratify {
@@ -621,10 +625,12 @@ impl Campaign {
                 // Only Finance may condition any family; the other two seats
                 // cannot bind funds outside their own delivery remit.
                 if (vote.ministry == Ministry::Education
-                        && condition.family() != PolicyFamily::Staffing)
+                    && condition.family() != PolicyFamily::Staffing)
                     || (vote.ministry == Ministry::Infrastructure
                         && condition.family() != PolicyFamily::Repairs)
-                { return Err(Rejection::WrongAuthority); }
+                {
+                    return Err(Rejection::WrongAuthority);
+                }
                 if condition.due().value() < u16::from(self.world.quarter().value())
                     || condition.due().value() > u16::from(SIX_QUARTERS)
                     || !condition_ids.insert(condition.kind_id().to_string())
@@ -914,7 +920,8 @@ impl Campaign {
         // Two distinct fictional organizations regenerate at end of advance.
         let funded_staffing = self.active_package.staff();
         let staff_resources = parts.organisations[0].resources().saturating_add(2).min(20);
-        let next_slowdown = q.value() < SIX_QUARTERS && funded_staffing < 50 && staff_resources >= 4;
+        let next_slowdown =
+            q.value() < SIX_QUARTERS && funded_staffing < 50 && staff_resources >= 4;
         parts.organisations[0] = OrganisationAccount::new(
             Organisation::SchoolWorkforceAssociation,
             staff_resources - if next_slowdown { 4 } else { 0 },
@@ -922,7 +929,8 @@ impl Campaign {
         let access_resources = parts.organisations[1].resources().saturating_add(1).min(12);
         let next_bonus = q.value() < SIX_QUARTERS
             && parts.treasury.encumbered(PolicyFamily::Access) > 0
-            && self.active_package.access() >= 10 && access_resources > 0;
+            && self.active_package.access() >= 10
+            && access_resources > 0;
         parts.organisations[1] = OrganisationAccount::new(
             Organisation::CommunityAccessNetwork,
             access_resources - u32::from(next_bonus),
