@@ -366,6 +366,25 @@ impl CapacityCaps {
     }
 }
 
+/// A checked treasury account movement. P3 must authorize each move.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum LedgerMove {
+    Reserve { family: PolicyFamily, credits: u16 },
+    Release { family: PolicyFamily, credits: u16 },
+    SpendService { family: PolicyFamily, credits: u16 },
+    SpendAudit { credits: u16 },
+}
+impl LedgerMove {
+    pub const fn credits(self) -> u16 {
+        match self {
+            Self::Reserve { credits, .. }
+            | Self::Release { credits, .. }
+            | Self::SpendService { credits, .. }
+            | Self::SpendAudit { credits } => credits,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Treasury {
     available: u16,
@@ -447,29 +466,70 @@ impl Treasury {
             Ok(())
         }
     }
-    /// Primitive receipt move; the P3 reducer must first enforce votes,
-    /// authority, conditions, scope identity and one-time payout.
-    pub fn record_delivery(
-        &mut self,
-        family: PolicyFamily,
-        units: u16,
-    ) -> Result<(), ContractError> {
+    /// The only implementation of account-to-account treasury movements.
+    /// Returns the new validated state; errors leave the caller unchanged.
+    /// A valid move is NOT spending authorization (P3 still owns that).
+    pub fn apply(self, movement: LedgerMove) -> Result<Self, ContractError> {
         self.validate()?;
-        let current = self.encumbered(family);
-        let outstanding = current
-            .checked_sub(units)
-            .ok_or(ContractError::InvalidTreasury)?;
-        let spent = self
-            .service_spent
-            .checked_add(units)
-            .ok_or(ContractError::ArithmeticOverflow)?;
-        match family {
-            PolicyFamily::Staffing => self.encumbered_staff = outstanding,
-            PolicyFamily::Repairs => self.encumbered_repairs = outstanding,
-            PolicyFamily::Access => self.encumbered_access = outstanding,
+        let credits = movement.credits();
+        if credits == 0 || credits > PILOT_CREDITS {
+            return Err(ContractError::InvalidCreditAmount);
         }
-        self.service_spent = spent;
-        self.validate()
+        let mut available = self.available;
+        let mut staff = self.encumbered_staff;
+        let mut repairs = self.encumbered_repairs;
+        let mut access = self.encumbered_access;
+        let mut service = self.service_spent;
+        let mut audit = self.audit_spent;
+        let slot = |family: PolicyFamily, staff: &mut u16, repairs: &mut u16,
+                    access: &mut u16| -> &mut u16 {
+            match family {
+                PolicyFamily::Staffing => staff,
+                PolicyFamily::Repairs => repairs,
+                PolicyFamily::Access => access,
+            }
+        };
+        match movement {
+            LedgerMove::Reserve { family, .. } => {
+                available = available.checked_sub(credits)
+                    .ok_or(ContractError::InsufficientAvailableFunds)?;
+                let target = slot(family, &mut staff, &mut repairs, &mut access);
+                *target = target.checked_add(credits)
+                    .ok_or(ContractError::ArithmeticOverflow)?;
+            }
+            LedgerMove::Release { family, .. } => {
+                let target = slot(family, &mut staff, &mut repairs, &mut access);
+                *target = target.checked_sub(credits)
+                    .ok_or(ContractError::InvalidTreasury)?;
+                available = available.checked_add(credits)
+                    .ok_or(ContractError::ArithmeticOverflow)?;
+            }
+            LedgerMove::SpendService { family, .. } => {
+                let target = slot(family, &mut staff, &mut repairs, &mut access);
+                *target = target.checked_sub(credits)
+                    .ok_or(ContractError::InvalidTreasury)?;
+                service = service.checked_add(credits)
+                    .ok_or(ContractError::ArithmeticOverflow)?;
+            }
+            LedgerMove::SpendAudit { .. } => {
+                available = available.checked_sub(credits)
+                    .ok_or(ContractError::InsufficientAvailableFunds)?;
+                audit = audit.checked_add(credits)
+                    .ok_or(ContractError::ArithmeticOverflow)?;
+            }
+        }
+        Treasury::from_parts(available, staff, repairs, access, service, audit)
+    }
+    /// Compatibility primitive; delegates to the single checked movement path.
+    /// P3 must enforce authority, unique payout and scope identity separately.
+    pub fn record_delivery(&mut self, family: PolicyFamily, units: u16)
+        -> Result<(), ContractError>
+    {
+        // Preserve the old no-op semantics for callers with a zero delivery.
+        if units == 0 { return self.validate(); }
+        let next = self.apply(LedgerMove::SpendService { family, credits: units })?;
+        *self = next;
+        Ok(())
     }
 }
 
@@ -511,6 +571,12 @@ impl FundedScope {
     }
     pub const fn remaining_units(&self) -> u16 {
         self.remaining_units
+    }
+    pub const fn activation_quarter(&self) -> Quarter {
+        self.activation_quarter
+    }
+    pub const fn is_terminated(&self) -> bool {
+        self.terminated
     }
     pub const fn carry_permille(&self) -> u16 {
         self.carry_permille
@@ -673,6 +739,26 @@ pub struct Commitment {
     pub deadline_quarter: DueQuarter,
     pub status: CommitmentStatus,
     pub resolution_event: Option<String>,
+}
+impl Commitment {
+    /// Shared contract for internal world state and public role projections.
+    /// Status transitions and event provenance remain P3 obligations.
+    pub fn validate(&self) -> Result<(), ContractError> {
+        validate_identifier(&self.id)?;
+        validate_identifier(&self.trigger)?;
+        if self.funded_units > PILOT_CREDITS ||
+            (self.kind == CommitmentKind::Political && self.funded_units != 0) {
+            return Err(ContractError::InvalidCondition);
+        }
+        match (self.status, &self.resolution_event) {
+            (CommitmentStatus::Pending, None) => {}
+            (CommitmentStatus::Honored | CommitmentStatus::Broken, Some(event)) => {
+                validate_identifier(event)?;
+            }
+            _ => return Err(ContractError::InvalidCondition),
+        }
+        Ok(())
+    }
 }
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct FundedCondition {
@@ -1077,14 +1163,11 @@ impl RoleObservation {
         if self.available_credits > PILOT_CREDITS {
             return Err(ContractError::InvalidCreditAmount);
         }
+        let mut commitment_ids = BTreeSet::new();
         for commitment in &self.owned_commitments {
-            validate_identifier(&commitment.id)?;
-            validate_identifier(&commitment.trigger)?;
-            if commitment.funded_units > PILOT_CREDITS {
+            commitment.validate()?;
+            if !commitment_ids.insert(commitment.id.as_str()) {
                 return Err(ContractError::InvalidCondition);
-            }
-            if let Some(event) = &commitment.resolution_event {
-                validate_identifier(event)?;
             }
         }
         Ok(())
