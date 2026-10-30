@@ -1109,11 +1109,13 @@ impl Campaign {
         } else {
             parts.phase = MeetingPhase::QuarterClosed;
         }
-        if let Some(meeting)=self.meeting.as_ref() {
+        if let Some(meeting) = self.meeting.as_ref() {
             for action in meeting.final_votes.values() {
                 self.vote_history.push(PublicVote {
-                    quarter:q, ministry:action.ministry,
-                    proposal_version:action.proposal_version,vote:action.vote,
+                    quarter: q,
+                    ministry: action.ministry,
+                    proposal_version: action.proposal_version,
+                    vote: action.vote,
                 });
             }
         }
@@ -1784,8 +1786,8 @@ mod tests {
         let role = c.role_view(Ministry::Education).unwrap();
         assert_eq!(role.latest_public_report.unwrap().reported_cumulative[0], 8);
         assert_eq!(role.observation.ministry, Ministry::Education);
-        assert_eq!(role.prior_public_votes.len(),3);
-        assert_eq!(role.prior_public_votes[0].ministry,Ministry::Finance);
+        assert_eq!(role.prior_public_votes.len(), 3);
+        assert_eq!(role.prior_public_votes[0].ministry, Ministry::Finance);
         assert!(role.constituency_support_ppm <= 1_000_000);
         assert_eq!(c.private_effort_for(Ministry::Education), Some(500));
     }
