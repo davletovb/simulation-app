@@ -1,8 +1,9 @@
 /**
  * Display-only game data and pure preview helpers for the offline shell.
  * Values mirror docs/p0-case-contract.md (P0-02/P0-03) so the interface can
- * explain the rules; the P3 reducer and the server-side preview stay
- * authoritative and replace `bestCaseSchedule` before anything is committed.
+ * explain rules and fictional faction interests. Delivery calculations now
+ * come only from the local Rust service; the P3 reducer remains authoritative
+ * for commitments, actual delivery and resulting society effects.
  */
 import { OFFLINE_PILOT, type PilotOverview, type Seat } from './contracts'
 
