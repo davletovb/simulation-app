@@ -16,7 +16,7 @@ The `myth-domain` crate owns integer limits and exact ledger transfers, six fixe
 
 `myth-contracts::checkpoint` provides checked, versioned Serde wire forms for **full private world snapshots**, country-pack provenance and typed event/receipt envelopes. Numeric version/sequence values remain canonical **decimal strings**, including `u64::MAX`; no round-trip through browser JS floating-point. World restore invokes domain validation of scope lifecycle, funding, delayed effects, organizational caps and political promises, and binds to an expected *pack-content SHA-256*. Neither file hash nor schema alone establishes provenance of real public data; P2 must produce and review the actual pack.
 
-The private local checkpoint store writes bounded, checksum-protected `<campaign>.world.json` files using a uniquely named temporary file and fsync/rename, then verifies the file on re-open. **Do not expose these files to the React API**: they contain authoritative private world values. This is a *checkpoint-only* prototype, not an append-only journal, P3 command processing, P4 Hiyal replay, or P7 campaign export.
+The private local checkpoint store writes bounded, checksum-protected `<campaign>.world.json` files using a uniquely named temporary file and fsync/rename, then verifies the file on re-open. **The unkeyed SHA-256 stored beside the payload detects accidental corruption, not intentional tampering**; P4's independently anchored/Hiyal journal must establish tamper evidence. On Unix, the archive directory is owner-only (0700) and new files are owner-only (0600); insecure pre-existing files are rejected. Within one store instance, saves refuse an older version or a divergent equal-version snapshot. Cross-process writes are not serialized or guaranteed crash-durable on all filesystems. A pack mismatch and a schema-version mismatch produce distinct errors rather than the misleading label `Corrupt`. **Do not expose these files to the React API**: they contain authoritative private world values. This is a *checkpoint-only* prototype, not an append-only journal, P3 command processing, P4 Hiyal replay, or P7 campaign export.
 
 From the repository root, run a deliberately **fictional** seed/save/verify:
 ```sh
@@ -24,7 +24,7 @@ hash=1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef
 cargo +1.99.1 run --locked -p myth-local-api --bin myth-checkpoint -- save-fixture local-data/private-world example "$hash"
 cargo +1.99.1 run --locked -p myth-local-api --bin myth-checkpoint -- verify local-data/private-world example "$hash"
 ```
-Do not treat this hash as a real source manifest; it is a fixed **test fixture**. Copy the `example.world.json` file to local backup storage and run `verify` after copying back. A missing file, wrong pack digest, malformed/changed JSON, or invalid domain state must fail. `local-data/` is ignored by Git. The service does not support public checkpoint endpoints.
+Do not treat this hash as a real source manifest; it is a fixed **test fixture**. Copy the `example.world.json` file to local backup storage and run `verify` after copying back. A missing file, wrong pack digest, malformed/accidentally changed JSON, or invalid domain state must fail with a meaningful error. A deliberate rewrite that recomputes the in-file SHA-256 is **not** detected as tampering. `local-data/` is ignored by Git. The service does not support public checkpoint endpoints.
 
 ## Live-call and schema boundary
 
