@@ -372,36 +372,106 @@ pub fn parse_minister_action(raw: &str, available_credits: u16)
         }
     }
 }
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
-#[serde(deny_unknown_fields)]
-pub struct PublicRoleView {
-    pub schema_version: u16,
-    pub campaign_id: String,
-    pub meeting_id: String,
-    pub proposal_version: String,
-    pub ministry: Ministry,
-    pub quarter: u8,
-    pub allocation: Allocation,
-    pub available_credits: u16,
-    pub belief_ppm: u32,
-    pub visible_evidence_ids: Vec<String>,
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, JsonSchema, TS)]
+pub struct PublicCommitment {
+    id: String,
+    issuer: Ministry,
+    beneficiary: Ministry,
+    #[schemars(regex(pattern = "^(0|[1-9][0-9]{0,19})$"))]
+    proposal_version: String,
+    kind: String,
+    #[schemars(range(min = 0, max = 100))]
+    funded_units: u16,
+    trigger: String,
+    #[schemars(range(min = 1))]
+    deadline_quarter: u16,
+    status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    resolution_event: Option<String>,
 }
-impl PublicRoleView {
-    pub fn validate(&self) -> Result<(), WireError> {
-        schema(self.schema_version)?;
-        identifier(&self.campaign_id)?;
-        identifier(&self.meeting_id)?;
-        version(&self.proposal_version)?;
-        d::Quarter::new(self.quarter)?;
-        d::Allocation::try_from(self.allocation.clone())?;
-        d::BeliefPpm::new(self.belief_ppm)?;
-        if self.available_credits > d::PILOT_CREDITS {
-            return Err(WireError::Field("available_credits"));
+impl TryFrom<&d::Commitment> for PublicCommitment {
+    type Error = WireError;
+    fn try_from(c: &d::Commitment) -> Result<Self, Self::Error> {
+        identifier(&c.id)?;
+        identifier(&c.trigger)?;
+        if let Some(event) = &c.resolution_event { identifier(event)?; }
+        if c.funded_units > d::PILOT_CREDITS {
+            return Err(WireError::Field("commitment.funded_units"));
         }
-        for e in &self.visible_evidence_ids {
-            identifier(e)?
+        Ok(Self {
+            id: c.id.clone(),
+            issuer: c.issuer.into(),
+            beneficiary: c.beneficiary.into(),
+            proposal_version: c.proposal_version.to_decimal(),
+            kind: match c.kind {
+                d::CommitmentKind::Enforceable => "enforceable",
+                d::CommitmentKind::Political => "political",
+            }.into(),
+            funded_units: c.funded_units,
+            trigger: c.trigger.clone(),
+            deadline_quarter: c.deadline_quarter.value(),
+            status: match c.status {
+                d::CommitmentStatus::Pending => "pending",
+                d::CommitmentStatus::Honored => "honored",
+                d::CommitmentStatus::Broken => "broken",
+            }.into(),
+            resolution_event: c.resolution_event.clone(),
+        })
+    }
+}
+impl From<d::Ministry> for Ministry {
+    fn from(m: d::Ministry) -> Self {
+        match m {
+            d::Ministry::Finance => Self::Finance,
+            d::Ministry::Education => Self::Education,
+            d::Ministry::Infrastructure => Self::Infrastructure,
         }
-        Ok(())
+    }
+}
+
+/// Server-only public response. Fields are private and no Deserialize exists:
+/// only checked TryFrom<&RoleObservation> can construct serializable data.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, JsonSchema, TS)]
+pub struct PublicRoleView {
+    schema_version: u16,
+    campaign_id: String,
+    meeting_id: String,
+    #[schemars(regex(pattern = "^(0|[1-9][0-9]{0,19})$"))]
+    proposal_version: String,
+    ministry: Ministry,
+    #[schemars(range(min = 1, max = 6))]
+    quarter: u8,
+    allocation: Allocation,
+    #[schemars(range(min = 0, max = 100))]
+    available_credits: u16,
+    #[schemars(range(min = 0, max = 1000000))]
+    belief_ppm: u32,
+    owned_commitments: Vec<PublicCommitment>,
+    visible_evidence_ids: Vec<String>,
+}
+impl TryFrom<&d::RoleObservation> for PublicRoleView {
+    type Error = WireError;
+    fn try_from(role: &d::RoleObservation) -> Result<Self, Self::Error> {
+        role.validate()?;
+        let commitments = role.owned_commitments.iter()
+            .map(PublicCommitment::try_from).collect::<Result<Vec<_>, _>>()?;
+        Ok(Self {
+            schema_version: role.schema_version(),
+            campaign_id: role.campaign_id.clone(),
+            meeting_id: role.meeting_id.clone(),
+            proposal_version: role.proposal_version.to_decimal(),
+            ministry: role.ministry.into(),
+            quarter: role.quarter.value(),
+            allocation: Allocation {
+                staff: role.allocation.staff(), repairs: role.allocation.repairs(),
+                access: role.allocation.access(),
+            },
+            available_credits: role.available_credits,
+            belief_ppm: role.belief_ppm.value(),
+            owned_commitments: commitments,
+            visible_evidence_ids: role.visible_evidence_ids.clone(),
+        })
     }
 }
 #[cfg(test)]
@@ -419,6 +489,49 @@ mod tests {
         format!(
             r#"{{"schema_version":1,"meeting_id":"m","proposal_version":"1","ministry":"{ministry}","stage":"{stage}","position":"support","preferred_allocation":{{"staff":50,"repairs":40,"access":10}},"conditions":[],"evidence_ids":[],"rationale_summary":""{extra}}}"#
         )
+    }
+    #[test]
+    fn unknown_fields_on_empty_variants_are_rejected() {
+        let defer = CMD.replace(r#""kind":"propose","meeting_id":"m","allocation":{"staff":50,"repairs":40,"access":10}"#, r#""kind":"defer","extra":1"#);
+        assert!(parse_command(&defer).is_err());
+        let advance = CMD.replace(r#""kind":"propose","meeting_id":"m","allocation":{"staff":50,"repairs":40,"access":10}"#, r#""kind":"advance_quarter","meeting_id":"m""#);
+        assert!(parse_command(&advance).is_err());
+        let extra = minister("first", "education", "omit")
+            .replace(r#""kind":"new_typed""#, r#""kind":"new_typed","x":1"#);
+        assert!(parse_minister_action(&extra, 100).is_err());
+    }
+    #[test]
+    fn stage_fields_must_not_cross_and_absent_finance_effort_is_valid() {
+        assert!(parse_minister_action(&minister("final", "finance", "omit"), 100).is_ok());
+        assert!(parse_minister_action(&minister("final", "education", "omit"), 100).is_err());
+        let injected = minister("final","education","500").replace(
+            r#""conditions":[],"#, r#""counterproposal_source":{"kind":"menu","menu_id":"zz"},"conditions":[],"#);
+        assert!(parse_minister_action(&injected, 100).is_err());
+        let bad_first = minister("first","education","omit").replace(
+            r#""conditions":[],"#, r#""implementation_effort_permille":800,"conditions":[],"#);
+        assert!(parse_minister_action(&bad_first, 100).is_err());
+    }
+    #[test]
+    fn public_view_requires_domain_validation_and_preserves_commitments() {
+        let mut role = d::RoleObservation::new(d::RoleObservationInput{
+            campaign_id:"c".into(), meeting_id:"m".into(), proposal_version:d::WireU64::new(1),
+            ministry:d::Ministry::Finance, quarter:d::Quarter::new(1).unwrap(),
+            allocation:d::Allocation::draft(50,40,10).unwrap(),available_credits:0,
+            belief_ppm:d::BeliefPpm::new(500000).unwrap(),
+        }).unwrap();
+        role.owned_commitments.push(d::Commitment {
+            id:"commit".into(),issuer:d::Ministry::Finance,beneficiary:d::Ministry::Education,
+            proposal_version:d::WireU64::new(u64::MAX),kind:d::CommitmentKind::Political,
+            funded_units:5,trigger:"trigger".into(),deadline_quarter:d::DueQuarter::new(8).unwrap(),
+            status:d::CommitmentStatus::Pending,resolution_event:None,
+        });
+        let wire=PublicRoleView::try_from(&role).unwrap();
+        let json=serde_json::to_value(&wire).unwrap();
+        assert_eq!(json["owned_commitments"][0]["proposal_version"],u64::MAX.to_string());
+        assert_eq!(json["owned_commitments"][0]["deadline_quarter"],8);
+        assert!(json.get("implementation_effort_permille").is_none());
+        role.visible_evidence_ids.push("bad\u{202E}id".into());
+        assert!(PublicRoleView::try_from(&role).is_err());
     }
     #[test]
     fn version_string_roundtrip_including_max_u64() {
