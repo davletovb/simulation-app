@@ -35,22 +35,6 @@
       "transformation": "GBP billions * 1000000000"
     },
     {
-      "definition": "Joint distribution of school-service beneficiaries by residence and income; unsupported",
-      "geographic_scope": "England fictional school-service beneficiary pilot",
-      "licence_or_terms": "UK Open Government Licence v3.0, except excluded rights; https://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/",
-      "missing_reason": "Joint distribution of school-service beneficiaries by residence and income; unsupported",
-      "normalized_unit": "unavailable",
-      "publisher": "Department for Education",
-      "raw_unit": "unavailable",
-      "reference_period": "January 2026 census / academic year 2025/26",
-      "release_date": "2026-06-04",
-      "retrieval_date": "2026-10-30",
-      "sha256_hex": "22260725e61d269d031e97381216582033477bc17ab507e6678781ec08618ea3",
-      "source_url": "https://explore-education-statistics.service.gov.uk/find-statistics/school-pupils-and-their-characteristics/2025-26",
-      "stable_variable_id": "beneficiary_income_residence_joint",
-      "transformation": "No inference or imputation; authored case assumption separately"
-    },
-    {
       "definition": "Share of eligible pupils for FSM; NOT an income-band measure",
       "geographic_scope": "England school census (state-funded and independent scope varies)",
       "licence_or_terms": "UK Open Government Licence v3.0, except excluded rights; https://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/",
@@ -83,22 +67,6 @@
       "transformation": "identity"
     },
     {
-      "definition": "Fictional programme access-unit demand has no official measure",
-      "geographic_scope": "England fictional school-service beneficiary pilot",
-      "licence_or_terms": "UK Open Government Licence v3.0, except excluded rights; https://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/",
-      "missing_reason": "Fictional programme access-unit demand has no official measure",
-      "normalized_unit": "unavailable",
-      "publisher": "Department for Education",
-      "raw_unit": "unavailable",
-      "reference_period": "January 2026 census / academic year 2025/26",
-      "release_date": "2026-06-04",
-      "retrieval_date": "2026-10-30",
-      "sha256_hex": "22260725e61d269d031e97381216582033477bc17ab507e6678781ec08618ea3",
-      "source_url": "https://explore-education-statistics.service.gov.uk/find-statistics/school-pupils-and-their-characteristics/2025-26",
-      "stable_variable_id": "school_access_gaps",
-      "transformation": "No inference or imputation; authored case assumption separately"
-    },
-    {
       "definition": "Number of all schools (state-funded and independent included)",
       "geographic_scope": "England school census (state-funded and independent scope varies)",
       "licence_or_terms": "UK Open Government Licence v3.0, except excluded rights; https://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/",
@@ -115,22 +83,6 @@
       "transformation": "identity"
     },
     {
-      "definition": "Fictional programme repair-unit demand has no official measure",
-      "geographic_scope": "England fictional school-service beneficiary pilot",
-      "licence_or_terms": "UK Open Government Licence v3.0, except excluded rights; https://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/",
-      "missing_reason": "Fictional programme repair-unit demand has no official measure",
-      "normalized_unit": "unavailable",
-      "publisher": "Department for Education",
-      "raw_unit": "unavailable",
-      "reference_period": "November 2025",
-      "release_date": "2026-06-04",
-      "retrieval_date": "2026-10-30",
-      "sha256_hex": "8e76af6a222fa85be148a23b1a88e275bfa0cfc9495b7014fc2f5f1dc8418f6b",
-      "source_url": "https://explore-education-statistics.service.gov.uk/find-statistics/school-workforce-in-england/2025",
-      "stable_variable_id": "school_repair_backlog",
-      "transformation": "No inference or imputation; authored case assumption separately"
-    },
-    {
       "definition": "FTE of all teachers in state-funded schools, qualified and unqualified",
       "geographic_scope": "England state-funded schools",
       "licence_or_terms": "UK Open Government Licence v3.0, except excluded rights; https://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/",
@@ -145,22 +97,6 @@
       "source_url": "https://explore-education-statistics.service.gov.uk/find-statistics/school-workforce-in-england/2025",
       "stable_variable_id": "teacher_fte",
       "transformation": "identity"
-    },
-    {
-      "definition": "Teacher-linked and parent-linked beneficiary overlap; unsupported",
-      "geographic_scope": "England fictional school-service beneficiary pilot",
-      "licence_or_terms": "UK Open Government Licence v3.0, except excluded rights; https://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/",
-      "missing_reason": "Teacher-linked and parent-linked beneficiary overlap; unsupported",
-      "normalized_unit": "unavailable",
-      "publisher": "Department for Education",
-      "raw_unit": "unavailable",
-      "reference_period": "January 2026 census / academic year 2025/26",
-      "release_date": "2026-06-04",
-      "retrieval_date": "2026-10-30",
-      "sha256_hex": "22260725e61d269d031e97381216582033477bc17ab507e6678781ec08618ea3",
-      "source_url": "https://explore-education-statistics.service.gov.uk/find-statistics/school-pupils-and-their-characteristics/2025-26",
-      "stable_variable_id": "teacher_parent_overlap",
-      "transformation": "No inference or imputation; authored case assumption separately"
     },
     {
       "definition": "Full and part-time teacher vacancies as proportion of teachers in service",
