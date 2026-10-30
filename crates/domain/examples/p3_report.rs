@@ -73,6 +73,36 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     report.push_str(&format!("| Metric | Result |\n|---|---:|\n| Declared trials | {} |\n| Ratified | {} |\n| Vote-rejected (access_first) | {} |\n| Treasury-rejected (oversubscribed) | {} |\n| Valid balanced-versus-staff_first paired comparisons | {} |\n| Weighted-support rank reversals versus reference | {} |\n| Minimum accepted weighted support (ppm) | {} |\n| Maximum accepted weighted support (ppm) | {} |\n\n",
         trials.len(),accepted,vote_fail,unaffordable,pairs,reversals,low,high));
     report.push_str("The reference ranking is the authored_baseline population, 100% response coefficients, original delivery lags and one-quarter response lag. A reversal is defined as a strict sign change in **balanced weighted support minus staff_first weighted support**; ties are not counted as reversals. Other metrics (delivered units, outstanding encumbrances, six cell-level support values and minister relationship scores) are recorded for every variant in [the complete results table](../data/england-school-pilot-v1/p3-sensitivity-results.csv), not silently omitted.\n\n");
+    report.push_str("## Distributional gains, losses and rank sensitivity\n\n");
+    report.push_str("| Synthetic beneficiary cell | Min support ppm | Max support ppm | Accepted runs below 500,000 | Accepted runs above 500,000 | Package rank reversals vs reference |\n|---|---:|---:|---:|---:|---:|\n");
+    let cell_names=["urban-low","urban-middle","urban-high","rural-low","rural-middle","rural-high"];
+    for (ix,cell) in cell_names.iter().enumerate() {
+        let accepted_cells:Vec<_>=trials.iter().filter(|x|x.admission==Admission::Ratified)
+            .map(|x|x.group_support_ppm[ix]).collect();
+        let min=*accepted_cells.iter().min().expect("some accepted policy");
+        let max=*accepted_cells.iter().max().expect("some accepted policy");
+        let below=accepted_cells.iter().filter(|v|**v<500_000).count();
+        let above=accepted_cells.iter().filter(|v|**v>500_000).count();
+        let reference_a=trials.iter().find(|x| x.package=="balanced" && x.table=="authored_baseline"
+            && x.coefficient_percent==100 && x.extra_delivery_lag==0 && x.response_lag==1)
+            .expect("pinned reference");
+        let reference_b=trials.iter().find(|x| x.package=="staff_first" && x.table=="authored_baseline"
+            && x.coefficient_percent==100 && x.extra_delivery_lag==0 && x.response_lag==1)
+            .expect("pinned reference");
+        let reference_delta=i64::from(reference_a.group_support_ppm[ix])-i64::from(reference_b.group_support_ppm[ix]);
+        let mut reversals=0_usize;
+        for a in trials.iter().filter(|x|x.package=="balanced") {
+            let b=trials.iter().find(|x|x.package=="staff_first" && x.table==a.table
+                && x.coefficient_percent==a.coefficient_percent
+                && x.extra_delivery_lag==a.extra_delivery_lag
+                && x.response_lag==a.response_lag).expect("complete paired trial");
+            let tested=i64::from(a.group_support_ppm[ix])-i64::from(b.group_support_ppm[ix]);
+            if reference_delta.signum()!=0 && tested.signum()!=0
+                && reference_delta.signum()!=tested.signum() {reversals+=1;}
+        }
+        report.push_str(&format!("| {cell} | {min} | {max} | {below} | {above} | {reversals} |\\n"));
+    }
+    report.push_str("\\nThese are *simulated cell support changes*, not observed gains/losses among England residents. The baseline of 500,000 ppm is authored, and ties are excluded from reversal counts.\\n\\n");
     report.push_str("## Empirical and identification limits\n\n");
     report.push_str("The sweep is numerical sensitivity within an authored deterministic mechanism, not causal identification or validation of any real England policy. No observed school-beneficiary joint income-by-residence distribution or response elasticities are available. The program changes **only** the declared model knobs and weights, not actor choices or shocks. Policy rankings outside these magnitudes/delays/tables remain unexamined. Infeasible and vote-rejected proposals have no policy spending; social responses remain bounded. The all-zero shock schedule is an explicit controlled experiment assumption.\n");
     report.push_str("\n## Populations held fixed or varied\n\n| Authored table | Urban low/middle/high | Rural low/middle/high |\n|---|---|---|\n");
