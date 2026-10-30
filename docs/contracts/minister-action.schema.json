@@ -83,7 +83,6 @@
         "implementation_effort_permille": {
           "type": "integer",
           "format": "uint16",
-          "default": null,
           "maximum": 1000,
           "minimum": 0
         },
