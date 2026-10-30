@@ -1,8 +1,8 @@
 //! Regenerate checked-in TypeScript and JSON Schema from the Serde wire DTOs.
-//! --check fails on drift; --emit prints initial artifacts for repository bootstrap.
+//! --check fails on drift, --write regenerates from the Rust source.
 use myth_contracts::{
     Allocation, CapacityCaps, CommandEnvelope, Condition, Counterproposal, Family, MinisterAction,
-    Ministry, PlayerAction, PublicRoleView, Stage, Vote,
+    Ministry, PlayerAction, PublicCommitment, PublicRoleView, Stage, Vote,
 };
 use schemars::schema_for;
 use std::{
@@ -25,6 +25,7 @@ fn generated_types() -> String {
         <Stage as TS>::decl(&config),
         <Counterproposal as TS>::decl(&config),
         <MinisterAction as TS>::decl(&config),
+        <PublicCommitment as TS>::decl(&config),
         <PublicRoleView as TS>::decl(&config),
     ];
     format!(
@@ -54,11 +55,6 @@ fn put(root: &Path, relative: &str, content: &str, mode: &str) {
                 "Generated contract drift in {}",
                 path.display()
             );
-        }
-        "--emit" => {
-            println!("MYTH_BEGIN:{relative}");
-            print!("{content}");
-            println!("MYTH_END:{relative}");
         }
         "--write" => {
             fs::create_dir_all(path.parent().expect("generated path")).expect("create directory");
