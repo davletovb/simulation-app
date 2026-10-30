@@ -37,6 +37,14 @@ jobs:
         with:
           toolchain: 1.99.1
           components: rustfmt, clippy
+      - name: Bootstrap local API dependency lock (temporary)
+        if: steps.workspace.outputs.present == 'true'
+        shell: bash
+        run: |
+          cargo generate-lockfile
+          echo MYTH_BEGIN_CARGO_LOCK
+          cat Cargo.lock
+          echo MYTH_END_CARGO_LOCK
       - name: Verify pinned toolchain and locked Cargo dependencies
         if: steps.workspace.outputs.present == 'true'
         shell: bash
