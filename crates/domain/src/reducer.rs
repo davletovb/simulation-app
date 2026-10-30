@@ -1366,6 +1366,9 @@ mod tests {
             .apply(player(&c, "advance2", PlayerCommand::AdvanceQuarter))
             .unwrap();
         assert_eq!(b.delivered[0], 12);
+        // The authored Q2 repairs cap is intentionally inert: a Q1
+        // repairs scope only becomes eligible in Q3.
+        assert_eq!(b.delivered[1], 0);
         assert!(c.world().support().iter().any(|v| v.value() != 500000));
         assert_eq!(
             c.world().treasury().service_spent(),
@@ -1941,6 +1944,85 @@ mod tests {
             meeting_id:"q2".into(),allocation:Allocation::draft(30,20,10).unwrap(),
         })).unwrap();
         assert_eq!(c.phase(),MeetingPhase::FirstPositionsFrozen);
+    }
+    fn conditional_vote(c:&mut Campaign,role:Ministry,id:&str,due:u16,units:u16){
+        use crate::FundedCondition;
+        let mut vote=FinalPosition::new("q1".into(),c.proposal_version().unwrap(),role,
+            Position::Support,PreferredAllocation::assess(
+                Allocation::draft(50,40,10).unwrap(),100).unwrap()).unwrap();
+        vote.set_public_details(vec![FundedCondition::new(
+            id.into(),PolicyFamily::Staffing,units,DueQuarter::new(due).unwrap()
+        ).unwrap()],vec![],"funded scope commitment".into()).unwrap();
+        let effort=if role==Ministry::Finance {None} else {
+            Some(PrivateEffortDeclaration::new("q1".into(),role,
+                EffortPermille::new(1000).unwrap()).unwrap())
+        };
+        c.apply(Action::Final(vote,effort)).unwrap();
+    }
+    #[test]
+    fn two_funded_promises_cannot_count_one_delivery_twice() {
+        let mut c=campaign();
+        open(&mut c,Allocation::draft(50,40,10).unwrap());
+        for role in ROLES {first(&mut c,role);}
+        c.apply(Action::FreezeFinal{command_id:"freeze".into()}).unwrap();
+        conditional_vote(&mut c,Ministry::Finance,"finance-staff",2,10);
+        conditional_vote(&mut c,Ministry::Education,"education-staff",2,10);
+        final_vote(&mut c,Ministry::Infrastructure,Position::Support,1000);
+        let v=c.proposal_version().unwrap();
+        c.apply(player(&c,"ratify",PlayerCommand::Ratify {
+            meeting_id:"q1".into(),proposal_version:v
+        })).unwrap();
+        c.apply(player(&c,"advance1",PlayerCommand::AdvanceQuarter)).unwrap();
+        c.apply(player(&c,"advance2",PlayerCommand::AdvanceQuarter)).unwrap();
+        assert_eq!(c.reports()[1].delivered[0],12);
+        assert_eq!(c.world().commitments()[0].status,CommitmentStatus::Honored);
+        assert_eq!(c.world().commitments()[1].status,CommitmentStatus::Broken);
+        assert_eq!(c.relationship(),[52,45,50]);
+        c.world().validate().unwrap();
+    }
+    #[test]
+    fn pending_shared_family_obligations_protect_remaining_claims() {
+        let mut c=campaign();
+        open(&mut c,Allocation::draft(50,40,10).unwrap());
+        for role in ROLES {first(&mut c,role);}
+        c.apply(Action::FreezeFinal{command_id:"freeze".into()}).unwrap();
+        conditional_vote(&mut c,Ministry::Finance,"finance-staff",3,10);
+        conditional_vote(&mut c,Ministry::Education,"education-staff",3,10);
+        final_vote(&mut c,Ministry::Infrastructure,Position::Support,1000);
+        c.apply(player(&c,"ratify",PlayerCommand::Ratify {
+            meeting_id:"q1".into(),proposal_version:c.proposal_version().unwrap()
+        })).unwrap();
+        c.apply(player(&c,"advance1",PlayerCommand::AdvanceQuarter)).unwrap();
+        c.apply(player(&c,"advance2",PlayerCommand::AdvanceQuarter)).unwrap();
+        assert_eq!(c.reports()[1].delivered[0],12);
+        assert!(c.world().commitments().iter().all(|x|x.status==CommitmentStatus::Pending));
+        // Only 12 credited; 8 separate protected credits remain.
+        assert_eq!(c.protected_scope_units(Allocation::draft(0,30,10).unwrap()).err(),
+            Some(Rejection::ProtectedCommitment));
+        assert_eq!(c.protected_scope_units(Allocation::draft(7,30,10).unwrap()).err(),
+            Some(Rejection::ProtectedCommitment));
+        let protected=c.protected_scope_units(Allocation::draft(8,30,10).unwrap()).unwrap();
+        assert_eq!(protected.values().copied().sum::<u16>(),8);
+        c.apply(player(&c,"advance3",PlayerCommand::AdvanceQuarter)).unwrap();
+        assert!(c.world().commitments().iter().all(|x|x.status==CommitmentStatus::Honored));
+        assert_eq!(c.relationship(),[52,52,50]);
+    }
+    #[test]
+    fn staff_milestone_due_before_activation_is_rejected_atomically() {
+        let mut c=campaign();
+        open(&mut c,Allocation::draft(50,40,10).unwrap());
+        for role in ROLES {first(&mut c,role);}
+        c.apply(Action::FreezeFinal{command_id:"freeze".into()}).unwrap();
+        conditional_vote(&mut c,Ministry::Finance,"impossible-q1",1,12);
+        final_vote(&mut c,Ministry::Education,Position::Support,1000);
+        final_vote(&mut c,Ministry::Infrastructure,Position::Support,1000);
+        let old=c.world().world_version();
+        assert_eq!(c.apply(player(&c,"ratify",PlayerCommand::Ratify{
+            meeting_id:"q1".into(),proposal_version:c.proposal_version().unwrap()
+        })).err(),Some(Rejection::InvalidCondition));
+        assert_eq!(c.world().world_version(),old);
+        assert_eq!(c.world().treasury().available(),100);
+        assert!(c.world().commitments().is_empty());
     }
     #[test]
     fn signed_coefficients_keep_losing_cells_negative() {
