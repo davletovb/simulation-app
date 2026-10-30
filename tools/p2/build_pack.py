@@ -81,7 +81,7 @@ def normalize(display: str, transformation: str) -> str:
     }.get(transformation)
     need(factor is not None, f"unsupported transformation: {transformation}")
     result = number * factor
-    return format(result, "f")
+    return format(result.quantize(Decimal(1)) if result == result.to_integral_value() else result, "f")
 
 
 def source_bytes():
