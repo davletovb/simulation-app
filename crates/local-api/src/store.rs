@@ -126,7 +126,7 @@ impl SaveStore {
             Err(e) => return Err(StoreError::Io(e)),
         };
         let mut bytes = Vec::new();
-        f.by_ref().take((MAX_RECORD_BYTES + 1) as u64).read_to_end(&mut bytes)?;
+        Read::take(&mut f, (MAX_RECORD_BYTES + 1) as u64).read_to_end(&mut bytes)?;
         if bytes.len() > MAX_RECORD_BYTES { return Err(StoreError::Corrupt); }
         let record: StoredRecord = serde_json::from_slice(&bytes).map_err(|_| StoreError::Corrupt)?;
         record.payload.validate().map_err(|_| StoreError::Corrupt)?;
