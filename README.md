@@ -33,6 +33,10 @@ npm --prefix apps/web run dev
 
 Open the localhost URL printed by Vite (normally `http://127.0.0.1:5173`). The web app binds to loopback only. To check the production interface build, run `npm --prefix apps/web run build`. The `/api` development proxy currently targets a **future** local Rust service on `127.0.0.1:8787`; no backend is running for this preview. Do not place an API key in `apps/web`, environment variables exposed to Vite, or browser code. Vite exposes only variables with the `MYTH_PUBLIC_` prefix; its build refuses exposed names containing `KEY`, `TOKEN`, `SECRET`, `PASSWORD`, or `CREDENTIAL`. This guard does not replace a complete security review. The server/API implementation and Serde-generated wire contracts are still P1 work.
 
+## Rust-powered offline preview (P1d)
+
+Start the loopback-only Axum backend with `cargo +1.99.1 run --locked -p myth-local-api`, then the frontend with `npm --prefix apps/web run dev`. The UI obtains its optimistic delivery ceilings from Rust via `/api/preview`; without the server, it explicitly displays an unavailable state (no duplicate TypeScript simulation). The backend also provides clean-belief scripted cabinet vote **snapshots** and bounded checksum-verified local **choice** recordings. It does **not** perform actual policy decisions, LLM calls, authoritative saves or Hiyal replay. Live mode fails closed. See [offline backend setup and API](docs/p1-04-offline-backend.md) for exact commands, files and security boundaries.
+
 ## Typed transport contracts (P1c)
 
 The separate `myth-contracts` Rust crate validates JSON commands and minister-action inputs before converting them to the pure domain types. Rust generates TypeScript declarations at `apps/web/src/generated/transport.ts` and JSON Schema files in `docs/contracts/`. The checked-in artifacts are enforced by CI: `cargo +1.99.1 run --locked -p myth-contracts --bin export-contracts -- --check`.
