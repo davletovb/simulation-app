@@ -70,6 +70,14 @@ pub struct PrivateArchiveStore {
 }
 impl PrivateArchiveStore {
     pub fn new(root: PathBuf) -> Result<Self, ArchiveError> {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::DirBuilderExt;
+            let mut builder = fs::DirBuilder::new();
+            builder.recursive(true).mode(0o700);
+            builder.create(&root)?;
+        }
+        #[cfg(not(unix))]
         fs::create_dir_all(&root)?;
         let root = root.canonicalize()?;
         if !root.is_dir() {
