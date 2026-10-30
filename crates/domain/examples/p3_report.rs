@@ -16,7 +16,7 @@ fn main() -> Result<(),Box<dyn std::error::Error>> {
             Admission::InfeasibleTreasury=>{unaffordable+=1;"unaffordable"},
         };
         let cells=t.group_support_ppm.iter().map(ToString::to_string).collect::<Vec<_>>().join(",");
-        csv.push_str(&format!("{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}\n",
+        csv.push_str(&format!("{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}\n",
             t.package,t.table,t.coefficient_percent,t.extra_delivery_lag,t.response_lag,
             kind,t.delivered[0],t.delivered[1],t.delivered[2],
             t.encumbered[0],t.encumbered[1],t.encumbered[2],
