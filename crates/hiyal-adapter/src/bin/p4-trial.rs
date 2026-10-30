@@ -1,6 +1,6 @@
 //! Private offline P4 verification and microbenchmark CLI.
 use myth_hiyal_adapter::orchestrator::{
-    advance_slice,create,create_stress,inspect,resume,run_until_closed,
+    advance_slice,benchmark_sequential_cabinet,create,create_stress,inspect,resume,run_until_closed,
 };
 use serde_json::json;
 use std::{env,fs,path::{Path,PathBuf},time::{Instant,SystemTime,UNIX_EPOCH}};
@@ -61,14 +61,18 @@ async fn benchmark(count:usize,stress:bool)->Result<(),String>{
         for _ in 0..60 {
             if trial.store.world().is_closed(){break;}
             let phase=trial.store.world().phase.clone();
-            let now=Instant::now();
-            advance_slice(&mut trial).await?;
-            let us=now.elapsed().as_micros();
             if phase=="first_positions_frozen"
                 || (phase=="final_positions_frozen"
-                    && trial.store.world().final_votes_this_meeting()==3){
-                cabinets.push(us/3);
-            } else if phase=="resolved"{advances.push(us);}
+                    && trial.store.world().final_votes_this_meeting()<3) {
+                for committed_us in benchmark_sequential_cabinet(&mut trial).await? {
+                    cabinets.push(committed_us);
+                }
+            } else {
+                let now=Instant::now();
+                advance_slice(&mut trial).await?;
+                let us=now.elapsed().as_micros();
+                if phase=="resolved" {advances.push(us);}
+            }
         }
         if !trial.store.world().is_closed(){return Err("benchmark trial did not close".into());}
         trial.checkpoint()?;
