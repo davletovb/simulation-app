@@ -40,9 +40,11 @@ function parsePreview(raw: unknown): FamilyForecast[] {
 }
 
 /** Only Rust returns delivery forecasts. No duplicate TS calculation or silent fallback. */
-export function usePreview(allocation: Allocation): {
-  rows: FamilyForecast[] | null; status: 'invalid' | 'loading' | 'unavailable' | 'ready'
-} {
+export interface PreviewResult {
+  rows: FamilyForecast[] | null
+  status: 'invalid' | 'loading' | 'unavailable' | 'ready'
+}
+export function usePreview(allocation: Allocation): PreviewResult {
   const key = [allocation.staff, allocation.repairs, allocation.access].join(':')
   const valid = draftStatus(allocation) === 'valid'
   const [state, setState] = useState<PreviewState | null>(null)
