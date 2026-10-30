@@ -11,8 +11,12 @@ use hiyal::{
     scheduler::Scheduling,
     storage::Durability,
 };
-use serde_json::{Value,json};
-use std::{path::Path,sync::{Arc,atomic::{AtomicBool,Ordering}}};
+use serde_json::json;
+use std::{
+    collections::{BTreeMap,BTreeSet},
+    path::{Path,PathBuf},
+    sync::{Arc,Mutex,OnceLock,atomic::{AtomicBool,Ordering}},
+};
 
 #[derive(Default,Clone)]
 pub struct GamePolicy {
@@ -152,7 +156,15 @@ impl Backend for PlayerCommandTool {
     }
 }
 pub type GameTrial=Trial<GameWorld,GamePolicy>;
+static PAUSE_CACHE: OnceLock<Mutex<BTreeMap<PathBuf,BTreeSet<AgentId>>>>=OnceLock::new();
+fn pause_cache()->&'static Mutex<BTreeMap<PathBuf,BTreeSet<AgentId>>>{
+    PAUSE_CACHE.get_or_init(||Mutex::new(BTreeMap::new()))
+}
+fn invalidate_pauses(path:&Path){
+    if let Ok(mut map)=pause_cache().lock(){map.remove(path);}
+}
 pub fn create(dir:&Path,name:&str,seed:u64)->Result<GameTrial,String>{
+    invalidate_pauses(dir);
     let mut trial=Trial::create(
         dir,name,seed,WORLD_KIND,GameWorld::initial("p4-pilot")?,
         GamePolicy::default(),Arc::new(PlayerCommandTool),ACTORS.to_vec(),
@@ -162,6 +174,7 @@ pub fn create(dir:&Path,name:&str,seed:u64)->Result<GameTrial,String>{
     Ok(trial)
 }
 pub fn create_stress(dir:&Path,name:&str,seed:u64)->Result<GameTrial,String>{
+    invalidate_pauses(dir);
     let mut trial=Trial::create(
         dir,name,seed,WORLD_KIND,GameWorld::stress("p4-pilot")?,
         GamePolicy::default(),Arc::new(PlayerCommandTool),ACTORS.to_vec(),
@@ -171,6 +184,7 @@ pub fn create_stress(dir:&Path,name:&str,seed:u64)->Result<GameTrial,String>{
     Ok(trial)
 }
 pub fn resume(dir:&Path,replay_only:bool)->Result<GameTrial,String>{
+    invalidate_pauses(dir);
     let mut trial=Trial::resume(
         dir,WORLD_KIND,GamePolicy::default(),Arc::new(PlayerCommandTool),replay_only
     )?;
@@ -179,16 +193,34 @@ pub fn resume(dir:&Path,replay_only:bool)->Result<GameTrial,String>{
     Ok(trial)
 }
 fn enable(trial:&mut GameTrial,allowed:&[AgentId])->Result<(),String>{
+    // Hiyal deliberately keeps its live scheduler private. Reconstruct the
+    // actual persisted pause set through its verified read-only API only once
+    // per process/dir, then cache updates after successful durable controls.
+    // Invalidate on create/resume so recovery never trusts an old local cache.
+    let dir=trial.store.dir.clone();
+    let mut cache=pause_cache().lock().map_err(|_|"pause cache poisoned")?;
+    if !cache.contains_key(&dir) {
+        let verified=hiyal::storage::Store::<GameWorld,GameAction>
+            ::inspect_read_only(&dir)?;
+        cache.insert(dir.clone(),verified.schedule.paused);
+    }
     for actor in ACTORS {
-        let is_paused=trial.store.schedule.paused.contains(&actor);
+        let paused=cache.get(&dir).is_some_and(|x|x.contains(&actor));
         let should_pause=!allowed.contains(&actor);
-        if is_paused!=should_pause {
-            if should_pause {trial.pause_actor(actor)?}
-            else {trial.resume_actor(actor)?}
+        if paused!=should_pause {
+            let outcome=if should_pause {trial.pause_actor(actor)}
+                else {trial.resume_actor(actor)};
+            if let Err(error)=outcome {
+                cache.remove(&dir);
+                return Err(error);
+            }
+            let current=cache.get_mut(&dir).ok_or("missing cached schedule")?;
+            if should_pause {current.insert(actor);} else {current.remove(&actor);}
         }
     }
     Ok(())
 }
+
 fn check_step(step:Step<GameWorld>)->Result<(),String>{
     match step {
         Step::Accepted(_)=>Ok(()),
