@@ -236,16 +236,16 @@ pub async fn advance_slice(trial:&mut GameTrial)->Result<bool,String>{
     match phase.as_str() {
         "quarter_open"|"amendment_window"=>{
             enable(trial,&[PLAYER])?;
-            check_step(trial.step().await)?;
+            check_step(trial.step().await?)?;
         }
         "resolved"=>{
             enable(trial,&[PERIOD])?;
-            check_step(trial.step().await)?;
+            check_step(trial.step().await?)?;
             trial.checkpoint()?;
         }
         "final_positions_frozen" if trial.store.world().final_votes_this_meeting()==3 =>{
             enable(trial,&[PLAYER])?;
-            check_step(trial.step().await)?;
+            check_step(trial.step().await?)?;
         }
         "first_positions_frozen"|"final_positions_frozen"=>{
             enable(trial,&crate::ACTORS[1..4])?;
