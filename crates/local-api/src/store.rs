@@ -9,7 +9,10 @@ use std::{
     fs::{self, File, OpenOptions},
     io::{Read, Write},
     path::{Path, PathBuf},
-    sync::{Mutex, atomic::{AtomicU64, Ordering}},
+    sync::{
+        Mutex,
+        atomic::{AtomicU64, Ordering},
+    },
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -134,14 +137,22 @@ impl SaveStore {
         // Always create_new and retry rather than deleting unknown crash orphans.
         let mut opened = None;
         for _ in 0..8 {
-            let timestamp = SystemTime::now().duration_since(UNIX_EPOCH)
-                .map_err(|_| StoreError::Corrupt)?.as_nanos();
+            let timestamp = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map_err(|_| StoreError::Corrupt)?
+                .as_nanos();
             let nonce = TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed);
-            let candidate = path.with_extension(format!(
-                "tmp-{}-{timestamp}-{nonce}", std::process::id()
-            ));
-            match OpenOptions::new().write(true).create_new(true).open(&candidate) {
-                Ok(file) => { opened = Some((candidate, file)); break; }
+            let candidate =
+                path.with_extension(format!("tmp-{}-{timestamp}-{nonce}", std::process::id()));
+            match OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&candidate)
+            {
+                Ok(file) => {
+                    opened = Some((candidate, file));
+                    break;
+                }
                 Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => continue,
                 Err(err) => return Err(StoreError::Io(err)),
             }
@@ -273,12 +284,17 @@ mod tests {
     fn stale_crash_temporary_file_cannot_block_new_save() {
         let root = temp();
         let store = SaveStore::new(root.clone()).unwrap();
-        let stale = store.path("pilot").unwrap()
+        let stale = store
+            .path("pilot")
+            .unwrap()
             .with_extension(format!("tmp-{}", std::process::id()));
         fs::write(&stale, b"stale interrupted write").unwrap();
         let saved = store.put(record("pilot")).unwrap();
         assert_eq!(store.get("pilot").unwrap(), saved);
-        assert!(stale.exists(), "do not delete temp files from unknown owners");
+        assert!(
+            stale.exists(),
+            "do not delete temp files from unknown owners"
+        );
         fs::remove_dir_all(root).unwrap();
     }
 
