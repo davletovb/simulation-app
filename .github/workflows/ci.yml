@@ -84,6 +84,11 @@ jobs:
       - name: Test
         if: steps.workspace.outputs.present == 'true'
         run: cargo test --workspace --locked
+      - name: P3 authored fixed-action sensitivity and frozen result drift
+        if: steps.workspace.outputs.present == 'true'
+        run: |
+          cargo run --quiet --locked -p myth-domain --example p3_report
+          git diff --exit-code -- docs/p3-sensitivity-report.md data/england-school-pilot-v1/p3-sensitivity-results.csv
       - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
