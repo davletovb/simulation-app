@@ -197,7 +197,7 @@ pub async fn advance_slice(trial:&mut GameTrial)->Result<bool,String>{
     if trial.store.world().is_closed(){return Ok(false);}
     let phase=trial.store.world().phase.clone();
     match phase.as_str() {
-        "quarter_open"|"amendment_window"|"final_positions_frozen"=>{
+        "quarter_open"|"amendment_window"=>{
             enable(trial,&[PLAYER])?;
             check_step(trial.step().await)?;
         }
@@ -206,10 +206,14 @@ pub async fn advance_slice(trial:&mut GameTrial)->Result<bool,String>{
             check_step(trial.step().await)?;
             trial.checkpoint()?;
         }
-        "first_positions_frozen"=>{
+        "final_positions_frozen" if trial.store.world().final_votes_this_meeting()==3 =>{
+            enable(trial,&[PLAYER])?;
+            check_step(trial.step().await)?;
+        }
+        "first_positions_frozen"|"final_positions_frozen"=>{
             enable(trial,&crate::ACTORS[1..4])?;
             let steps=trial.run_round(3).await?;
-            if steps.len()!=3 {return Err("incomplete first frozen round".into());}
+            if steps.len()!=3 {return Err("incomplete minister frozen round".into());}
             for step in steps {check_step(step)?;}
         }
         _=>return Err("unsupported or missing cabinet phase".into()),
