@@ -190,14 +190,13 @@ impl PrivateArchiveStore {
         self.restore_locked(id, pack_sha256)
     }
     /// Only call while holding this store instance's lock.
-    fn restore_locked(&self, id: &str, pack_sha256: &str)
-        -> Result<WorldSnapshot, ArchiveError>
-    {
+    fn restore_locked(&self, id: &str, pack_sha256: &str) -> Result<WorldSnapshot, ArchiveError> {
         let path = self.path(id)?;
         let mut file = match File::open(path) {
             Ok(f) => f,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound =>
-                return Err(ArchiveError::Missing),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                return Err(ArchiveError::Missing);
+            }
             Err(e) => return Err(ArchiveError::Io(e)),
         };
         #[cfg(unix)]
@@ -209,14 +208,19 @@ impl PrivateArchiveStore {
         }
         let mut bytes = Vec::new();
         Read::take(&mut file, (MAX_BYTES + 1) as u64).read_to_end(&mut bytes)?;
-        if bytes.len() > MAX_BYTES { return Err(ArchiveError::Corrupt); }
-        let archive: Archive = serde_json::from_slice(&bytes)
-            .map_err(|_| ArchiveError::Corrupt)?;
-        if archive.checkpoint.campaign_id != id ||
-            content_hash(&archive.checkpoint)? != archive.sha256 {
+        if bytes.len() > MAX_BYTES {
             return Err(ArchiveError::Corrupt);
         }
-        archive.checkpoint.restore(pack_sha256).map_err(classify_wire_error)
+        let archive: Archive = serde_json::from_slice(&bytes).map_err(|_| ArchiveError::Corrupt)?;
+        if archive.checkpoint.campaign_id != id
+            || content_hash(&archive.checkpoint)? != archive.sha256
+        {
+            return Err(ArchiveError::Corrupt);
+        }
+        archive
+            .checkpoint
+            .restore(pack_sha256)
+            .map_err(classify_wire_error)
     }
 }
 
@@ -297,15 +301,26 @@ mod tests {
         newer_parts.world_version = myth_domain::WireU64::new(2);
         let newer = WorldSnapshot::from_parts(newer_parts).unwrap();
         store.save("campaign", &newer, PACK).unwrap();
-        assert!(matches!(store.save("campaign", &base, PACK),
-            Err(ArchiveError::VersionConflict)));
+        assert!(matches!(
+            store.save("campaign", &base, PACK),
+            Err(ArchiveError::VersionConflict)
+        ));
         let mut divergent = newer.private_checkpoint_parts();
         divergent.support[0] = myth_domain::world::SupportPpm::new(700_000).unwrap();
         let divergent = WorldSnapshot::from_parts(divergent).unwrap();
-        assert!(matches!(store.save("campaign", &divergent, PACK),
-            Err(ArchiveError::VersionConflict)));
+        assert!(matches!(
+            store.save("campaign", &divergent, PACK),
+            Err(ArchiveError::VersionConflict)
+        ));
         assert!(store.save("campaign", &newer, PACK).is_ok());
-        assert_eq!(store.restore("campaign", PACK).unwrap().world_version().value(), 2);
+        assert_eq!(
+            store
+                .restore("campaign", PACK)
+                .unwrap()
+                .world_version()
+                .value(),
+            2
+        );
         fs::remove_dir_all(root).unwrap();
     }
     #[test]
@@ -318,8 +333,10 @@ mod tests {
         entry.checkpoint.schema_version = 2;
         entry.sha256 = content_hash(&entry.checkpoint).unwrap();
         fs::write(&path, serde_json::to_vec(&entry).unwrap()).unwrap();
-        assert!(matches!(store.restore("campaign", PACK),
-            Err(ArchiveError::SchemaMismatch)));
+        assert!(matches!(
+            store.restore("campaign", PACK),
+            Err(ArchiveError::SchemaMismatch)
+        ));
         fs::remove_dir_all(root).unwrap();
     }
     #[cfg(unix)]
@@ -329,12 +346,20 @@ mod tests {
         let root = tmp();
         let store = PrivateArchiveStore::new(root.clone()).unwrap();
         store.save("campaign", &seed(), PACK).unwrap();
-        assert_eq!(fs::metadata(&root).unwrap().permissions().mode() & 0o777, 0o700);
+        assert_eq!(
+            fs::metadata(&root).unwrap().permissions().mode() & 0o777,
+            0o700
+        );
         let file = store.path("campaign").unwrap();
-        assert_eq!(fs::metadata(&file).unwrap().permissions().mode() & 0o777, 0o600);
+        assert_eq!(
+            fs::metadata(&file).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
         fs::set_permissions(&file, fs::Permissions::from_mode(0o644)).unwrap();
-        assert!(matches!(store.restore("campaign", PACK),
-            Err(ArchiveError::InsecurePermissions)));
+        assert!(matches!(
+            store.restore("campaign", PACK),
+            Err(ArchiveError::InsecurePermissions)
+        ));
         fs::remove_dir_all(root).unwrap();
     }
 }
