@@ -1091,6 +1091,7 @@ const fn role_index(m: Ministry) -> usize {
     }
 }
 /// Six authored, non-empirical, floor-rounded response kernels. Integer-only.
+#[cfg(test)]
 fn cohort_response(ix: usize, delivered: [u16; 3]) -> Result<i64, Rejection> {
     cohort_response_scaled(ix, delivered, 100)
 }
