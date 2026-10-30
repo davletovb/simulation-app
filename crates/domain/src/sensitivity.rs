@@ -327,6 +327,16 @@ mod tests {
         assert_eq!(contrast(&all).0, 36);
     }
     #[test]
+    fn exact_population_variants_are_pinned_to_frozen_p2_authored_fixture() {
+        let raw=include_str!("../../../data/england-school-pilot-v1/authored.json");
+        let compact:String=raw.chars().filter(|c|!c.is_whitespace()).collect();
+        for (id,weights) in COHORT_TABLES {
+            let cells=weights.iter().map(ToString::to_string).collect::<Vec<_>>().join(",");
+            let needle=format!("\\\"id\\\":\\\"{id}\\\",\\\"weights_ppm\\\":[{cells}]");
+            assert!(compact.contains(&needle), "P2 population fixture drift for {id}");
+        }
+    }
+    #[test]
     fn deterministic_and_population_margins_are_pinned() {
         let a = sweep().unwrap();
         assert_eq!(a, sweep().unwrap());
