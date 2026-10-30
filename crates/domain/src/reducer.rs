@@ -2,6 +2,7 @@
 //! All admission happens against a staged clone; failures never mutate the
 //! campaign, treasury, funded scopes, phases or private minister effort.
 //! P4 will own replay serialization; P5 may only supply typed role actions.
+use crate::audit::{BeliefLedger, BeliefReceipt, DeliveryAudit};
 use crate::world::{
     LedgerReceipt, MeetingPhase, Organisation, OrganisationAccount, QueuedResponse, SupportPpm,
     WorldSnapshot,
@@ -64,6 +65,7 @@ pub struct QuarterReport {
     pub delivered: [u16; 3],
     pub reported: [u16; 3],
     pub due_schedule: [u16; 3],
+    pub delivered_cumulative: [u16; 3],
     pub service_spent: u16,
     pub weighted_support_ppm: u32,
     pub staff_slowdown_next: bool,
@@ -75,6 +77,7 @@ pub struct ReducerReceipt {
     pub ledger: Vec<LedgerReceipt>,
     pub delivered: [u16; 3],
     pub report: Option<QuarterReport>,
+    pub belief_updates: Vec<BeliefReceipt>,
 }
 #[derive(Clone)]
 struct ConditionProgress {
@@ -96,6 +99,9 @@ pub struct Campaign {
     conditions: Vec<ConditionProgress>,
     relationship: [i16; 3],
     reports: Vec<QuarterReport>,
+    scheduled_lifetime: [u16; 3],
+    audits: Vec<DeliveryAudit>,
+    beliefs: BeliefLedger,
 }
 
 pub enum Action {
@@ -129,6 +135,9 @@ impl Campaign {
             conditions: vec![],
             relationship: [50; 3],
             reports: vec![],
+            scheduled_lifetime: [0; 3],
+            audits: vec![],
+            beliefs: BeliefLedger::default(),
         })
     }
     pub fn world(&self) -> &WorldSnapshot {
@@ -136,6 +145,13 @@ impl Campaign {
     }
     pub fn reports(&self) -> &[QuarterReport] {
         &self.reports
+    }
+    /// Game-truth audit records are player-private until explicitly disclosed.
+    pub fn player_audits(&self) -> &[DeliveryAudit] {
+        &self.audits
+    }
+    pub fn belief_for(&self, ministry: Ministry) -> u32 {
+        self.beliefs.belief(ministry)
     }
     pub fn relationship(&self) -> [i16; 3] {
         self.relationship
@@ -168,7 +184,7 @@ impl Campaign {
             meeting.id.clone(),
             meeting.version,
             meeting.allocation,
-            crate::BeliefPpm::new(500_000)?,
+            crate::BeliefPpm::new(self.beliefs.belief(ministry))?,
         )?)
     }
     pub fn apply(&mut self, action: Action) -> Result<ReducerReceipt, Rejection> {
@@ -178,6 +194,7 @@ impl Campaign {
             ledger: vec![],
             delivered: [0; 3],
             report: None,
+            belief_updates: vec![],
         };
         candidate.apply_staged(action, &mut receipt)?;
         candidate.world.validate()?;
@@ -295,11 +312,19 @@ impl Campaign {
                         }
                     }
                     crate::PlayerCommand::AdvanceQuarter => self.advance(receipt)?,
-                    crate::PlayerCommand::OrderAudit { .. }
-                    | crate::PlayerCommand::DiscloseEvidence { .. } => {
-                        // Explicitly unsupported until P3-05: fail closed,
-                        // without a treasury movement or fake evidence.
-                        return Err(Rejection::InvalidPhase);
+                    crate::PlayerCommand::OrderAudit { family, inspected_quarter } => {
+                        self.order_audit(*family, *inspected_quarter, receipt)?;
+                    }
+                    crate::PlayerCommand::DiscloseEvidence {
+                        evidence_id, evidence_version, recipients,
+                    } => {
+                        let evidence = self.audits.iter().find(|a|
+                            a.id == *evidence_id && a.version == *evidence_version
+                        ).ok_or(Rejection::InvalidCondition)?.clone();
+                        // The recipient list is prevalidated by EvidenceRecipients.
+                        for ministry in recipients.roles() {
+                            receipt.belief_updates.push(self.beliefs.observe(&evidence, *ministry)?);
+                        }
                     }
                 }
             }
@@ -505,6 +530,52 @@ impl Campaign {
         self.world = WorldSnapshot::from_parts(parts)?;
         Ok(())
     }
+    fn order_audit(
+        &mut self, family: PolicyFamily, inspected: Quarter,
+        receipt: &mut ReducerReceipt,
+    ) -> Result<(), Rejection> {
+        // Audit only a committed historical quarter starting in Q3. A minister
+        // cannot request it, and nothing here reveals another minister's effort.
+        if self.world.quarter().value() < 3
+            || inspected > self.world.quarter()
+            || self.world.phase() == MeetingPhase::QuarterClosed
+        { return Err(Rejection::InvalidPhase); }
+        let report = self.reports.iter().find(|r| r.quarter == inspected)
+            .ok_or(Rejection::InvalidCondition)?;
+        let ix = family_index(family);
+        if report.due_schedule[ix] == 0 { return Err(Rejection::InvalidCondition); }
+        let cost = if self.audits.is_empty() {0} else {2};
+        if cost > 0 {
+            let mut parts = self.world.private_checkpoint_parts();
+            let movement = LedgerMove::SpendAudit { credits: cost };
+            let before = parts.treasury;
+            parts.treasury = before.apply(movement)?;
+            receipt.ledger.push(LedgerReceipt::new(before, movement, parts.treasury)?);
+            self.world = WorldSnapshot::from_parts(parts)?;
+        }
+        let number = self.audits.iter().filter(|a|
+            a.family == family && a.inspected_quarter == inspected
+        ).count() + 1;
+        let key = match family {
+            PolicyFamily::Staffing => "staffing",
+            PolicyFamily::Repairs => "repairs",
+            PolicyFamily::Access => "access",
+        };
+        let evidence = DeliveryAudit {
+            id: format!("audit-q{}-{key}-v{number}", inspected.value()),
+            version: WireU64::new(u64::try_from(number).map_err(|_| Rejection::Arithmetic)?),
+            family,
+            inspected_quarter: inspected,
+            scheduled_cumulative: report.due_schedule[ix],
+            reported_cumulative: report.reported[ix],
+            inspected_cumulative: report.delivered_cumulative[ix],
+            issuance_world_version: self.world.world_version(),
+            cost,
+        };
+        evidence.validate()?;
+        self.audits.push(evidence);
+        Ok(())
+    }
     fn advance(&mut self, receipt: &mut ReducerReceipt) -> Result<(), Rejection> {
         if self.meeting.is_some() && self.world.phase() != MeetingPhase::Resolved {
             return Err(Rejection::InvalidPhase);
@@ -545,6 +616,8 @@ impl Campaign {
                 &mut hypothetical,
             )?;
             scheduled[ix] = due_receipt.total_delivered;
+            self.scheduled_lifetime[ix] = self.scheduled_lifetime[ix]
+                .checked_add(scheduled[ix]).ok_or(Rejection::Arithmetic)?;
             let delivery = deliver_family_quarter(
                 *family,
                 caps[ix],
@@ -682,7 +755,8 @@ impl Campaign {
             quarter: q,
             delivered,
             reported,
-            due_schedule: scheduled,
+            due_schedule: self.scheduled_lifetime,
+            delivered_cumulative: self.delivered_lifetime,
             service_spent: newly_spent,
             weighted_support_ppm: aggregate,
             staff_slowdown_next: next_slowdown,
