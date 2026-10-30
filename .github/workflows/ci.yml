@@ -84,6 +84,8 @@ jobs:
       - name: Test
         if: steps.workspace.outputs.present == 'true'
         run: cargo test --workspace --locked
+      - name: Validate frozen P2 country fixtures (offline)
+        run: python3 tools/p2/build_pack.py --check
       - name: Offline loopback API smoke
         if: steps.workspace.outputs.present == 'true'
         run: bash .github/scripts/offline-api-smoke.sh
