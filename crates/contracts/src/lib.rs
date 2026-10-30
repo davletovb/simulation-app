@@ -2,6 +2,7 @@
 //! This crate is an adapter; authoritative rules remain in myth-domain.
 #![forbid(unsafe_code)]
 pub mod checkpoint;
+pub mod strict_subset;
 use myth_domain as d;
 use schemars::JsonSchema;
 use serde::{Deserialize, Deserializer, Serialize};
