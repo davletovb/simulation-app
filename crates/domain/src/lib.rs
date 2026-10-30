@@ -5,6 +5,8 @@
 //! funding creates multiple eligible scopes in the same quarter.
 #![forbid(unsafe_code)]
 
+pub mod preview;
+
 use std::collections::BTreeSet;
 use std::fmt;
 
