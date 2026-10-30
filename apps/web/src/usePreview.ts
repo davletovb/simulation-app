@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { FAMILIES, QUARTERS, draftStatus, type Allocation, type FamilyForecast } from './game'
 
 type ServiceFamily = 'staffing' | 'repairs' | 'access'
@@ -39,37 +39,52 @@ function parsePreview(raw: unknown): FamilyForecast[] {
   })
 }
 
-/** Only Rust returns delivery forecasts. No duplicate TS calculation or silent fallback. */
+/** Only Rust returns delivery forecasts. No duplicate TS calculation or fallback. */
 export interface PreviewResult {
   rows: FamilyForecast[] | null
-  status: 'invalid' | 'loading' | 'unavailable' | 'ready'
+  status: 'invalid' | 'loading' | 'updating' | 'unavailable' | 'ready'
+  retry: () => void
 }
 export function usePreview(allocation: Allocation): PreviewResult {
   const key = [allocation.staff, allocation.repairs, allocation.access].join(':')
   const valid = draftStatus(allocation) === 'valid'
   const [state, setState] = useState<PreviewState | null>(null)
+  const [retryEpoch, setRetryEpoch] = useState(0)
+  const retry = useCallback(() => {
+    setState(null)
+    setRetryEpoch(n => n + 1)
+  }, [])
   useEffect(() => {
     if (!valid) return
     const abort = new AbortController()
-    void (async () => {
-      try {
-        const response = await fetch('/api/preview', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ allocation }),
-          signal: abort.signal,
-          cache: 'no-store',
-        })
-        if (!response.ok) throw new Error('Rust preview service unavailable')
-        const rows = parsePreview(await response.json() as unknown)
-        if (!abort.signal.aborted) setState({ key, rows, status: 'ok' })
-      } catch {
-        if (!abort.signal.aborted) setState({ key, rows: null, status: 'unavailable' })
-      }
-    })()
-    return () => abort.abort()
-  }, [key, valid, allocation.staff, allocation.repairs, allocation.access])
-  if (!valid) return { rows: null, status: 'invalid' }
-  if (!state || state.key !== key) return { rows: null, status: 'loading' }
-  return { rows: state.rows, status: state.status === 'ok' ? 'ready' : 'unavailable' }
+    // Only send the final slider value after a short quiet window.
+    const timeout = window.setTimeout(() => {
+      void (async () => {
+        try {
+          const response = await fetch('/api/preview', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ allocation }),
+            signal: abort.signal,
+            cache: 'no-store',
+          })
+          if (!response.ok) throw new Error('Rust preview service unavailable')
+          const rows = parsePreview(await response.json() as unknown)
+          if (!abort.signal.aborted) setState({ key, rows, status: 'ok' })
+        } catch {
+          if (!abort.signal.aborted) setState({ key, rows: null, status: 'unavailable' })
+        }
+      })()
+    }, 180)
+    return () => {
+      window.clearTimeout(timeout)
+      abort.abort()
+    }
+  }, [key, valid, allocation.staff, allocation.repairs, allocation.access, retryEpoch])
+  if (!valid) return { rows: null, status: 'invalid', retry }
+  if (state?.key === key) return {
+    rows: state.rows, status: state.status === 'ok' ? 'ready' : 'unavailable', retry,
+  }
+  if (state?.rows) return { rows: state.rows, status: 'updating', retry }
+  return { rows: null, status: 'loading', retry }
 }
