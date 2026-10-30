@@ -25,13 +25,19 @@ grep -q '"authoritative_simulation":false' "$TMP/health"
 
 curl -fsS "$BASE/api/preview" -H 'Content-Type: application/json' \
   -d '{"allocation":{"staff":0,"repairs":0,"access":25}}' >"$TMP/forecast"
-grep -q '"calculator":"myth-domain"' "$TMP/forecast"
+grep -q '"calculator":"myth_domain"' "$TMP/forecast"
 grep -q '"per_quarter":\[4,5,5,5,5,1\]' "$TMP/forecast"
 
 curl -fsS "$BASE/api/scripted/meeting" -H 'Content-Type: application/json' \
   -d '{"allocation":{"staff":50,"repairs":40,"access":10}}' >"$TMP/votes"
 grep -q '"support_count":3' "$TMP/votes"
 grep -q '"institutional_ratification":false' "$TMP/votes"
+
+# Unfunded, over-budget packages are invalid requests, not three legitimate no-votes.
+status=$(curl -s -o /dev/null -w '%{http_code}' "$BASE/api/scripted/meeting" \
+  -H 'Content-Type: application/json' \
+  -d '{"allocation":{"staff":60,"repairs":40,"access":10}}')
+test "$status" = 400
 
 curl -fsS -X PUT "$BASE/api/recordings/pilot1" -H 'Content-Type: application/json' \
   -d '{"schema_version":1,"record_id":"pilot1","choices":[{"quarter":1,"meeting_id":"m1","allocation":{"staff":50,"repairs":40,"access":10}}]}' \
