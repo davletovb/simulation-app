@@ -1,0 +1,7 @@
+# Reviewed candidate engine pin — *not yet a Cargo dependency*.
+# P1 keeps the pure domain and offline server decoupled from Hiyal.
+# P4-01 must use exactly this revision unless a new reviewed pin is approved.
+repository = "https://github.com/davletovb/hiyal"
+revision = "050d1de094f5d0813817e2020ec5c5da97d5c42e"
+integration_stage = "P4"
+status = "deferred_not_executed"
