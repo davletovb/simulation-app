@@ -1,4 +1,4 @@
-name: P2 one-shot reviewed fixture regeneration (corrected parsing)
+name: P2 reviewed fixture regeneration (anchored headline fix)
 on:
   push:
     branches: [feat/p2-england-country-pack]
