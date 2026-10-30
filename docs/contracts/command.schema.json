@@ -1,0 +1,283 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "CommandEnvelope",
+  "type": "object",
+  "properties": {
+    "campaign_id": {
+      "type": "string"
+    },
+    "command": {
+      "$ref": "#/$defs/PlayerAction"
+    },
+    "command_id": {
+      "type": "string"
+    },
+    "expected_world_version": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]{0,19})$"
+    },
+    "schema_version": {
+      "type": "integer",
+      "format": "uint16",
+      "maximum": 65535,
+      "minimum": 0
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "campaign_id",
+    "command_id",
+    "expected_world_version",
+    "command"
+  ],
+  "$defs": {
+    "Allocation": {
+      "type": "object",
+      "properties": {
+        "access": {
+          "type": "integer",
+          "format": "uint16",
+          "maximum": 100,
+          "minimum": 0
+        },
+        "repairs": {
+          "type": "integer",
+          "format": "uint16",
+          "maximum": 100,
+          "minimum": 0
+        },
+        "staff": {
+          "type": "integer",
+          "format": "uint16",
+          "maximum": 100,
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "staff",
+        "repairs",
+        "access"
+      ]
+    },
+    "CapacityCaps": {
+      "type": "object",
+      "properties": {
+        "access": {
+          "type": "integer",
+          "format": "uint16",
+          "maximum": 4,
+          "minimum": 0
+        },
+        "repairs": {
+          "type": "integer",
+          "format": "uint16",
+          "maximum": 10,
+          "minimum": 0
+        },
+        "staff": {
+          "type": "integer",
+          "format": "uint16",
+          "maximum": 12,
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "staff",
+        "repairs",
+        "access"
+      ]
+    },
+    "Family": {
+      "type": "string",
+      "enum": [
+        "staffing",
+        "repairs",
+        "access"
+      ]
+    },
+    "Ministry": {
+      "type": "string",
+      "enum": [
+        "finance",
+        "education",
+        "infrastructure"
+      ]
+    },
+    "PlayerAction": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "allocation": {
+              "$ref": "#/$defs/Allocation"
+            },
+            "kind": {
+              "type": "string",
+              "const": "propose"
+            },
+            "meeting_id": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "meeting_id",
+            "allocation"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "allocation": {
+              "$ref": "#/$defs/Allocation"
+            },
+            "kind": {
+              "type": "string",
+              "const": "amend"
+            },
+            "meeting_id": {
+              "type": "string"
+            },
+            "proposal_version": {
+              "type": "string",
+              "pattern": "^(0|[1-9][0-9]{0,19})$"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "meeting_id",
+            "proposal_version",
+            "allocation"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "ratify"
+            },
+            "meeting_id": {
+              "type": "string"
+            },
+            "proposal_version": {
+              "type": "string",
+              "pattern": "^(0|[1-9][0-9]{0,19})$"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "meeting_id",
+            "proposal_version"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "caps": {
+              "$ref": "#/$defs/CapacityCaps"
+            },
+            "kind": {
+              "type": "string",
+              "const": "request_capacity_cap"
+            },
+            "meeting_id": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "meeting_id",
+            "caps"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "family": {
+              "$ref": "#/$defs/Family"
+            },
+            "inspected_quarter": {
+              "type": "integer",
+              "format": "uint8",
+              "maximum": 6,
+              "minimum": 1
+            },
+            "kind": {
+              "type": "string",
+              "const": "order_audit"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "family",
+            "inspected_quarter"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "evidence_id": {
+              "type": "string"
+            },
+            "evidence_version": {
+              "type": "string",
+              "pattern": "^(0|[1-9][0-9]{0,19})$"
+            },
+            "kind": {
+              "type": "string",
+              "const": "disclose_evidence"
+            },
+            "recipients": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/Ministry"
+              }
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "evidence_id",
+            "evidence_version",
+            "recipients"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "defer"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "kind"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "advance_quarter"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "kind"
+          ]
+        }
+      ]
+    }
+  }
+}

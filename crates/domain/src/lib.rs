@@ -27,6 +27,9 @@ pub enum ContractError {
     InvalidMinistry,
     InvalidRecipients,
     InvalidScope,
+    InvalidIdentifier,
+    InvalidRationale,
+    InvalidCondition,
     DuplicateScope,
     InsufficientAvailableFunds,
     ArithmeticOverflow,
@@ -38,6 +41,34 @@ impl fmt::Display for ContractError {
     }
 }
 impl std::error::Error for ContractError {}
+
+// Domain-owned validators: both scripted commands and JSON input must use them.
+// IDs are bounded by UTF-8 bytes so the same limits apply on every platform.
+pub fn validate_identifier(value: &str) -> Result<(), ContractError> {
+    if value.is_empty()
+        || value.len() > 128
+        || value.trim() != value
+        || value.chars().any(|c| c.is_control() || forbidden_format(c))
+    {
+        Err(ContractError::InvalidIdentifier)
+    } else {
+        Ok(())
+    }
+}
+fn forbidden_format(c: char) -> bool {
+    matches!(c,
+        '\u{061C}' | '\u{200B}'..='\u{200F}' |
+        '\u{202A}'..='\u{202E}' | '\u{2060}' |
+        '\u{2066}'..='\u{2069}' | '\u{FEFF}'
+    )
+}
+pub fn validate_rationale(value: &str) -> Result<(), ContractError> {
+    if value.len() > 1024 || value.chars().any(|c| c.is_control() || forbidden_format(c)) {
+        Err(ContractError::InvalidRationale)
+    } else {
+        Ok(())
+    }
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
 pub struct Quarter(u8);
@@ -641,10 +672,41 @@ pub struct Commitment {
 }
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct FundedCondition {
-    pub kind_id: String,
-    pub family: PolicyFamily,
-    pub units: u16,
-    pub due: DueQuarter,
+    kind_id: String,
+    family: PolicyFamily,
+    units: u16,
+    due: DueQuarter,
+}
+impl FundedCondition {
+    pub fn new(
+        kind_id: String,
+        family: PolicyFamily,
+        units: u16,
+        due: DueQuarter,
+    ) -> Result<Self, ContractError> {
+        validate_identifier(&kind_id)?;
+        if units > PILOT_CREDITS {
+            return Err(ContractError::InvalidCondition);
+        }
+        Ok(Self {
+            kind_id,
+            family,
+            units,
+            due,
+        })
+    }
+    pub fn kind_id(&self) -> &str {
+        &self.kind_id
+    }
+    pub const fn family(&self) -> PolicyFamily {
+        self.family
+    }
+    pub const fn units(&self) -> u16 {
+        self.units
+    }
+    pub const fn due(&self) -> DueQuarter {
+        self.due
+    }
 }
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum CounterproposalOrigin {
@@ -656,17 +718,39 @@ pub enum CounterproposalOrigin {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct FirstPosition {
     schema_version: u16,
-    pub meeting_id: String,
+    meeting_id: String,
     pub proposal_version: WireU64,
     pub ministry: Ministry,
     pub position: Position,
     pub preferred_allocation: PreferredAllocation,
     pub counterproposal_source: CounterproposalOrigin,
-    pub conditions: Vec<FundedCondition>,
-    pub evidence_ids: Vec<String>,
-    pub rationale_summary: String,
+    conditions: Vec<FundedCondition>,
+    evidence_ids: Vec<String>,
+    rationale_summary: String,
 }
 impl FirstPosition {
+    pub fn set_public_details(
+        &mut self,
+        conditions: Vec<FundedCondition>,
+        evidence_ids: Vec<String>,
+        rationale: String,
+    ) -> Result<(), ContractError> {
+        for id in &evidence_ids {
+            validate_identifier(id)?;
+        }
+        validate_rationale(&rationale)?;
+        self.conditions = conditions;
+        self.evidence_ids = evidence_ids;
+        self.rationale_summary = rationale;
+        Ok(())
+    }
+    pub fn rationale_summary(&self) -> &str {
+        &self.rationale_summary
+    }
+    pub fn conditions(&self) -> &[FundedCondition] {
+        &self.conditions
+    }
+
     pub fn new(
         meeting_id: String,
         proposal_version: WireU64,
@@ -674,8 +758,12 @@ impl FirstPosition {
         position: Position,
         preferred_allocation: PreferredAllocation,
         counterproposal_source: CounterproposalOrigin,
-    ) -> Self {
-        Self {
+    ) -> Result<Self, ContractError> {
+        validate_identifier(&meeting_id)?;
+        if let CounterproposalOrigin::Menu(ref id) = counterproposal_source {
+            validate_identifier(id)?;
+        }
+        Ok(Self {
             schema_version: SCHEMA_VERSION,
             meeting_id,
             proposal_version,
@@ -686,7 +774,10 @@ impl FirstPosition {
             conditions: vec![],
             evidence_ids: vec![],
             rationale_summary: String::new(),
-        }
+        })
+    }
+    pub fn meeting_id(&self) -> &str {
+        &self.meeting_id
     }
     pub const fn schema_version(&self) -> u16 {
         self.schema_version
@@ -696,24 +787,47 @@ impl FirstPosition {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct FinalPosition {
     schema_version: u16,
-    pub meeting_id: String,
+    meeting_id: String,
     pub proposal_version: WireU64,
     pub ministry: Ministry,
     pub vote: Position,
     pub preferred_allocation: PreferredAllocation,
-    pub conditions: Vec<FundedCondition>,
-    pub evidence_ids: Vec<String>,
-    pub rationale_summary: String,
+    conditions: Vec<FundedCondition>,
+    evidence_ids: Vec<String>,
+    rationale_summary: String,
 }
 impl FinalPosition {
+    pub fn set_public_details(
+        &mut self,
+        conditions: Vec<FundedCondition>,
+        evidence_ids: Vec<String>,
+        rationale: String,
+    ) -> Result<(), ContractError> {
+        for id in &evidence_ids {
+            validate_identifier(id)?;
+        }
+        validate_rationale(&rationale)?;
+        self.conditions = conditions;
+        self.evidence_ids = evidence_ids;
+        self.rationale_summary = rationale;
+        Ok(())
+    }
+    pub fn rationale_summary(&self) -> &str {
+        &self.rationale_summary
+    }
+    pub fn conditions(&self) -> &[FundedCondition] {
+        &self.conditions
+    }
+
     pub fn new(
         meeting_id: String,
         proposal_version: WireU64,
         ministry: Ministry,
         vote: Position,
         preferred_allocation: PreferredAllocation,
-    ) -> Self {
-        Self {
+    ) -> Result<Self, ContractError> {
+        validate_identifier(&meeting_id)?;
+        Ok(Self {
             schema_version: SCHEMA_VERSION,
             meeting_id,
             proposal_version,
@@ -723,7 +837,10 @@ impl FinalPosition {
             conditions: vec![],
             evidence_ids: vec![],
             rationale_summary: String::new(),
-        }
+        })
+    }
+    pub fn meeting_id(&self) -> &str {
+        &self.meeting_id
     }
     pub const fn schema_version(&self) -> u16 {
         self.schema_version
@@ -744,6 +861,7 @@ impl PrivateEffortDeclaration {
         ministry: Ministry,
         effort: EffortPermille,
     ) -> Result<Self, ContractError> {
+        validate_identifier(&meeting_id)?;
         if ministry == Ministry::Finance {
             return Err(ContractError::InvalidMinistry);
         }
@@ -814,13 +932,26 @@ pub enum PlayerCommand {
     AdvanceQuarter,
 }
 
+impl PlayerCommand {
+    pub fn validate_ids(&self) -> Result<(), ContractError> {
+        match self {
+            Self::Propose { meeting_id, .. }
+            | Self::Amend { meeting_id, .. }
+            | Self::Ratify { meeting_id, .. }
+            | Self::RequestCapacityCap { meeting_id, .. } => validate_identifier(meeting_id),
+            Self::DiscloseEvidence { evidence_id, .. } => validate_identifier(evidence_id),
+            _ => Ok(()),
+        }
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CommandEnvelope {
     schema_version: u16,
-    pub campaign_id: String,
-    pub command_id: String,
+    campaign_id: String,
+    command_id: String,
     pub expected_world_version: WireU64,
-    pub command: PlayerCommand,
+    command: PlayerCommand,
 }
 impl CommandEnvelope {
     pub fn new(
@@ -828,14 +959,26 @@ impl CommandEnvelope {
         command_id: String,
         expected_world_version: WireU64,
         command: PlayerCommand,
-    ) -> Self {
-        Self {
+    ) -> Result<Self, ContractError> {
+        validate_identifier(&campaign_id)?;
+        validate_identifier(&command_id)?;
+        command.validate_ids()?;
+        Ok(Self {
             schema_version: SCHEMA_VERSION,
             campaign_id,
             command_id,
             expected_world_version,
             command,
-        }
+        })
+    }
+    pub fn campaign_id(&self) -> &str {
+        &self.campaign_id
+    }
+    pub fn command_id(&self) -> &str {
+        &self.command_id
+    }
+    pub fn command(&self) -> &PlayerCommand {
+        &self.command
     }
     pub const fn schema_version(&self) -> u16 {
         self.schema_version
@@ -899,6 +1042,8 @@ pub struct RoleObservation {
 }
 impl RoleObservation {
     pub fn new(input: RoleObservationInput) -> Result<Self, ContractError> {
+        validate_identifier(&input.campaign_id)?;
+        validate_identifier(&input.meeting_id)?;
         if input.available_credits > PILOT_CREDITS {
             return Err(ContractError::InvalidCreditAmount);
         }
@@ -918,6 +1063,27 @@ impl RoleObservation {
     }
     pub const fn schema_version(&self) -> u16 {
         self.schema_version
+    }
+    pub fn validate(&self) -> Result<(), ContractError> {
+        validate_identifier(&self.campaign_id)?;
+        validate_identifier(&self.meeting_id)?;
+        for id in &self.visible_evidence_ids {
+            validate_identifier(id)?;
+        }
+        if self.available_credits > PILOT_CREDITS {
+            return Err(ContractError::InvalidCreditAmount);
+        }
+        for commitment in &self.owned_commitments {
+            validate_identifier(&commitment.id)?;
+            validate_identifier(&commitment.trigger)?;
+            if commitment.funded_units > PILOT_CREDITS {
+                return Err(ContractError::InvalidCondition);
+            }
+            if let Some(event) = &commitment.resolution_event {
+                validate_identifier(event)?;
+            }
+        }
+        Ok(())
     }
 }
 
@@ -963,6 +1129,50 @@ mod tests {
     }
     fn due(value: u16) -> DueQuarter {
         DueQuarter::new(value).unwrap()
+    }
+
+    #[test]
+    fn domain_rejects_bypass_for_conditions_and_spoofed_text() {
+        assert_eq!(
+            FundedCondition::new(
+                "".into(),
+                PolicyFamily::Staffing,
+                2,
+                DueQuarter::new(1).unwrap()
+            ),
+            Err(ContractError::InvalidIdentifier)
+        );
+        assert_eq!(
+            FundedCondition::new(
+                "ok".into(),
+                PolicyFamily::Staffing,
+                5000,
+                DueQuarter::new(1).unwrap()
+            ),
+            Err(ContractError::InvalidCondition)
+        );
+        for bad in [
+            "\u{202E}override",
+            "a\nspoof",
+            "bad\u{2066}name",
+            "\u{0000}",
+        ] {
+            assert!(validate_rationale(bad).is_err());
+            assert!(validate_identifier(bad).is_err());
+        }
+        let mut pos = FinalPosition::new(
+            "meeting".into(),
+            WireU64::new(0),
+            Ministry::Education,
+            Position::Support,
+            PreferredAllocation::assess(Allocation::draft(50, 40, 10).unwrap(), 100).unwrap(),
+        )
+        .unwrap();
+        assert!(
+            pos.set_public_details(vec![], vec![], "x\u{202E}y".into())
+                .is_err()
+        );
+        assert_eq!(pos.rationale_summary(), "");
     }
 
     #[test]
@@ -1194,7 +1404,8 @@ mod tests {
             Ministry::Education,
             Position::Support,
             PreferredAllocation::assess(Allocation::draft(50, 40, 10).unwrap(), 100).unwrap(),
-        );
+        )
+        .unwrap();
         assert!(!format!("{vote:?}").contains("800"));
         assert!(!format!("{pub_view:?}").contains("800"));
     }
@@ -1229,7 +1440,8 @@ mod tests {
                 proposal_version: max,
                 allocation: Allocation::draft(50, 40, 10).unwrap(),
             },
-        );
+        )
+        .unwrap();
         assert_eq!(
             command.expected_world_version.to_decimal(),
             u64::MAX.to_string()
@@ -1268,7 +1480,8 @@ mod tests {
             Position::Support,
             PreferredAllocation::assess(Allocation::draft(50, 40, 10).unwrap(), 100).unwrap(),
             CounterproposalOrigin::Menu("balanced".into()),
-        );
+        )
+        .unwrap();
         assert_eq!(position.schema_version(), SCHEMA_VERSION);
         assert_eq!(q.value(), 1);
         let _separate_explicit_advance_command = PlayerCommand::AdvanceQuarter;

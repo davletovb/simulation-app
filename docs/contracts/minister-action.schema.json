@@ -1,0 +1,253 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "MinisterAction",
+  "oneOf": [
+    {
+      "type": "object",
+      "properties": {
+        "conditions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Condition"
+          }
+        },
+        "counterproposal_source": {
+          "$ref": "#/$defs/Counterproposal"
+        },
+        "evidence_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "meeting_id": {
+          "type": "string"
+        },
+        "ministry": {
+          "$ref": "#/$defs/Ministry"
+        },
+        "position": {
+          "$ref": "#/$defs/Vote"
+        },
+        "preferred_allocation": {
+          "$ref": "#/$defs/Allocation"
+        },
+        "proposal_version": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]{0,19})$"
+        },
+        "rationale_summary": {
+          "type": "string"
+        },
+        "schema_version": {
+          "type": "integer",
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0
+        },
+        "stage": {
+          "type": "string",
+          "const": "first"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "stage",
+        "schema_version",
+        "meeting_id",
+        "proposal_version",
+        "ministry",
+        "position",
+        "preferred_allocation",
+        "counterproposal_source",
+        "conditions",
+        "evidence_ids",
+        "rationale_summary"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "conditions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Condition"
+          }
+        },
+        "evidence_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "implementation_effort_permille": {
+          "type": "integer",
+          "format": "uint16",
+          "maximum": 1000,
+          "minimum": 0
+        },
+        "meeting_id": {
+          "type": "string"
+        },
+        "ministry": {
+          "$ref": "#/$defs/Ministry"
+        },
+        "position": {
+          "$ref": "#/$defs/Vote"
+        },
+        "preferred_allocation": {
+          "$ref": "#/$defs/Allocation"
+        },
+        "proposal_version": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]{0,19})$"
+        },
+        "rationale_summary": {
+          "type": "string"
+        },
+        "schema_version": {
+          "type": "integer",
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0
+        },
+        "stage": {
+          "type": "string",
+          "const": "final"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "stage",
+        "schema_version",
+        "meeting_id",
+        "proposal_version",
+        "ministry",
+        "position",
+        "preferred_allocation",
+        "conditions",
+        "evidence_ids",
+        "rationale_summary"
+      ]
+    }
+  ],
+  "$defs": {
+    "Allocation": {
+      "type": "object",
+      "properties": {
+        "access": {
+          "type": "integer",
+          "format": "uint16",
+          "maximum": 100,
+          "minimum": 0
+        },
+        "repairs": {
+          "type": "integer",
+          "format": "uint16",
+          "maximum": 100,
+          "minimum": 0
+        },
+        "staff": {
+          "type": "integer",
+          "format": "uint16",
+          "maximum": 100,
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "staff",
+        "repairs",
+        "access"
+      ]
+    },
+    "Condition": {
+      "type": "object",
+      "properties": {
+        "due_quarter": {
+          "type": "integer",
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 1
+        },
+        "family": {
+          "$ref": "#/$defs/Family"
+        },
+        "kind_id": {
+          "type": "string"
+        },
+        "units": {
+          "type": "integer",
+          "format": "uint16",
+          "maximum": 100,
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "kind_id",
+        "family",
+        "units",
+        "due_quarter"
+      ]
+    },
+    "Counterproposal": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "menu"
+            },
+            "menu_id": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "menu_id"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "new_typed"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "kind"
+          ]
+        }
+      ]
+    },
+    "Family": {
+      "type": "string",
+      "enum": [
+        "staffing",
+        "repairs",
+        "access"
+      ]
+    },
+    "Ministry": {
+      "type": "string",
+      "enum": [
+        "finance",
+        "education",
+        "infrastructure"
+      ]
+    },
+    "Vote": {
+      "type": "string",
+      "enum": [
+        "support",
+        "conditional",
+        "oppose"
+      ]
+    }
+  }
+}
