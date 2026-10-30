@@ -100,9 +100,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             if reference_delta.signum()!=0 && tested.signum()!=0
                 && reference_delta.signum()!=tested.signum() {reversals+=1;}
         }
-        report.push_str(&format!("| {cell} | {min} | {max} | {below} | {above} | {reversals} |\\n"));
+        report.push_str(&format!("| {cell} | {min} | {max} | {below} | {above} | {reversals} |\n"));
     }
-    report.push_str("\\nThese are *simulated cell support changes*, not observed gains/losses among England residents. The baseline of 500,000 ppm is authored, and ties are excluded from reversal counts.\\n\\n");
+    report.push_str("\nThese are *simulated cell support changes*, not observed gains/losses among England residents. The baseline of 500,000 ppm is authored, and ties are excluded from reversal counts.\n\n");
     report.push_str("## Empirical and identification limits\n\n");
     report.push_str("The sweep is numerical sensitivity within an authored deterministic mechanism, not causal identification or validation of any real England policy. No observed school-beneficiary joint income-by-residence distribution or response elasticities are available. The program changes **only** the declared model knobs and weights, not actor choices or shocks. Policy rankings outside these magnitudes/delays/tables remain unexamined. Infeasible and vote-rejected proposals have no policy spending; social responses remain bounded. The all-zero shock schedule is an explicit controlled experiment assumption.\n");
     report.push_str("\n## Populations held fixed or varied\n\n| Authored table | Urban low/middle/high | Rural low/middle/high |\n|---|---|---|\n");
