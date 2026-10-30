@@ -730,6 +730,11 @@ mod tests {
         assert_eq!(restored.scopes()[0].carry_permille(), 17);
         assert!(restored.scopes()[0].is_blocked());
         assert_eq!(restored.commitments().len(), 1);
+        let mut phantom = captured.clone();
+        phantom.scopes[0].remaining_units = 0;
+        phantom.scopes[0].carry_permille = 999;
+        assert!(matches!(phantom.restore(PACK_HASH), Err(WireError::Domain(_))));
+
         assert!(
             parse_checkpoint(
                 &json,
