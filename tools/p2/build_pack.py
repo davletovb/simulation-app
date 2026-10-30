@@ -107,6 +107,7 @@ def source_bytes():
         need(digest(decompressed) == source["source_bytes_sha256"], f"source byte digest mismatch: {sid}")
         body = html.unescape(decompressed.decode("utf-8"))
         need(updated in body, f"page no longer matches declared last-updated date: {sid}")
+        need("Open Government Licence" in body, f"OGL licence notice absent: {sid}")
         need(len(decompressed) < 2_000_000, "source exceeds bounded archival limit")
         extracted[sid] = (source, body, published, period)
     return manifest, extracted
@@ -239,7 +240,20 @@ def compile_pack():
                     "joint_distribution_empirically_supported":False},
         "scope":"Fictional England data twin; no empirical policy forecast or GBP mapping"
     }
-    return {"country-pack.json":canonical(pack), "manifest.json":canonical(manifest)}
+    news = {"schema_version":1, "cutoff_utc":CUTOFF, "items":authored["news"],
+            "label":"Real DfE release metadata versus explicitly fictional scenario headlines"}
+    diff = {"schema_version":1, "overlay_id":authored["narrative"]["id"],
+            "applies_quarter":authored["narrative"]["quarter"],
+            "baseline_pack_sha256":digest(canonical(pack)),
+            "baseline_scenario_sha256":digest(raw("authored.json")),
+            "baseline_repair_cap":authored["pilot"]["capacity"]["repairs"],
+            "overlay_repair_cap":authored["narrative"]["patches"][0]["after"],
+            "evidence_modified":False,
+            "apply_rule":"Copy baseline state; for Q2 set repair cap to 8; never mutate raw pack or baseline"}
+    manifest["news_bundle_sha256"] = digest(canonical(news))
+    manifest["narrative_diff_sha256"] = digest(canonical(diff))
+    return {"country-pack.json":canonical(pack), "news-bundle.json":canonical(news),
+            "narrative-diff.json":canonical(diff), "manifest.json":canonical(manifest)}
 
 
 def main():
