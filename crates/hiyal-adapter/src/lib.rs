@@ -30,6 +30,17 @@ const SCENARIO: &str = include_str!("../../../data/england-school-pilot-v1/autho
 const MANIFEST: &str = include_str!("../../../data/england-school-pilot-v1/manifest.json");
 
 fn sha(bytes:&[u8])->String {format!("{:x}",Sha256::digest(bytes))}
+fn rules_fingerprint()->String {
+    // Content identity survives an OS change and fails closed on a rules
+    // implementation change, not just when an operator edits a version label.
+    sha(concat!(
+        include_str!("../../domain/src/reducer.rs"),
+        include_str!("../../domain/src/lib.rs"),
+        include_str!("../../domain/src/world.rs"),
+        include_str!("../../domain/src/audit.rs"),
+        include_str!("../../domain/src/scripted.rs"),
+    ).as_bytes())
+}
 fn encoded<T:Serialize>(x:&T)->Result<Vec<u8>,String>{
     serde_json::to_vec(x).map_err(|e|e.to_string())
 }
@@ -142,7 +153,7 @@ impl GameWorld {
             schema_version:1,campaign_id:campaign_id.into(),
             pack_id:"england-school-delivery-v1".into(),
             pack_sha256:expected_pack.into(),scenario_sha256:expected_scenario.into(),
-            rules_identity:"p3-rules-2026-10-30-p4-authored-v1".into(),
+            rules_identity:rules_fingerprint(),
             weights_ppm:weights,source_cutoff_utc:"2026-10-29T23:59:59Z".into(),
             synthetic_receipts:false,stress_cohorts:vec![],
             actions:vec![], private_state_sha256:String::new(),
@@ -211,9 +222,15 @@ impl GameWorld {
         Ok(())
     }
     pub fn fold(&self)->Result<Campaign,String>{
+        let manifest:Value=serde_json::from_str(MANIFEST).map_err(error)?;
+        if self.pack_sha256!=manifest["country_pack_sha256"].as_str().unwrap_or("")
+            || self.scenario_sha256!=manifest["authored_sha256"].as_str().unwrap_or("")
+            || sha(PACK.as_bytes())!=self.pack_sha256
+            || sha(SCENARIO.as_bytes())!=self.scenario_sha256
+        {return Err("P2 source or authored scenario binding changed".into());}
         if self.schema_version!=1 || self.actions.len()>MAX_ACCEPTED_ACTIONS
             || self.pack_sha256.len()!=64 || self.scenario_sha256.len()!=64
-            || self.rules_identity!="p3-rules-2026-10-30-p4-authored-v1"
+            || self.rules_identity!=rules_fingerprint()
             || self.source_cutoff_utc!="2026-10-29T23:59:59Z"
             || (self.synthetic_receipts && self.stress_cohorts.len()!=1024)
             || (!self.synthetic_receipts && !self.stress_cohorts.is_empty())
