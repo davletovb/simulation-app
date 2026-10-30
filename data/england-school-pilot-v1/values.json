@@ -1,12 +1,12 @@
 {
   "schema_version": 1,
-  "kind": "derived_normalizations_of_archived_release_headlines",
+  "kind": "exact_displayed_headline_values_and_pinned_deterministic_normalizations",
   "cutoff_utc": "2026-10-29T23:59:59Z",
   "measurement_universe": "mixed school scopes; NEVER aggregate or multiply together absent denominator reconciliation",
   "records": [
     {
       "stable_variable_id": "teacher_fte",
-      "raw_value": "466372",
+      "raw_value": "466,372",
       "raw_unit": "FTE",
       "normalized_value": "466372",
       "normalized_unit": "FTE",
@@ -30,7 +30,7 @@
     },
     {
       "stable_variable_id": "teacher_vacancy_rate",
-      "raw_value": "0.4",
+      "raw_value": "0.4%",
       "raw_unit": "percent",
       "normalized_value": "4000",
       "normalized_unit": "ppm",
@@ -42,7 +42,7 @@
     },
     {
       "stable_variable_id": "fsm_eligibility_rate",
-      "raw_value": "26.5",
+      "raw_value": "26.5%",
       "raw_unit": "percent",
       "normalized_value": "265000",
       "normalized_unit": "ppm",
@@ -55,7 +55,7 @@
     },
     {
       "stable_variable_id": "teaching_assistant_fte",
-      "raw_value": "295183",
+      "raw_value": "295,183",
       "raw_unit": "FTE",
       "normalized_value": "295183",
       "normalized_unit": "FTE",
@@ -67,7 +67,7 @@
     },
     {
       "stable_variable_id": "school_count",
-      "raw_value": "24499",
+      "raw_value": "24,499",
       "raw_unit": "schools",
       "normalized_value": "24499",
       "normalized_unit": "schools",
@@ -79,7 +79,7 @@
     },
     {
       "stable_variable_id": "allocated_funding_per_pupil_2026_27",
-      "raw_value": "8580",
+      "raw_value": "£8,580",
       "raw_unit": "GBP per pupil",
       "normalized_value": "8580",
       "normalized_unit": "GBP per pupil",
@@ -92,11 +92,11 @@
     },
     {
       "stable_variable_id": "allocated_funding_total_2026_27",
-      "raw_value": "65.9",
+      "raw_value": "£65.9 billion",
       "raw_unit": "GBP billion",
       "normalized_value": "65900000000",
       "normalized_unit": "GBP",
-      "transformation": "decimal * 1000000000",
+      "transformation": "GBP billions * 1000000000",
       "quality_flags": [
         "allocated_not_spent",
         "includes_estimates",
