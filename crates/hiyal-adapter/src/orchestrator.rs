@@ -349,6 +349,47 @@ mod tests {
         std::fs::remove_dir_all(path).unwrap();
     }
     #[tokio::test]
+    async fn one_writer_lock_survives_and_releases_on_close(){
+        let path=temp("writer");
+        let trial=create(&path,"writer-lease",48).unwrap();
+        assert!(resume(&path,false).is_err(),"second process-style writer must be denied");
+        drop(trial);
+        let reopened=resume(&path,false).unwrap();
+        assert_eq!(reopened.store.world().actions.len(),0);
+        drop(reopened);
+        std::fs::remove_dir_all(path).unwrap();
+    }
+    struct UncertainOfflineFailure;
+    impl Backend for UncertainOfflineFailure {
+        fn resolve<'a>(&'a self,_:&'a EffectSpec)->BoxResult<'a> {
+            Box::pin(async move {Ok(EffectResult::Failed{
+                category:"test-uncertain".into(),
+                message:"synthetic provider outcome unknown".into()
+            })})
+        }
+    }
+    #[tokio::test]
+    async fn unknown_synthetic_charge_survives_restart_without_auto_refund(){
+        let path=temp("unknown-bill");
+        let mut trial=create_stress(&path,"unknown-charge",49).unwrap();
+        enable(&mut trial,&[PLAYER]).unwrap();
+        check_step(trial.step().await.unwrap()).unwrap();
+        enable(&mut trial,&crate::ACTORS[1..4]).unwrap();
+        trial.backend=Arc::new(UncertainOfflineFailure);
+        let result=trial.run_round(1).await.unwrap();
+        assert_eq!(result.len(),1);
+        assert!(matches!(&result[0],Step::Rejected{..}));
+        let unknown=trial.effects.receipts().values().filter(|receipt|
+            receipt.billing==BillingDisposition::Unknown).count();
+        assert_eq!(unknown,3);
+        drop(trial);
+        let reopened=resume(&path,false).unwrap();
+        assert_eq!(reopened.effects.receipts().values().filter(|receipt|
+            receipt.billing==BillingDisposition::Unknown).count(),3);
+        drop(reopened);
+        std::fs::remove_dir_all(path).unwrap();
+    }
+    #[tokio::test]
     async fn typed_tool_is_allowlisted_and_never_billed(){
         let path=temp("tool");
         let trial=create(&path,"tool-receipt",44).unwrap();
