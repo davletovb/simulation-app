@@ -74,6 +74,12 @@ pub enum StoreError {
     Domain(ContractError),
     Io(std::io::Error),
 }
+impl std::fmt::Display for StoreError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{self:?}")
+    }
+}
+impl std::error::Error for StoreError {}
 impl From<std::io::Error> for StoreError {
     fn from(e: std::io::Error) -> Self {
         Self::Io(e)
