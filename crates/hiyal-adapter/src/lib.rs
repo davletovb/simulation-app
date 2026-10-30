@@ -460,10 +460,14 @@ impl World for GameWorld {
         if &action.observation_sha256!=expected_anchor {
             return Err("stale or unbound observation".into());
         }
-        // The P4 demonstration policy chooses deterministic scripted actions,
-        // but a future P6 recorded player command is admitted by the SAME P3
-        // typed reducer after the Hiyal keyed player_command receipt.
-        // This world never authorizes an operation merely from free text.
+        // The Hiyal receipt resolves the *exact planned command* before the
+        // world transition. Never accept a substituted command at the same
+        // version: that would detach the committed effect from its action.
+        // P6 must freeze authenticated external input into the observation
+        // before issuing its effect, not bypass this equality check.
+        if action!=self.planned(actor)? {
+            return Err("action differs from frozen typed observation".into());
+        }
         if self.actions.len()>=MAX_ACCEPTED_ACTIONS {return Err("action cap exceeded".into());}
         let mut candidate=self.clone();
         candidate.actions.push(action);
