@@ -9,9 +9,8 @@ use crate::world::{
 use crate::{
     Allocation, CapacityCaps, CohortWeights, CommandEnvelope, Commitment, CommitmentKind,
     CommitmentStatus, ContractError, DueQuarter, EffortPermille, FinalPosition, FirstPosition,
-    FundedScope, LedgerMove, Ministry, PolicyFamily, Position,
-    PrivateEffortDeclaration, Quarter, SIX_QUARTERS, WireU64, deliver_family_quarter,
-    validate_identifier,
+    FundedScope, LedgerMove, Ministry, PolicyFamily, Position, PrivateEffortDeclaration, Quarter,
+    SIX_QUARTERS, WireU64, deliver_family_quarter, validate_identifier,
 };
 use std::collections::{BTreeMap, BTreeSet};
 
