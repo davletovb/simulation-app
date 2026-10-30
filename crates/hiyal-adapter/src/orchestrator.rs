@@ -5,7 +5,7 @@
 use crate::{ACTORS,ActionKind,GameAction,GameObservation,GameWorld,PLAYER,PERIOD,WORLD_KIND};
 use hiyal::{
     core::AgentId,
-    effects::EffectResult,
+    effects::{EffectResult,ModelRequest,Message,Role,Sampling,Usage},
     experiment::{EffectPolicy,Step,Trial},
     runtime::{Backend,BillingDisposition,BoxResult,EffectSpec,Receipt},
     scheduler::Scheduling,
@@ -21,6 +21,24 @@ pub struct GamePolicy {
 }
 impl GamePolicy {
     fn specification(obs:&GameObservation)->Result<Vec<EffectSpec>,String>{
+        if obs.synthetic_receipts && (1..=3).contains(&obs.actor) {
+            let count=if obs.actor<=2 {3} else {2};
+            return Ok((0..count).map(|index| EffectSpec::Model(ModelRequest{
+                provider:"p4-synthetic-offline".into(),
+                model:"scripted-p4-receipt-v1".into(),
+                resolved_model_version:Some("synthetic-no-network-v1".into()),
+                messages:vec![Message{
+                    role:Role::User,
+                    content:format!("q{} actor{} {} receipt{} v{}",
+                        obs.quarter,obs.actor,obs.phase,index,obs.expected_world_version),
+                    tool_call_id:None,
+                }],
+                sampling:Sampling{
+                    temperature:Some(0.0),top_p:None,seed:Some(0),
+                    max_output_tokens:Some(1),
+                }, tool_schemas:vec![],streaming:false,response_format:None,
+            })).collect());
+        }
         if obs.action.kind!=ActionKind::PlayerCommand || obs.actor!=PLAYER.0 as u8 {
             return Ok(vec![]);
         }
@@ -51,11 +69,18 @@ impl EffectPolicy<GameWorld> for GamePolicy {
         let expected=Self::specification(obs)?;
         if expected.len()!=receipts.len() {return Err("effect receipt count mismatch".into());}
         for (spec,receipt) in expected.iter().zip(receipts) {
-            if receipt.spec!=*spec
-                || receipt.billing!=BillingDisposition::NotCharged
-                || !matches!((&receipt.result,spec),
-                    (EffectResult::Tool{output},EffectSpec::Tool{input,..}) if output==input)
-            {return Err("untrusted or changed player effect receipt".into());}
+            if receipt.spec!=*spec || receipt.billing!=BillingDisposition::NotCharged {
+                return Err("incorrect request or billing disposition".into());
+            }
+            let valid=match (&receipt.result,spec) {
+                (EffectResult::Tool{output},EffectSpec::Tool{input,..})=>output==input,
+                (EffectResult::Model{content,effective_model,..},EffectSpec::Model(m))=>
+                    m.provider=="p4-synthetic-offline"
+                    && content=="synthetic:ok"
+                    && effective_model==&m.model,
+                _=>false,
+            };
+            if !valid {return Err("untrusted or changed effect receipt".into());}
         }
         if actor==PLAYER && expected.len()==1
             && self.fail_once_after_receipt.as_ref()
@@ -80,9 +105,23 @@ impl Backend for PlayerCommandTool {
     }
     fn resolve<'a>(&'a self,request:&'a EffectSpec)->BoxResult<'a>{
         Box::pin(async move {
+            if let EffectSpec::Model(model)=request {
+                if model.provider!="p4-synthetic-offline"
+                    || model.model!="scripted-p4-receipt-v1"
+                    || model.streaming
+                    || model.messages.len()!=1
+                {return Ok(EffectResult::UnsupportedCapability{
+                    capability:"all real models disabled in P4".into(),
+                });}
+                return Ok(EffectResult::Model{
+                    content:"synthetic:ok".into(),effective_model:model.model.clone(),
+                    usage:Some(Usage{input_tokens:Some(0),output_tokens:Some(0),
+                        billed_cost:Some("0".into()),currency:Some("USD".into())}),
+                });
+            }
             let EffectSpec::Tool{name,input}=request else {
                 return Ok(EffectResult::UnsupportedCapability{
-                    capability:"P4 model dispatch disabled".into()
+                    capability:"P4 only accepts allowlisted effects".into()
                 });
             };
             if name!="player_command" || input["schema_version"]!=1
@@ -111,6 +150,15 @@ pub type GameTrial=Trial<GameWorld,GamePolicy>;
 pub fn create(dir:&Path,name:&str,seed:u64)->Result<GameTrial,String>{
     let mut trial=Trial::create(
         dir,name,seed,WORLD_KIND,GameWorld::initial("p4-pilot")?,
+        GamePolicy::default(),Arc::new(PlayerCommandTool),ACTORS.to_vec(),
+        Scheduling::RoundRobin,
+    )?;
+    trial.store.set_durability(Durability::EveryEvent)?;
+    Ok(trial)
+}
+pub fn create_stress(dir:&Path,name:&str,seed:u64)->Result<GameTrial,String>{
+    let mut trial=Trial::create(
+        dir,name,seed,WORLD_KIND,GameWorld::stress("p4-pilot")?,
         GamePolicy::default(),Arc::new(PlayerCommandTool),ACTORS.to_vec(),
         Scheduling::RoundRobin,
     )?;
@@ -248,6 +296,24 @@ mod tests {
         assert!(matches!(backend.resolve(&disallowed).await.unwrap(),
             EffectResult::UnsupportedCapability{..}));
         drop(trial);
+        std::fs::remove_dir_all(path).unwrap();
+    }
+    #[tokio::test]
+    async fn stress_runs_all_36_minister_actions_and_96_fake_model_receipts(){
+        let path=temp("stress");
+        let mut trial=create_stress(&path,"stress-pilot",46).unwrap();
+        run_until_closed(&mut trial).await.unwrap();
+        assert_eq!(trial.store.world().stress_cohorts.len(),1024);
+        assert_eq!(trial.store.world().actions.iter().filter(|x|
+            x.kind==ActionKind::MinisterAction).count(),36);
+        let synthetic=trial.effects.receipts().values().filter(|x|
+            matches!(x.spec,EffectSpec::Model(_))).count();
+        assert_eq!(synthetic,96);
+        assert!(trial.effects.receipts().values().all(|x|
+            x.billing==BillingDisposition::NotCharged));
+        let hash=trial.store.world().private_state_sha256.clone();
+        drop(trial);
+        assert_eq!(inspect(&path).unwrap().0,hash);
         std::fs::remove_dir_all(path).unwrap();
     }
     #[tokio::test]
