@@ -1,0 +1,59 @@
+//! Regenerate checked-in TypeScript and JSON Schema from the Serde wire DTOs.
+//! --check fails on drift; --emit prints initial artifacts for repository bootstrap.
+use myth_contracts::{
+    Allocation, CapacityCaps, CommandEnvelope, Condition, Counterproposal,
+    Family, MinisterAction, Ministry, PlayerAction, PublicRoleView, Stage, Vote,
+};
+use schemars::schema_for;
+use std::{env, fs, path::{Path, PathBuf}};
+use ts_rs::TS;
+
+fn generated_types() -> String {
+    let declarations = [
+        <Allocation as TS>::decl(),
+        <CapacityCaps as TS>::decl(),
+        <Ministry as TS>::decl(),
+        <Family as TS>::decl(),
+        <Vote as TS>::decl(),
+        <Condition as TS>::decl(),
+        <PlayerAction as TS>::decl(),
+        <CommandEnvelope as TS>::decl(),
+        <Stage as TS>::decl(),
+        <Counterproposal as TS>::decl(),
+        <MinisterAction as TS>::decl(),
+        <PublicRoleView as TS>::decl(),
+    ];
+    format!("// GENERATED from myth-contracts. DO NOT EDIT.\n// All *_version and expected_world_version fields are decimal strings.\n\n{}\n",
+        declarations.join("\n\n"))
+}
+fn generated_schema<T: schemars::JsonSchema>() -> String {
+    format!("{}\n", serde_json::to_string_pretty(&schema_for!(T)).expect("schema serialization"))
+}
+fn put(root: &Path, relative: &str, content: &str, mode: &str) {
+    let path = root.join(relative);
+    match mode {
+        "--check" => {
+            let old = fs::read_to_string(&path).unwrap_or_else(|e|
+                panic!("Missing generated artifact {}: {e}",path.display()));
+            assert_eq!(old, content, "Generated contract drift in {}", path.display());
+        }
+        "--emit" => {
+            println!("MYTH_BEGIN:{relative}");
+            print!("{content}");
+            println!("MYTH_END:{relative}");
+        }
+        "--write" => {
+            fs::create_dir_all(path.parent().expect("generated path")).expect("create directory");
+            fs::write(&path, content).expect("write generated artifact");
+        }
+        other => panic!("unknown mode: {other}"),
+    }
+}
+fn main() {
+    let mode=env::args().nth(1).unwrap_or_else(|| "--check".into());
+    let root=PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+    put(&root, "apps/web/src/generated/transport.ts", &generated_types(), &mode);
+    put(&root, "docs/contracts/command.schema.json", &generated_schema::<CommandEnvelope>(), &mode);
+    put(&root, "docs/contracts/minister-action.schema.json", &generated_schema::<MinisterAction>(), &mode);
+    put(&root, "docs/contracts/public-role-view.schema.json", &generated_schema::<PublicRoleView>(), &mode);
+}
