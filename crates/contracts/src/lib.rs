@@ -665,7 +665,7 @@ mod tests {
             beneficiary: d::Ministry::Education,
             proposal_version: d::WireU64::new(u64::MAX),
             kind: d::CommitmentKind::Political,
-            funded_units: 5,
+            funded_units: 0,
             trigger: "trigger".into(),
             deadline_quarter: d::DueQuarter::new(8).unwrap(),
             status: d::CommitmentStatus::Pending,
