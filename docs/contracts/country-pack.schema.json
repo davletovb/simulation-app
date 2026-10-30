@@ -1,0 +1,108 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "CountryPack",
+  "type": "object",
+  "properties": {
+    "country_iso": {
+      "type": "string"
+    },
+    "cutoff_utc": {
+      "type": "string"
+    },
+    "evidence": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/EvidenceRecord"
+      }
+    },
+    "locale": {
+      "type": "string"
+    },
+    "schema_version": {
+      "type": "integer",
+      "format": "uint16",
+      "maximum": 65535,
+      "minimum": 0
+    },
+    "simulated_jurisdiction": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "country_iso",
+    "simulated_jurisdiction",
+    "cutoff_utc",
+    "locale",
+    "evidence"
+  ],
+  "$defs": {
+    "EvidenceRecord": {
+      "type": "object",
+      "properties": {
+        "definition": {
+          "type": "string"
+        },
+        "geographic_scope": {
+          "type": "string"
+        },
+        "licence_or_terms": {
+          "type": "string"
+        },
+        "missing_reason": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "normalized_unit": {
+          "type": "string"
+        },
+        "publisher": {
+          "type": "string"
+        },
+        "raw_unit": {
+          "type": "string"
+        },
+        "reference_period": {
+          "type": "string"
+        },
+        "release_date": {
+          "type": "string"
+        },
+        "retrieval_date": {
+          "type": "string"
+        },
+        "sha256_hex": {
+          "type": "string"
+        },
+        "source_url": {
+          "type": "string"
+        },
+        "stable_variable_id": {
+          "type": "string"
+        },
+        "transformation": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "stable_variable_id",
+        "geographic_scope",
+        "definition",
+        "source_url",
+        "publisher",
+        "reference_period",
+        "release_date",
+        "retrieval_date",
+        "raw_unit",
+        "normalized_unit",
+        "transformation",
+        "licence_or_terms",
+        "sha256_hex"
+      ]
+    }
+  }
+}

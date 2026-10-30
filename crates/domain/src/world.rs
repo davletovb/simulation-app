@@ -208,13 +208,11 @@ impl WorldSnapshot {
         let mut ids = BTreeSet::new();
         let mut totals = [0_u16; 3];
         for scope in &self.parts.scopes {
-            validate_identifier(scope.id())?;
+            scope.validate()?;
             if !ids.insert(scope.id()) {
                 return Err(ContractError::DuplicateScope);
             }
-            if scope.carry_permille() >= crate::EFFORT_DENOMINATOR
-                || scope.activation_quarter() > self.parts.quarter
-            {
+            if scope.activation_quarter() > self.parts.quarter {
                 return Err(ContractError::InvalidScope);
             }
             // Cancellation discards fractional carry and releases unspent
@@ -308,6 +306,48 @@ impl WorldSnapshot {
     }
     pub fn queued_responses(&self) -> &[QueuedResponse] {
         &self.parts.queued_responses
+    }
+    /// The P1 projection boundary is server-owned and role-scoped. It cannot
+    /// reveal world truth or other ministers' private effort (not stored here).
+    /// Full audit/evidence provenance and authorization remain P3.
+    pub fn role_observation(
+        &self,
+        ministry: Ministry,
+        meeting_id: String,
+        proposal_version: WireU64,
+        allocation: crate::Allocation,
+        belief: crate::BeliefPpm,
+    ) -> Result<crate::RoleObservation, ContractError> {
+        // WorldSnapshot has already passed from_parts validation and cannot
+        // be externally mutated; only validate the newly constructed view.
+        let mut view = crate::RoleObservation::new(crate::RoleObservationInput {
+            campaign_id: self.campaign_id().into(),
+            meeting_id,
+            proposal_version,
+            ministry,
+            quarter: self.quarter(),
+            allocation,
+            available_credits: self.treasury().available(),
+            belief_ppm: belief,
+        })?;
+        view.owned_commitments = self
+            .parts
+            .commitments
+            .iter()
+            .filter(|item| item.issuer == ministry || item.beneficiary == ministry)
+            .cloned()
+            .collect();
+        view.validate()?;
+        Ok(view)
+    }
+    /// Checked owned state parts for server-private checkpoint serialization.
+    /// Do not expose this from HTTP, browser, or player reports.
+    pub fn private_checkpoint_parts(&self) -> WorldParts {
+        self.parts.clone()
+    }
+    /// Borrow for wire capture without copying the whole private world.
+    pub fn private_checkpoint_parts_ref(&self) -> &WorldParts {
+        &self.parts
     }
 }
 const fn family_index(family: PolicyFamily) -> usize {
@@ -468,6 +508,50 @@ mod tests {
             Err(ContractError::InvalidSupport)
         );
     }
+    #[test]
+    fn role_projection_filters_other_seats_commitments() {
+        let mut parts = WorldSnapshot::initial(
+            "c".into(),
+            "pack".into(),
+            CohortWeights::new([200_000, 200_000, 100_000, 150_000, 200_000, 150_000]).unwrap(),
+        )
+        .unwrap()
+        .private_checkpoint_parts();
+        parts.commitments.push(Commitment {
+            id: "education-only".into(),
+            issuer: Ministry::Education,
+            beneficiary: Ministry::Education,
+            proposal_version: WireU64::new(0),
+            kind: crate::CommitmentKind::Political,
+            funded_units: 0,
+            trigger: "promise".into(),
+            deadline_quarter: DueQuarter::new(2).unwrap(),
+            status: CommitmentStatus::Pending,
+            resolution_event: None,
+        });
+        let snapshot = WorldSnapshot::from_parts(parts).unwrap();
+        let finance = snapshot
+            .role_observation(
+                Ministry::Finance,
+                "m".into(),
+                WireU64::new(0),
+                Allocation::draft(40, 40, 20).unwrap(),
+                crate::BeliefPpm::new(500_000).unwrap(),
+            )
+            .unwrap();
+        let education = snapshot
+            .role_observation(
+                Ministry::Education,
+                "m".into(),
+                WireU64::new(0),
+                Allocation::draft(40, 40, 20).unwrap(),
+                crate::BeliefPpm::new(500_000).unwrap(),
+            )
+            .unwrap();
+        assert!(finance.owned_commitments.is_empty());
+        assert_eq!(education.owned_commitments.len(), 1);
+    }
+
     #[test]
     fn initial_world_has_exact_six_cell_stock_and_no_fake_spending() {
         let world =

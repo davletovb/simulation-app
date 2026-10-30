@@ -1,0 +1,1122 @@
+{
+  "format_version": 1,
+  "profiles": {
+    "final_education": {
+      "additionalProperties": false,
+      "properties": {
+        "conditions": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "due_quarter": {
+                "type": "integer"
+              },
+              "family": {
+                "enum": [
+                  "staffing",
+                  "repairs",
+                  "access"
+                ],
+                "type": "string"
+              },
+              "kind_id": {
+                "type": "string"
+              },
+              "units": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "due_quarter",
+              "family",
+              "kind_id",
+              "units"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "evidence_ids": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "implementation_effort_permille": {
+          "type": "integer"
+        },
+        "meeting_id": {
+          "type": "string"
+        },
+        "ministry": {
+          "enum": [
+            "education"
+          ],
+          "type": "string"
+        },
+        "position": {
+          "enum": [
+            "support",
+            "conditional",
+            "oppose"
+          ],
+          "type": "string"
+        },
+        "preferred_allocation": {
+          "additionalProperties": false,
+          "properties": {
+            "access": {
+              "type": "integer"
+            },
+            "repairs": {
+              "type": "integer"
+            },
+            "staff": {
+              "type": "integer"
+            }
+          },
+          "required": [
+            "access",
+            "repairs",
+            "staff"
+          ],
+          "type": "object"
+        },
+        "proposal_version": {
+          "type": "string"
+        },
+        "rationale_summary": {
+          "type": "string"
+        },
+        "schema_version": {
+          "enum": [
+            1
+          ],
+          "type": "integer"
+        },
+        "stage": {
+          "enum": [
+            "final"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "conditions",
+        "evidence_ids",
+        "implementation_effort_permille",
+        "meeting_id",
+        "ministry",
+        "position",
+        "preferred_allocation",
+        "proposal_version",
+        "rationale_summary",
+        "schema_version",
+        "stage"
+      ],
+      "type": "object"
+    },
+    "final_finance": {
+      "additionalProperties": false,
+      "properties": {
+        "conditions": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "due_quarter": {
+                "type": "integer"
+              },
+              "family": {
+                "enum": [
+                  "staffing",
+                  "repairs",
+                  "access"
+                ],
+                "type": "string"
+              },
+              "kind_id": {
+                "type": "string"
+              },
+              "units": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "due_quarter",
+              "family",
+              "kind_id",
+              "units"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "evidence_ids": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "meeting_id": {
+          "type": "string"
+        },
+        "ministry": {
+          "enum": [
+            "finance"
+          ],
+          "type": "string"
+        },
+        "position": {
+          "enum": [
+            "support",
+            "conditional",
+            "oppose"
+          ],
+          "type": "string"
+        },
+        "preferred_allocation": {
+          "additionalProperties": false,
+          "properties": {
+            "access": {
+              "type": "integer"
+            },
+            "repairs": {
+              "type": "integer"
+            },
+            "staff": {
+              "type": "integer"
+            }
+          },
+          "required": [
+            "access",
+            "repairs",
+            "staff"
+          ],
+          "type": "object"
+        },
+        "proposal_version": {
+          "type": "string"
+        },
+        "rationale_summary": {
+          "type": "string"
+        },
+        "schema_version": {
+          "enum": [
+            1
+          ],
+          "type": "integer"
+        },
+        "stage": {
+          "enum": [
+            "final"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "conditions",
+        "evidence_ids",
+        "meeting_id",
+        "ministry",
+        "position",
+        "preferred_allocation",
+        "proposal_version",
+        "rationale_summary",
+        "schema_version",
+        "stage"
+      ],
+      "type": "object"
+    },
+    "final_infrastructure": {
+      "additionalProperties": false,
+      "properties": {
+        "conditions": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "due_quarter": {
+                "type": "integer"
+              },
+              "family": {
+                "enum": [
+                  "staffing",
+                  "repairs",
+                  "access"
+                ],
+                "type": "string"
+              },
+              "kind_id": {
+                "type": "string"
+              },
+              "units": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "due_quarter",
+              "family",
+              "kind_id",
+              "units"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "evidence_ids": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "implementation_effort_permille": {
+          "type": "integer"
+        },
+        "meeting_id": {
+          "type": "string"
+        },
+        "ministry": {
+          "enum": [
+            "infrastructure"
+          ],
+          "type": "string"
+        },
+        "position": {
+          "enum": [
+            "support",
+            "conditional",
+            "oppose"
+          ],
+          "type": "string"
+        },
+        "preferred_allocation": {
+          "additionalProperties": false,
+          "properties": {
+            "access": {
+              "type": "integer"
+            },
+            "repairs": {
+              "type": "integer"
+            },
+            "staff": {
+              "type": "integer"
+            }
+          },
+          "required": [
+            "access",
+            "repairs",
+            "staff"
+          ],
+          "type": "object"
+        },
+        "proposal_version": {
+          "type": "string"
+        },
+        "rationale_summary": {
+          "type": "string"
+        },
+        "schema_version": {
+          "enum": [
+            1
+          ],
+          "type": "integer"
+        },
+        "stage": {
+          "enum": [
+            "final"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "conditions",
+        "evidence_ids",
+        "implementation_effort_permille",
+        "meeting_id",
+        "ministry",
+        "position",
+        "preferred_allocation",
+        "proposal_version",
+        "rationale_summary",
+        "schema_version",
+        "stage"
+      ],
+      "type": "object"
+    },
+    "first_menu_education": {
+      "additionalProperties": false,
+      "properties": {
+        "conditions": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "due_quarter": {
+                "type": "integer"
+              },
+              "family": {
+                "enum": [
+                  "staffing",
+                  "repairs",
+                  "access"
+                ],
+                "type": "string"
+              },
+              "kind_id": {
+                "type": "string"
+              },
+              "units": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "due_quarter",
+              "family",
+              "kind_id",
+              "units"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "counterproposal_source": {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "enum": [
+                "menu"
+              ],
+              "type": "string"
+            },
+            "menu_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "menu_id"
+          ],
+          "type": "object"
+        },
+        "evidence_ids": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "meeting_id": {
+          "type": "string"
+        },
+        "ministry": {
+          "enum": [
+            "education"
+          ],
+          "type": "string"
+        },
+        "position": {
+          "enum": [
+            "support",
+            "conditional",
+            "oppose"
+          ],
+          "type": "string"
+        },
+        "preferred_allocation": {
+          "additionalProperties": false,
+          "properties": {
+            "access": {
+              "type": "integer"
+            },
+            "repairs": {
+              "type": "integer"
+            },
+            "staff": {
+              "type": "integer"
+            }
+          },
+          "required": [
+            "access",
+            "repairs",
+            "staff"
+          ],
+          "type": "object"
+        },
+        "proposal_version": {
+          "type": "string"
+        },
+        "rationale_summary": {
+          "type": "string"
+        },
+        "schema_version": {
+          "enum": [
+            1
+          ],
+          "type": "integer"
+        },
+        "stage": {
+          "enum": [
+            "first"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "conditions",
+        "counterproposal_source",
+        "evidence_ids",
+        "meeting_id",
+        "ministry",
+        "position",
+        "preferred_allocation",
+        "proposal_version",
+        "rationale_summary",
+        "schema_version",
+        "stage"
+      ],
+      "type": "object"
+    },
+    "first_menu_finance": {
+      "additionalProperties": false,
+      "properties": {
+        "conditions": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "due_quarter": {
+                "type": "integer"
+              },
+              "family": {
+                "enum": [
+                  "staffing",
+                  "repairs",
+                  "access"
+                ],
+                "type": "string"
+              },
+              "kind_id": {
+                "type": "string"
+              },
+              "units": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "due_quarter",
+              "family",
+              "kind_id",
+              "units"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "counterproposal_source": {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "enum": [
+                "menu"
+              ],
+              "type": "string"
+            },
+            "menu_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "menu_id"
+          ],
+          "type": "object"
+        },
+        "evidence_ids": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "meeting_id": {
+          "type": "string"
+        },
+        "ministry": {
+          "enum": [
+            "finance"
+          ],
+          "type": "string"
+        },
+        "position": {
+          "enum": [
+            "support",
+            "conditional",
+            "oppose"
+          ],
+          "type": "string"
+        },
+        "preferred_allocation": {
+          "additionalProperties": false,
+          "properties": {
+            "access": {
+              "type": "integer"
+            },
+            "repairs": {
+              "type": "integer"
+            },
+            "staff": {
+              "type": "integer"
+            }
+          },
+          "required": [
+            "access",
+            "repairs",
+            "staff"
+          ],
+          "type": "object"
+        },
+        "proposal_version": {
+          "type": "string"
+        },
+        "rationale_summary": {
+          "type": "string"
+        },
+        "schema_version": {
+          "enum": [
+            1
+          ],
+          "type": "integer"
+        },
+        "stage": {
+          "enum": [
+            "first"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "conditions",
+        "counterproposal_source",
+        "evidence_ids",
+        "meeting_id",
+        "ministry",
+        "position",
+        "preferred_allocation",
+        "proposal_version",
+        "rationale_summary",
+        "schema_version",
+        "stage"
+      ],
+      "type": "object"
+    },
+    "first_menu_infrastructure": {
+      "additionalProperties": false,
+      "properties": {
+        "conditions": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "due_quarter": {
+                "type": "integer"
+              },
+              "family": {
+                "enum": [
+                  "staffing",
+                  "repairs",
+                  "access"
+                ],
+                "type": "string"
+              },
+              "kind_id": {
+                "type": "string"
+              },
+              "units": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "due_quarter",
+              "family",
+              "kind_id",
+              "units"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "counterproposal_source": {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "enum": [
+                "menu"
+              ],
+              "type": "string"
+            },
+            "menu_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "menu_id"
+          ],
+          "type": "object"
+        },
+        "evidence_ids": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "meeting_id": {
+          "type": "string"
+        },
+        "ministry": {
+          "enum": [
+            "infrastructure"
+          ],
+          "type": "string"
+        },
+        "position": {
+          "enum": [
+            "support",
+            "conditional",
+            "oppose"
+          ],
+          "type": "string"
+        },
+        "preferred_allocation": {
+          "additionalProperties": false,
+          "properties": {
+            "access": {
+              "type": "integer"
+            },
+            "repairs": {
+              "type": "integer"
+            },
+            "staff": {
+              "type": "integer"
+            }
+          },
+          "required": [
+            "access",
+            "repairs",
+            "staff"
+          ],
+          "type": "object"
+        },
+        "proposal_version": {
+          "type": "string"
+        },
+        "rationale_summary": {
+          "type": "string"
+        },
+        "schema_version": {
+          "enum": [
+            1
+          ],
+          "type": "integer"
+        },
+        "stage": {
+          "enum": [
+            "first"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "conditions",
+        "counterproposal_source",
+        "evidence_ids",
+        "meeting_id",
+        "ministry",
+        "position",
+        "preferred_allocation",
+        "proposal_version",
+        "rationale_summary",
+        "schema_version",
+        "stage"
+      ],
+      "type": "object"
+    },
+    "first_new_typed_education": {
+      "additionalProperties": false,
+      "properties": {
+        "conditions": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "due_quarter": {
+                "type": "integer"
+              },
+              "family": {
+                "enum": [
+                  "staffing",
+                  "repairs",
+                  "access"
+                ],
+                "type": "string"
+              },
+              "kind_id": {
+                "type": "string"
+              },
+              "units": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "due_quarter",
+              "family",
+              "kind_id",
+              "units"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "counterproposal_source": {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "enum": [
+                "new_typed"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        "evidence_ids": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "meeting_id": {
+          "type": "string"
+        },
+        "ministry": {
+          "enum": [
+            "education"
+          ],
+          "type": "string"
+        },
+        "position": {
+          "enum": [
+            "support",
+            "conditional",
+            "oppose"
+          ],
+          "type": "string"
+        },
+        "preferred_allocation": {
+          "additionalProperties": false,
+          "properties": {
+            "access": {
+              "type": "integer"
+            },
+            "repairs": {
+              "type": "integer"
+            },
+            "staff": {
+              "type": "integer"
+            }
+          },
+          "required": [
+            "access",
+            "repairs",
+            "staff"
+          ],
+          "type": "object"
+        },
+        "proposal_version": {
+          "type": "string"
+        },
+        "rationale_summary": {
+          "type": "string"
+        },
+        "schema_version": {
+          "enum": [
+            1
+          ],
+          "type": "integer"
+        },
+        "stage": {
+          "enum": [
+            "first"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "conditions",
+        "counterproposal_source",
+        "evidence_ids",
+        "meeting_id",
+        "ministry",
+        "position",
+        "preferred_allocation",
+        "proposal_version",
+        "rationale_summary",
+        "schema_version",
+        "stage"
+      ],
+      "type": "object"
+    },
+    "first_new_typed_finance": {
+      "additionalProperties": false,
+      "properties": {
+        "conditions": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "due_quarter": {
+                "type": "integer"
+              },
+              "family": {
+                "enum": [
+                  "staffing",
+                  "repairs",
+                  "access"
+                ],
+                "type": "string"
+              },
+              "kind_id": {
+                "type": "string"
+              },
+              "units": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "due_quarter",
+              "family",
+              "kind_id",
+              "units"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "counterproposal_source": {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "enum": [
+                "new_typed"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        "evidence_ids": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "meeting_id": {
+          "type": "string"
+        },
+        "ministry": {
+          "enum": [
+            "finance"
+          ],
+          "type": "string"
+        },
+        "position": {
+          "enum": [
+            "support",
+            "conditional",
+            "oppose"
+          ],
+          "type": "string"
+        },
+        "preferred_allocation": {
+          "additionalProperties": false,
+          "properties": {
+            "access": {
+              "type": "integer"
+            },
+            "repairs": {
+              "type": "integer"
+            },
+            "staff": {
+              "type": "integer"
+            }
+          },
+          "required": [
+            "access",
+            "repairs",
+            "staff"
+          ],
+          "type": "object"
+        },
+        "proposal_version": {
+          "type": "string"
+        },
+        "rationale_summary": {
+          "type": "string"
+        },
+        "schema_version": {
+          "enum": [
+            1
+          ],
+          "type": "integer"
+        },
+        "stage": {
+          "enum": [
+            "first"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "conditions",
+        "counterproposal_source",
+        "evidence_ids",
+        "meeting_id",
+        "ministry",
+        "position",
+        "preferred_allocation",
+        "proposal_version",
+        "rationale_summary",
+        "schema_version",
+        "stage"
+      ],
+      "type": "object"
+    },
+    "first_new_typed_infrastructure": {
+      "additionalProperties": false,
+      "properties": {
+        "conditions": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "due_quarter": {
+                "type": "integer"
+              },
+              "family": {
+                "enum": [
+                  "staffing",
+                  "repairs",
+                  "access"
+                ],
+                "type": "string"
+              },
+              "kind_id": {
+                "type": "string"
+              },
+              "units": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "due_quarter",
+              "family",
+              "kind_id",
+              "units"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "counterproposal_source": {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "enum": [
+                "new_typed"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        "evidence_ids": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "meeting_id": {
+          "type": "string"
+        },
+        "ministry": {
+          "enum": [
+            "infrastructure"
+          ],
+          "type": "string"
+        },
+        "position": {
+          "enum": [
+            "support",
+            "conditional",
+            "oppose"
+          ],
+          "type": "string"
+        },
+        "preferred_allocation": {
+          "additionalProperties": false,
+          "properties": {
+            "access": {
+              "type": "integer"
+            },
+            "repairs": {
+              "type": "integer"
+            },
+            "staff": {
+              "type": "integer"
+            }
+          },
+          "required": [
+            "access",
+            "repairs",
+            "staff"
+          ],
+          "type": "object"
+        },
+        "proposal_version": {
+          "type": "string"
+        },
+        "rationale_summary": {
+          "type": "string"
+        },
+        "schema_version": {
+          "enum": [
+            1
+          ],
+          "type": "integer"
+        },
+        "stage": {
+          "enum": [
+            "first"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "conditions",
+        "counterproposal_source",
+        "evidence_ids",
+        "meeting_id",
+        "ministry",
+        "position",
+        "preferred_allocation",
+        "proposal_version",
+        "rationale_summary",
+        "schema_version",
+        "stage"
+      ],
+      "type": "object"
+    }
+  },
+  "required_provider_verification": "P5-01",
+  "status": "candidate_not_provider_certified"
+}

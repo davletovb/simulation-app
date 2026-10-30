@@ -1,5 +1,6 @@
 //! Regenerate checked-in TypeScript and JSON Schema from the Serde wire DTOs.
 //! --check fails on drift, --write regenerates from the Rust source.
+use myth_contracts::checkpoint::{CountryPack, EventRecord, EvidenceRecord, PrivateCheckpoint};
 use myth_contracts::{
     Allocation, CapacityCaps, CommandEnvelope, Condition, Counterproposal, Family, ForecastLine,
     ForecastResponse, MinisterAction, Ministry, PlayerAction, PreviewCalculator, PreviewKind,
@@ -36,6 +37,8 @@ fn generated_types() -> String {
         <ScriptedVoteKind as TS>::decl(&config),
         <ScriptedSeatVote as TS>::decl(&config),
         <ScriptedVotes as TS>::decl(&config),
+        <EvidenceRecord as TS>::decl(&config),
+        <CountryPack as TS>::decl(&config),
     ];
     format!(
         "// GENERATED from myth-contracts. DO NOT EDIT.\n// All *_version and expected_world_version fields are decimal strings.\n\n{}\n",
@@ -109,6 +112,34 @@ fn main() {
         &root,
         "docs/contracts/scripted-votes.schema.json",
         &generated_schema::<ScriptedVotes>(),
+        &mode,
+    );
+    put(
+        &root,
+        "docs/contracts/country-pack.schema.json",
+        &generated_schema::<CountryPack>(),
+        &mode,
+    );
+    put(
+        &root,
+        "docs/contracts/private-checkpoint.schema.json",
+        &generated_schema::<PrivateCheckpoint>(),
+        &mode,
+    );
+    put(
+        &root,
+        "docs/contracts/event-record.schema.json",
+        &generated_schema::<EventRecord>(),
+        &mode,
+    );
+    put(
+        &root,
+        "docs/contracts/minister-output-subsets.json",
+        &format!(
+            "{}\n",
+            serde_json::to_string_pretty(&myth_contracts::strict_subset::profiles())
+                .expect("profile schema")
+        ),
         &mode,
     );
 }

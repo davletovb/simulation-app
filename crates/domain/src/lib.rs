@@ -5,6 +5,7 @@
 //! funding creates multiple eligible scopes in the same quarter.
 #![forbid(unsafe_code)]
 
+pub mod fixed;
 pub mod preview;
 pub mod world;
 
@@ -571,18 +572,18 @@ impl FundedScope {
         activation_quarter: Quarter,
         funded_units: u16,
     ) -> Result<Self, ContractError> {
-        if id.is_empty() || id.len() > 128 || funded_units == 0 || funded_units > PILOT_CREDITS {
+        if funded_units == 0 {
             return Err(ContractError::InvalidScope);
         }
-        Ok(Self {
+        Self::restore(
             id,
             family,
             activation_quarter,
-            remaining_units: funded_units,
-            carry_permille: 0,
-            blocked: false,
-            terminated: false,
-        })
+            funded_units,
+            0,
+            false,
+            false,
+        )
     }
     pub fn id(&self) -> &str {
         &self.id
@@ -601,6 +602,42 @@ impl FundedScope {
     }
     pub const fn carry_permille(&self) -> u16 {
         self.carry_permille
+    }
+    pub const fn is_blocked(&self) -> bool {
+        self.blocked
+    }
+    /// Deserialize checked scope state; never restore directly into unchecked fields.
+    pub fn restore(
+        id: String,
+        family: PolicyFamily,
+        activation_quarter: Quarter,
+        remaining_units: u16,
+        carry_permille: u16,
+        blocked: bool,
+        terminated: bool,
+    ) -> Result<Self, ContractError> {
+        let scope = Self {
+            id,
+            family,
+            activation_quarter,
+            remaining_units,
+            carry_permille,
+            blocked,
+            terminated,
+        };
+        scope.validate()?;
+        Ok(scope)
+    }
+    /// Shared invariants for constructed, restored and world-owned scopes.
+    pub fn validate(&self) -> Result<(), ContractError> {
+        validate_identifier(&self.id)?;
+        if self.remaining_units > PILOT_CREDITS
+            || self.carry_permille >= EFFORT_DENOMINATOR
+            || ((self.terminated || self.remaining_units == 0) && self.carry_permille != 0)
+        {
+            return Err(ContractError::InvalidScope);
+        }
+        Ok(())
     }
     pub fn set_blocked(&mut self, blocked: bool) {
         self.blocked = blocked;
@@ -1123,6 +1160,166 @@ pub struct CountryPack {
     pub cutoff_utc: String,
     pub locale: String,
     pub evidence: Vec<EvidenceProvenance>,
+}
+
+/// Shared hash-format check; this is a digest *format*, not authenticity.
+pub fn is_sha256_hex(value: &str) -> bool {
+    value.len() == 64
+        && value
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+}
+
+fn safe_provenance_text(value: &str, max: usize) -> bool {
+    !value.is_empty()
+        && value.len() <= max
+        && !value.chars().any(|c| c.is_control() || forbidden_format(c))
+}
+
+/// Gregorian date validation, without locale or host time-zone dependencies.
+fn civil_day(date: &str) -> Option<(u32, u32, u32)> {
+    let b = date.as_bytes();
+    if b.len() != 10
+        || b[4] != b'-'
+        || b[7] != b'-'
+        || b.iter()
+            .enumerate()
+            .any(|(i, c)| i != 4 && i != 7 && !c.is_ascii_digit())
+    {
+        return None;
+    }
+    let year = date[0..4].parse::<u32>().ok()?;
+    let month = date[5..7].parse::<u32>().ok()?;
+    let day = date[8..10].parse::<u32>().ok()?;
+    if year == 0 || !(1..=12).contains(&month) {
+        return None;
+    }
+    let leap = year % 4 == 0 && (year % 100 != 0 || year % 400 == 0);
+    let days = match month {
+        2 => {
+            if leap {
+                29
+            } else {
+                28
+            }
+        }
+        4 | 6 | 9 | 11 => 30,
+        _ => 31,
+    };
+    if day == 0 || day > days {
+        return None;
+    }
+    Some((year, month, day))
+}
+fn utc_datetime(value: &str) -> Option<(u32, u32, u32)> {
+    let b = value.as_bytes();
+    if b.len() != 20
+        || b[10] != b'T'
+        || b[13] != b':'
+        || b[16] != b':'
+        || b[19] != b'Z'
+        || b.iter().enumerate().any(|(i, c)| {
+            ![10, 13, 16, 19].contains(&i) && !c.is_ascii_digit() && ![4, 7].contains(&i)
+                || ([4, 7].contains(&i) && *c != b'-')
+        })
+    {
+        return None;
+    }
+    let day = civil_day(&value[0..10])?;
+    let hour = value[11..13].parse::<u32>().ok()?;
+    let minute = value[14..16].parse::<u32>().ok()?;
+    let second = value[17..19].parse::<u32>().ok()?;
+    if hour >= 24 || minute >= 60 || second >= 60 {
+        return None;
+    }
+    Some(day)
+}
+
+impl EvidenceProvenance {
+    pub fn validate(&self) -> Result<(), ContractError> {
+        validate_identifier(&self.stable_variable_id)?;
+        for field in [
+            &self.geographic_scope,
+            &self.definition,
+            &self.publisher,
+            &self.reference_period,
+            &self.release_date,
+            &self.retrieval_date,
+            &self.raw_unit,
+            &self.normalized_unit,
+            &self.transformation,
+            &self.licence_or_terms,
+        ] {
+            if !safe_provenance_text(field, 2048) {
+                return Err(ContractError::InvalidScope);
+            }
+        }
+        if !safe_provenance_text(&self.source_url, 2048) || !self.source_url.starts_with("https://")
+        {
+            return Err(ContractError::InvalidScope);
+        }
+        let authority = self.source_url["https://".len()..]
+            .split(&['/', '?', '#'][..])
+            .next()
+            .unwrap_or("");
+        // Strict host only, without credentials, whitespace or ambiguous ports.
+        let host = authority.split(':').next().unwrap_or("");
+        if host.is_empty()
+            || !host.is_ascii()
+            || host.starts_with('.')
+            || host.ends_with('.')
+            || host
+                .bytes()
+                .any(|b| !(b.is_ascii_alphanumeric() || b == b'.' || b == b'-'))
+            || authority.contains('@')
+            || authority.matches(':').count() > 1
+        {
+            return Err(ContractError::InvalidScope);
+        }
+        if let Some(port) = authority
+            .strip_prefix(host)
+            .and_then(|rest| rest.strip_prefix(':'))
+            && (port.is_empty()
+                || !port.bytes().all(|b| b.is_ascii_digit())
+                || port.parse::<u16>().ok().filter(|n| *n > 0).is_none())
+        {
+            return Err(ContractError::InvalidScope);
+        }
+        if civil_day(&self.release_date).is_none()
+            || civil_day(&self.retrieval_date).is_none()
+            || !is_sha256_hex(&self.sha256_hex)
+        {
+            return Err(ContractError::InvalidScope);
+        }
+        if let Some(reason) = &self.missing_reason
+            && !safe_provenance_text(reason, 1024)
+        {
+            return Err(ContractError::InvalidScope);
+        }
+        Ok(())
+    }
+}
+impl CountryPack {
+    pub fn validate(&self) -> Result<(), ContractError> {
+        if self.schema_version != SCHEMA_VERSION
+            || self.country_iso.len() != 2
+            || !self.country_iso.bytes().all(|c| c.is_ascii_uppercase())
+        {
+            return Err(ContractError::InvalidSchema);
+        }
+        validate_identifier(&self.simulated_jurisdiction)?;
+        validate_identifier(&self.locale)?;
+        let cutoff = utc_datetime(&self.cutoff_utc).ok_or(ContractError::InvalidSchema)?;
+        let mut ids = BTreeSet::new();
+        for item in &self.evidence {
+            item.validate()?;
+            let release = civil_day(&item.release_date).ok_or(ContractError::InvalidScope)?;
+            if release > cutoff || !ids.insert(item.stable_variable_id.as_str()) {
+                return Err(ContractError::InvalidScope);
+            }
+        }
+        Ok(())
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

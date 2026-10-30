@@ -1,6 +1,7 @@
 //! P1 offline loopback adapter: scripted votes, pure Rust forecast, and
 //! checksum-verified local *choice* recordings. No policy mutations or LLM.
 #![forbid(unsafe_code)]
+pub mod checkpoint_store;
 pub mod store;
 use axum::{
     Json, Router,

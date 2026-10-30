@@ -40,3 +40,7 @@ export type ScriptedVoteKind = "clean_belief_scripted_votes";
 export type ScriptedSeatVote = { ministry: Ministry, position: Vote, };
 
 export type ScriptedVotes = { kind: ScriptedVoteKind, passes_support_threshold: boolean, institutional_ratification: boolean, votes: [ScriptedSeatVote, ScriptedSeatVote, ScriptedSeatVote], support_count: number, warning: string, };
+
+export type EvidenceRecord = { stable_variable_id: string, geographic_scope: string, definition: string, source_url: string, publisher: string, reference_period: string, release_date: string, retrieval_date: string, raw_unit: string, normalized_unit: string, transformation: string, licence_or_terms: string, sha256_hex: string, missing_reason: string | null, };
+
+export type CountryPack = { schema_version: number, country_iso: string, simulated_jurisdiction: string, cutoff_utc: string, locale: string, evidence: Array<EvidenceRecord>, };

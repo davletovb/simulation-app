@@ -37,6 +37,10 @@ Open the localhost URL printed by Vite (normally `http://127.0.0.1:5173`). The w
 
 Start the loopback-only Axum backend with `cargo +1.99.1 run --locked -p myth-local-api`, then the frontend with `npm --prefix apps/web run dev`. The UI obtains its optimistic delivery ceilings from Rust via `/api/preview`; without the server, it explicitly displays an unavailable state (no duplicate TypeScript simulation). The backend also provides clean-belief scripted cabinet vote **snapshots** and bounded checksum-verified local **choice** recordings. It does **not** perform actual policy decisions, LLM calls, authoritative saves or Hiyal replay. Live mode fails closed. See [offline backend setup and API](docs/p1-04-offline-backend.md) for exact commands, files and security boundaries.
 
+## P1 type/checkpoint completion
+
+Private world checkpoint, country pack, event and ledger receipt formats are versioned Rust DTOs with strict Serde input validation and generated schemas. The pure domain supports checked fixed-point apportionment with explicit rounding residuals. A private local CLI can save and verify an **illustrative** world fixture without an API key; the stored SHA-256 is an accidental-corruption check, not tamper authentication, and Unix checkpoints are owner-only. see [P1 operating and verification contract](docs/p1-operating-contract.md). Do not confuse this private checkpoint with an authoritative P3 campaign reducer or P4 Hiyal replay. The pinned Hiyal candidate is recorded in `config/hiyal-pin.toml` but is intentionally **not yet linked**.
+
 ## Typed transport contracts (P1c)
 
 The separate `myth-contracts` Rust crate validates JSON commands and minister-action inputs before converting them to the pure domain types. Rust generates TypeScript declarations at `apps/web/src/generated/transport.ts` and JSON Schema files in `docs/contracts/`. The checked-in artifacts are enforced by CI: `cargo +1.99.1 run --locked -p myth-contracts --bin export-contracts -- --check`.
