@@ -1,6 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "PublicRoleView",
+  "description": "Server-only public response. Fields are private and no Deserialize exists:\nonly checked TryFrom<&RoleObservation> can construct serializable data.",
   "type": "object",
   "properties": {
     "allocation": {
@@ -9,12 +10,13 @@
     "available_credits": {
       "type": "integer",
       "format": "uint16",
-      "maximum": 65535,
+      "maximum": 100,
       "minimum": 0
     },
     "belief_ppm": {
       "type": "integer",
       "format": "uint32",
+      "maximum": 1000000,
       "minimum": 0
     },
     "campaign_id": {
@@ -26,14 +28,21 @@
     "ministry": {
       "$ref": "#/$defs/Ministry"
     },
+    "owned_commitments": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/PublicCommitment"
+      }
+    },
     "proposal_version": {
-      "type": "string"
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]{0,19})$"
     },
     "quarter": {
       "type": "integer",
       "format": "uint8",
-      "maximum": 255,
-      "minimum": 0
+      "maximum": 6,
+      "minimum": 1
     },
     "schema_version": {
       "type": "integer",
@@ -48,7 +57,6 @@
       }
     }
   },
-  "additionalProperties": false,
   "required": [
     "schema_version",
     "campaign_id",
@@ -59,6 +67,7 @@
     "allocation",
     "available_credits",
     "belief_ppm",
+    "owned_commitments",
     "visible_evidence_ids"
   ],
   "$defs": {
@@ -68,19 +77,19 @@
         "access": {
           "type": "integer",
           "format": "uint16",
-          "maximum": 65535,
+          "maximum": 100,
           "minimum": 0
         },
         "repairs": {
           "type": "integer",
           "format": "uint16",
-          "maximum": 65535,
+          "maximum": 100,
           "minimum": 0
         },
         "staff": {
           "type": "integer",
           "format": "uint16",
-          "maximum": 65535,
+          "maximum": 100,
           "minimum": 0
         }
       },
@@ -97,6 +106,62 @@
         "finance",
         "education",
         "infrastructure"
+      ]
+    },
+    "PublicCommitment": {
+      "type": "object",
+      "properties": {
+        "beneficiary": {
+          "$ref": "#/$defs/Ministry"
+        },
+        "deadline_quarter": {
+          "type": "integer",
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 1
+        },
+        "funded_units": {
+          "type": "integer",
+          "format": "uint16",
+          "maximum": 100,
+          "minimum": 0
+        },
+        "id": {
+          "type": "string"
+        },
+        "issuer": {
+          "$ref": "#/$defs/Ministry"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "proposal_version": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]{0,19})$"
+        },
+        "resolution_event": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "status": {
+          "type": "string"
+        },
+        "trigger": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "issuer",
+        "beneficiary",
+        "proposal_version",
+        "kind",
+        "funded_units",
+        "trigger",
+        "deadline_quarter",
+        "status"
       ]
     }
   }
