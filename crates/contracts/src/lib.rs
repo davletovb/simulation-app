@@ -584,7 +584,9 @@ pub struct ForecastResponse {
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
 #[serde(rename_all = "snake_case")]
-pub enum ScriptedVoteKind { CleanBeliefScriptedVotes }
+pub enum ScriptedVoteKind {
+    CleanBeliefScriptedVotes,
+}
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
 #[serde(deny_unknown_fields)]
 pub struct ScriptedSeatVote {
@@ -787,18 +789,34 @@ mod tests {
         let value = serde_json::to_value(&response).unwrap();
         assert_eq!(value["calculator"], "myth_domain");
         assert_eq!(value["families"][0]["family"], "access");
-        assert_eq!(serde_json::from_value::<ForecastResponse>(value).unwrap(), response);
-        assert!(<ForecastResponse as TS>::decl(&ts_rs::Config::default())
-            .contains("families: Array<ForecastLine>"));
+        assert_eq!(
+            serde_json::from_value::<ForecastResponse>(value).unwrap(),
+            response
+        );
+        assert!(
+            <ForecastResponse as TS>::decl(&ts_rs::Config::default())
+                .contains("families: Array<ForecastLine>")
+        );
         let vote = ScriptedVotes {
             kind: ScriptedVoteKind::CleanBeliefScriptedVotes,
-            passes_support_threshold: true, institutional_ratification: false,
+            passes_support_threshold: true,
+            institutional_ratification: false,
             votes: [
-                ScriptedSeatVote { ministry: Ministry::Finance, position: Vote::Support },
-                ScriptedSeatVote { ministry: Ministry::Education, position: Vote::Support },
-                ScriptedSeatVote { ministry: Ministry::Infrastructure, position: Vote::Support },
+                ScriptedSeatVote {
+                    ministry: Ministry::Finance,
+                    position: Vote::Support,
+                },
+                ScriptedSeatVote {
+                    ministry: Ministry::Education,
+                    position: Vote::Support,
+                },
+                ScriptedSeatVote {
+                    ministry: Ministry::Infrastructure,
+                    position: Vote::Support,
+                },
             ],
-            support_count: 3, warning: "Not a ratification".into(),
+            support_count: 3,
+            warning: "Not a ratification".into(),
         };
         let wire = serde_json::to_value(&vote).unwrap();
         assert_eq!(wire["votes"][0]["ministry"], "finance");
