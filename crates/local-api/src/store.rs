@@ -54,8 +54,11 @@ impl ScriptedRecord {
     }
 }
 fn valid_filename(id: &str) -> bool {
-    !id.is_empty() && id.len() <= 64
-        && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+    !id.is_empty()
+        && id.len() <= 64
+        && id
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -72,7 +75,9 @@ pub enum StoreError {
     Io(std::io::Error),
 }
 impl From<std::io::Error> for StoreError {
-    fn from(e: std::io::Error) -> Self { Self::Io(e) }
+    fn from(e: std::io::Error) -> Self {
+        Self::Io(e)
+    }
 }
 fn hash(payload: &ScriptedRecord) -> Result<String, StoreError> {
     let bytes = serde_json::to_vec(payload).map_err(|_| StoreError::Corrupt)?;
@@ -90,18 +95,30 @@ impl SaveStore {
     pub fn new(root: PathBuf) -> Result<Self, StoreError> {
         fs::create_dir_all(&root)?;
         let root = root.canonicalize()?;
-        if !root.is_dir() { return Err(StoreError::InvalidRecord); }
-        Ok(Self { root, lock: Mutex::new(()) })
+        if !root.is_dir() {
+            return Err(StoreError::InvalidRecord);
+        }
+        Ok(Self {
+            root,
+            lock: Mutex::new(()),
+        })
     }
     fn path(&self, id: &str) -> Result<PathBuf, StoreError> {
-        if !valid_filename(id) { return Err(StoreError::InvalidRecord); }
+        if !valid_filename(id) {
+            return Err(StoreError::InvalidRecord);
+        }
         Ok(self.root.join(format!("{id}.json")))
     }
     pub fn put(&self, payload: ScriptedRecord) -> Result<StoredRecord, StoreError> {
         payload.validate()?;
-        let stored = StoredRecord { sha256: hash(&payload)?, payload };
+        let stored = StoredRecord {
+            sha256: hash(&payload)?,
+            payload,
+        };
         let bytes = serde_json::to_vec(&stored).map_err(|_| StoreError::Corrupt)?;
-        if bytes.len() > MAX_RECORD_BYTES { return Err(StoreError::InvalidRecord); }
+        if bytes.len() > MAX_RECORD_BYTES {
+            return Err(StoreError::InvalidRecord);
+        }
         let path = self.path(&stored.payload.record_id)?;
         let _guard = self.lock.lock().map_err(|_| StoreError::Corrupt)?;
         let tmp = path.with_extension(format!("tmp-{}", std::process::id()));
@@ -113,7 +130,9 @@ impl SaveStore {
             File::open(&self.root)?.sync_all()?;
             Ok(())
         })();
-        if write.is_err() { let _ = fs::remove_file(&tmp); }
+        if write.is_err() {
+            let _ = fs::remove_file(&tmp);
+        }
         write?;
         Ok(stored)
     }
@@ -127,15 +146,20 @@ impl SaveStore {
         };
         let mut bytes = Vec::new();
         Read::take(&mut f, (MAX_RECORD_BYTES + 1) as u64).read_to_end(&mut bytes)?;
-        if bytes.len() > MAX_RECORD_BYTES { return Err(StoreError::Corrupt); }
-        let record: StoredRecord = serde_json::from_slice(&bytes).map_err(|_| StoreError::Corrupt)?;
+        if bytes.len() > MAX_RECORD_BYTES {
+            return Err(StoreError::Corrupt);
+        }
+        let record: StoredRecord =
+            serde_json::from_slice(&bytes).map_err(|_| StoreError::Corrupt)?;
         record.payload.validate().map_err(|_| StoreError::Corrupt)?;
         if record.payload.record_id != id || record.sha256 != hash(&record.payload)? {
             return Err(StoreError::Corrupt);
         }
         Ok(record)
     }
-    pub fn root(&self) -> &Path { &self.root }
+    pub fn root(&self) -> &Path {
+        &self.root
+    }
 }
 
 #[cfg(test)]
@@ -144,15 +168,24 @@ mod tests {
     use std::time::{SystemTime, UNIX_EPOCH};
 
     fn temp() -> PathBuf {
-        let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        let stamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
         std::env::temp_dir().join(format!("myth-p1d-{}-{stamp}", std::process::id()))
     }
     fn record(id: &str) -> ScriptedRecord {
         ScriptedRecord {
-            schema_version: 1, record_id: id.into(),
+            schema_version: 1,
+            record_id: id.into(),
             choices: vec![RecordedChoice {
-                quarter: 1, meeting_id: "m1".into(),
-                allocation: WireAllocation { staff: 50, repairs: 40, access: 10 },
+                quarter: 1,
+                meeting_id: "m1".into(),
+                allocation: WireAllocation {
+                    staff: 50,
+                    repairs: 40,
+                    access: 10,
+                },
             }],
         }
     }
@@ -165,7 +198,11 @@ mod tests {
         assert_eq!(store.get("test-1").unwrap(), original);
         let mut corrupted = serde_json::to_value(&original).unwrap();
         corrupted["payload"]["choices"][0]["allocation"]["staff"] = 49.into();
-        fs::write(store.path("test-1").unwrap(), serde_json::to_vec(&corrupted).unwrap()).unwrap();
+        fs::write(
+            store.path("test-1").unwrap(),
+            serde_json::to_vec(&corrupted).unwrap(),
+        )
+        .unwrap();
         assert!(matches!(store.get("test-1"), Err(StoreError::Corrupt)));
         fs::remove_dir_all(root).unwrap();
     }
@@ -174,8 +211,14 @@ mod tests {
     fn rejects_path_traversal_overspend_and_duplicate_quarters() {
         let root = temp();
         let store = SaveStore::new(root.clone()).unwrap();
-        assert!(matches!(store.put(record("../escape")), Err(StoreError::InvalidRecord)));
-        assert!(matches!(store.get("bad/name"), Err(StoreError::InvalidRecord)));
+        assert!(matches!(
+            store.put(record("../escape")),
+            Err(StoreError::InvalidRecord)
+        ));
+        assert!(matches!(
+            store.get("bad/name"),
+            Err(StoreError::InvalidRecord)
+        ));
         let mut bad = record("safe");
         bad.choices[0].allocation.staff = 99;
         assert!(matches!(store.put(bad), Err(StoreError::InvalidRecord)));
