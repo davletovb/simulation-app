@@ -58,7 +58,7 @@ def visible_text(markup):
 
 def parsed_release_dates(text):
     def field(label):
-        matches = re.findall(r"\\b" + label + r"\\s+(\\d{1,2} [A-Za-z]+ \\d{4})\\b", text, flags=re.I)
+        matches = re.findall(r"\b" + label + r"\s+(\d{1,2} [A-Za-z]+ \d{4})\b", text, flags=re.I)
         need(bool(matches), f"published-page {label} missing")
         need(len(set(matches)) == 1, f"ambiguous published-page {label}")
         return datetime.strptime(matches[0], "%d %B %Y").date()
@@ -69,14 +69,14 @@ def parsed_release_dates(text):
 # anywhere in the entire page. The first relevant labelled observation wins.
 # Numeric boundaries prevent '17.9' from matching '117.9' or '17.95'.
 HEADLINE_PATTERNS = {
-    "teacher_fte": r"\\bFTE of all school teachers\\b\\s+([\\d,]+)\\b",
-    "teaching_assistant_fte": r"\\bFTE of teaching assistants\\b\\s+([\\d,]+)\\b",
-    "pupil_teacher_ratio": r"\\bPupil to teacher ratio\\b\\s+(\\d+(?:\\.\\d+)?)(?![\\d.,])",
-    "teacher_vacancy_rate": r"\\bTeacher vacancy rate\\b\\s+(\\d+(?:\\.\\d+)?%)(?![\\d.,])",
-    "fsm_eligibility_rate": r"(\\d+(?:\\.\\d+)?%)\\s+of pupils are eligible for free school meals\\b",
-    "school_count": r"\\bnumber of schools has increased slightly, by\\s+[\\d,]+\\s+to\\s+([\\d,]+)\\b",
-    "allocated_funding_per_pupil_2026_27": r"\\bOn a per-pupil basis.{0,200}?in 2026-27 was\\s+(£[\\d,]+)(?![\\d.,])",
-    "allocated_funding_total_2026_27": r"\\btotal funding allocated to schools through the grants covered in this report is\\s+(£[\\d,.]+ billion)\\b",
+    "teacher_fte": r"\bFTE of all school teachers\b\s+([\d,]+)\b",
+    "teaching_assistant_fte": r"\bFTE of teaching assistants\b\s+([\d,]+)\b",
+    "pupil_teacher_ratio": r"\bPupil to teacher ratio\b\s+(\d+(?:\.\d+)?)(?![\d.,])",
+    "teacher_vacancy_rate": r"\bTeacher vacancy rate\b\s+(\d+(?:\.\d+)?%)(?![\d.,])",
+    "fsm_eligibility_rate": r"(\d+(?:\.\d+)?%)\s+of pupils are eligible for free school meals\b",
+    "school_count": r"\bnumber of schools has increased slightly, by\s+[\d,]+\s+to\s+([\d,]+)\b",
+    "allocated_funding_per_pupil_2026_27": r"\bOn a per-pupil basis.{0,200}?in 2026-27 was\s+(£[\d,]+)(?![\d.,])",
+    "allocated_funding_total_2026_27": r"\btotal funding allocated to schools through the grants covered in this report is\s+(£[\d,.]+ billion)\b",
 }
 
 
