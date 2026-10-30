@@ -252,8 +252,11 @@ pub fn contrast(outcomes: &[Trial]) -> (usize, usize) {
                 && x.extra_delivery_lag == baseline.extra_delivery_lag
                 && x.response_lag == baseline.response_lag
         }) {
-            if baseline.admission == Admission::Ratified
-                && comparator.admission == Admission::Ratified
+            if baseline.admission != Admission::Ratified
+                || comparator.admission != Admission::Ratified
+            {
+                continue;
+            }
             {
                 ranked += 1;
                 // Reference ranking comes from the baseline coefficient/lag/table case.
