@@ -22,7 +22,80 @@
       "access": 0
     },
     "response_lag": 1,
-    "starting_support_ppm": 500000
+    "starting_support_ppm": 500000,
+    "authoritative_mechanism": {
+      "kind": "authored_not_empirically_calibrated",
+      "delivery_unit": "one fictional funded service unit per credit",
+      "floor_policy": "checked integer arithmetic, per-scope fractional carry",
+      "families": [
+        "staffing",
+        "repairs",
+        "access"
+      ],
+      "shared_capacity_per_family": true,
+      "staffing_effort_permille_default": 1000,
+      "repairs_effort_permille_default": 1000,
+      "access_effort_permille": 1000,
+      "quarter_response_clip_ppm": 8000,
+      "response_coefficients_ppm_per_delivered_unit": {
+        "staffing": 500,
+        "repairs": 400,
+        "access": 750,
+        "cost": 400
+      },
+      "geography_multiplier_percent": {
+        "urban": {
+          "staffing": 100,
+          "repairs": 100,
+          "access": 100,
+          "cost": 100
+        },
+        "rural": {
+          "staffing": 80,
+          "repairs": 130,
+          "access": 140,
+          "cost": 100
+        }
+      },
+      "income_multiplier_percent": {
+        "low": {
+          "staffing": 120,
+          "repairs": 90,
+          "access": 130,
+          "cost": 130
+        },
+        "middle": {
+          "staffing": 100,
+          "repairs": 100,
+          "access": 100,
+          "cost": 100
+        },
+        "high": {
+          "staffing": 80,
+          "repairs": 110,
+          "access": 70,
+          "cost": 150
+        }
+      },
+      "coefficient_sensitivity": [
+        "0.5",
+        "1.0",
+        "1.5"
+      ],
+      "delivery_lag_sensitivity_quarters": [
+        1,
+        2
+      ],
+      "response_lag_sensitivity_quarters": [
+        1,
+        2
+      ]
+    },
+    "treasury_invariant": "available + encumbered_staffing + encumbered_repairs + encumbered_access + service_spent + audit_spent = 100",
+    "audit": {
+      "first_eligible_free": true,
+      "subsequent_cost_credits": 2
+    }
   },
   "population": {
     "universe": "synthetic school-service beneficiaries, NOT England population, pupil census counts, or UK adults",
@@ -116,7 +189,40 @@
     "initial_political_promises": [
       "Finance seeks funded milestones",
       "Education seeks staffing continuity"
-    ]
+    ],
+    "minister_authorities": {
+      "finance": [
+        "vote",
+        "review_credits",
+        "typed_funded_conditions"
+      ],
+      "education": [
+        "vote",
+        "typed_staffing_terms",
+        "private_staffing_effort_permille"
+      ],
+      "infrastructure": [
+        "vote",
+        "typed_repair_terms",
+        "private_repairs_effort_permille"
+      ]
+    },
+    "principles": [
+      "ratification requires 2/3 valid support votes",
+      "no credit spent at proposal/meeting stage",
+      "capacity cap changes require approved package",
+      "minister private effort never player-controlled",
+      "no automatic quarter advance"
+    ],
+    "commitment_ledger": {
+      "enforceable_initial": [],
+      "political_initial": [
+        "Finance asks for audited tranches",
+        "Education publicly promises staffing continuity"
+      ],
+      "honored_relationship_delta": 2,
+      "broken_relationship_delta": -5
+    }
   },
   "groups": [
     {
