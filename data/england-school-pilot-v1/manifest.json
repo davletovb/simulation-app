@@ -1,0 +1,20 @@
+{
+  "authored_sha256": "574bc1494f2b3410943320257f1e58a2f8b470652f55c0a8fabe4aea0b77b6bf",
+  "country_pack_sha256": "08c8286432e4701b61307f1777501a0a7a252202c64a4db71d01b31c5827f4ca",
+  "coverage": {
+    "explicit_missing_variables": 4,
+    "joint_distribution_empirically_supported": false,
+    "sourced_headline_indicators": 8
+  },
+  "cutoff_utc": "2026-10-29T23:59:59Z",
+  "observations_sha256": "03d3542e4516584f07f57a937622a4e7b118444b7200d5816db0f260048e5ba3",
+  "pack_id": "england-school-delivery-v1",
+  "raw_original_pages_archived": true,
+  "schema_version": 1,
+  "scope": "Fictional England data twin; no empirical policy forecast or GBP mapping",
+  "snapshot_capture_utc": "2026-10-30T14:39:49Z",
+  "source_manifest_sha256": "e3374f2dd960d097abcdc5d97dc23c5364d25a2c7f0362d28858bf1ab70dc6ac",
+  "source_reuse_terms": "OGL-v3-except-third-party-material",
+  "underlying_csv_datasets_archived": false,
+  "values_sha256": "144e293cd6bd7ead481acb5d19f8177785af4d0aa99f9ff8591c65eeed0be543"
+}
