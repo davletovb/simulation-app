@@ -385,9 +385,12 @@ impl LedgerMove {
     }
 }
 
-fn treasury_slot<'a>(family: PolicyFamily, staff: &'a mut u16,
-    repairs: &'a mut u16, access: &'a mut u16) -> &'a mut u16
-{
+fn treasury_slot<'a>(
+    family: PolicyFamily,
+    staff: &'a mut u16,
+    repairs: &'a mut u16,
+    access: &'a mut u16,
+) -> &'a mut u16 {
     match family {
         PolicyFamily::Staffing => staff,
         PolicyFamily::Repairs => repairs,
@@ -494,30 +497,38 @@ impl Treasury {
 
         match movement {
             LedgerMove::Reserve { family, .. } => {
-                available = available.checked_sub(credits)
+                available = available
+                    .checked_sub(credits)
                     .ok_or(ContractError::InsufficientAvailableFunds)?;
                 let target = treasury_slot(family, &mut staff, &mut repairs, &mut access);
-                *target = target.checked_add(credits)
+                *target = target
+                    .checked_add(credits)
                     .ok_or(ContractError::ArithmeticOverflow)?;
             }
             LedgerMove::Release { family, .. } => {
                 let target = treasury_slot(family, &mut staff, &mut repairs, &mut access);
-                *target = target.checked_sub(credits)
+                *target = target
+                    .checked_sub(credits)
                     .ok_or(ContractError::InvalidTreasury)?;
-                available = available.checked_add(credits)
+                available = available
+                    .checked_add(credits)
                     .ok_or(ContractError::ArithmeticOverflow)?;
             }
             LedgerMove::SpendService { family, .. } => {
                 let target = treasury_slot(family, &mut staff, &mut repairs, &mut access);
-                *target = target.checked_sub(credits)
+                *target = target
+                    .checked_sub(credits)
                     .ok_or(ContractError::InvalidTreasury)?;
-                service = service.checked_add(credits)
+                service = service
+                    .checked_add(credits)
                     .ok_or(ContractError::ArithmeticOverflow)?;
             }
             LedgerMove::SpendAudit { .. } => {
-                available = available.checked_sub(credits)
+                available = available
+                    .checked_sub(credits)
                     .ok_or(ContractError::InsufficientAvailableFunds)?;
-                audit = audit.checked_add(credits)
+                audit = audit
+                    .checked_add(credits)
                     .ok_or(ContractError::ArithmeticOverflow)?;
             }
         }
@@ -525,12 +536,19 @@ impl Treasury {
     }
     /// Compatibility primitive; delegates to the single checked movement path.
     /// P3 must enforce authority, unique payout and scope identity separately.
-    pub fn record_delivery(&mut self, family: PolicyFamily, units: u16)
-        -> Result<(), ContractError>
-    {
+    pub fn record_delivery(
+        &mut self,
+        family: PolicyFamily,
+        units: u16,
+    ) -> Result<(), ContractError> {
         // Preserve the old no-op semantics for callers with a zero delivery.
-        if units == 0 { return self.validate(); }
-        let next = self.apply(LedgerMove::SpendService { family, credits: units })?;
+        if units == 0 {
+            return self.validate();
+        }
+        let next = self.apply(LedgerMove::SpendService {
+            family,
+            credits: units,
+        })?;
         *self = next;
         Ok(())
     }
@@ -749,8 +767,9 @@ impl Commitment {
     pub fn validate(&self) -> Result<(), ContractError> {
         validate_identifier(&self.id)?;
         validate_identifier(&self.trigger)?;
-        if self.funded_units > PILOT_CREDITS ||
-            (self.kind == CommitmentKind::Political && self.funded_units != 0) {
+        if self.funded_units > PILOT_CREDITS
+            || (self.kind == CommitmentKind::Political && self.funded_units != 0)
+        {
             return Err(ContractError::InvalidCondition);
         }
         match (self.status, &self.resolution_event) {
