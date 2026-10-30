@@ -31,7 +31,7 @@ npm --prefix apps/web ci --ignore-scripts
 npm --prefix apps/web run dev
 ```
 
-Open the localhost URL printed by Vite (normally `http://127.0.0.1:5173`). The web app binds to loopback only. To check the production interface build, run `npm --prefix apps/web run build`. The `/api` development proxy currently targets a **future** local Rust service on `127.0.0.1:8787`; no backend is running for this preview. Do not place an API key in `apps/web`, environment variables exposed to Vite, or browser code. Vite exposes only variables with the `MYTH_PUBLIC_` prefix; its build refuses exposed names containing `KEY`, `TOKEN`, `SECRET`, `PASSWORD`, or `CREDENTIAL`. This guard does not replace a complete security review. The server/API implementation and Serde-generated wire contracts are still P1 work.
+Open the localhost URL printed by Vite (normally `http://127.0.0.1:5173`). The web app binds to loopback only. To check the production interface build, run `npm --prefix apps/web run build`. The `/api` development proxy targets the **implemented local Rust service** at `127.0.0.1:8787`. Launch it separately using the P1d command below; if it is not running, the forecast shows an unavailable state with a Retry control. Do not place an API key in `apps/web`, environment variables exposed to Vite, or browser code. Vite exposes only variables with the `MYTH_PUBLIC_` prefix; its build refuses exposed names containing `KEY`, `TOKEN`, `SECRET`, `PASSWORD`, or `CREDENTIAL`. This guard does not replace a complete security review. The offline API and generated transport contracts now exist, but the authoritative P3 reducer, full game persistence, and live-inference admission remain future work.
 
 ## Rust-powered offline preview (P1d)
 
