@@ -6,6 +6,7 @@
 //! does not embed free-text transcripts, LLM prompts, provider keys or UI state.
 //! On untrusted resume Hiyal replays the committed journal; the reducer is
 //! reconstituted from its private action fold and checked against the digest.
+pub mod orchestrator;
 use hiyal::core::{AgentId, World};
 use myth_contracts::{PublicPosition, checkpoint::PrivateCheckpoint, parse_command, parse_minister_action};
 use myth_domain as d;
