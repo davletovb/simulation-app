@@ -1,4 +1,4 @@
-name: P3 review amendments one-shot verification
+name: P3 review amendments one-shot verification (credited ordering)
 on:
   push:
     branches: [feat/p3-pure-reducer]
