@@ -126,7 +126,10 @@ impl TryFrom<Condition> for d::FundedCondition {
     type Error = WireError;
     fn try_from(c: Condition) -> Result<Self, Self::Error> {
         Ok(Self::new(
-            c.kind_id, c.family.into(), c.units, d::DueQuarter::new(c.due_quarter)?
+            c.kind_id,
+            c.family.into(),
+            c.units,
+            d::DueQuarter::new(c.due_quarter)?,
         )?)
     }
 }
@@ -319,24 +322,36 @@ pub struct AcceptedMinisterAction {
     pub public: PublicPosition,
     pub private_effort: Option<d::PrivateEffortDeclaration>,
 }
-pub fn parse_minister_action(raw: &str, available_credits: u16)
-    -> Result<AcceptedMinisterAction, WireError>
-{
+pub fn parse_minister_action(
+    raw: &str,
+    available_credits: u16,
+) -> Result<AcceptedMinisterAction, WireError> {
     let action: MinisterAction =
         serde_json::from_str(raw).map_err(|e| WireError::Json(e.to_string()))?;
     match action {
         MinisterAction::First {
-            schema_version, meeting_id, proposal_version, ministry, position,
-            preferred_allocation, counterproposal_source, conditions,
-            evidence_ids, rationale_summary,
+            schema_version,
+            meeting_id,
+            proposal_version,
+            ministry,
+            position,
+            preferred_allocation,
+            counterproposal_source,
+            conditions,
+            evidence_ids,
+            rationale_summary,
         } => {
             schema(schema_version)?;
             let minister: d::Ministry = ministry.into();
             let parsed_version = version(&proposal_version)?;
             let preferred = d::PreferredAllocation::assess(
-                preferred_allocation.try_into()?, available_credits)?;
+                preferred_allocation.try_into()?,
+                available_credits,
+            )?;
             let checked: Vec<d::FundedCondition> = conditions
-                .into_iter().map(TryInto::try_into).collect::<Result<_, _>>()?;
+                .into_iter()
+                .map(TryInto::try_into)
+                .collect::<Result<_, _>>()?;
             let origin = match counterproposal_source {
                 Counterproposal::Menu { menu_id } => {
                     identifier(&menu_id)?;
@@ -345,33 +360,64 @@ pub fn parse_minister_action(raw: &str, available_credits: u16)
                 Counterproposal::NewTyped {} => d::CounterproposalOrigin::NewTyped,
             };
             let mut p = d::FirstPosition::new(
-                meeting_id, parsed_version, minister, position.into(), preferred, origin)?;
+                meeting_id,
+                parsed_version,
+                minister,
+                position.into(),
+                preferred,
+                origin,
+            )?;
             p.set_public_details(checked, evidence_ids, rationale_summary)?;
-            Ok(AcceptedMinisterAction { public: PublicPosition::First(p), private_effort: None })
+            Ok(AcceptedMinisterAction {
+                public: PublicPosition::First(p),
+                private_effort: None,
+            })
         }
         MinisterAction::Final {
-            schema_version, meeting_id, proposal_version, ministry, position,
-            preferred_allocation, conditions, evidence_ids, rationale_summary,
+            schema_version,
+            meeting_id,
+            proposal_version,
+            ministry,
+            position,
+            preferred_allocation,
+            conditions,
+            evidence_ids,
+            rationale_summary,
             implementation_effort_permille,
         } => {
             schema(schema_version)?;
             let minister: d::Ministry = ministry.into();
             let parsed_version = version(&proposal_version)?;
             let preferred = d::PreferredAllocation::assess(
-                preferred_allocation.try_into()?, available_credits)?;
+                preferred_allocation.try_into()?,
+                available_credits,
+            )?;
             let checked: Vec<d::FundedCondition> = conditions
-                .into_iter().map(TryInto::try_into).collect::<Result<_, _>>()?;
+                .into_iter()
+                .map(TryInto::try_into)
+                .collect::<Result<_, _>>()?;
             let private_effort = match (minister, implementation_effort_permille) {
                 (d::Ministry::Finance, None) => None,
                 (d::Ministry::Finance, Some(_)) => return Err(WireError::Field("finance_effort")),
                 (_, None) => return Err(WireError::Field("missing_effort")),
                 (_, Some(n)) => Some(d::PrivateEffortDeclaration::new(
-                    meeting_id.clone(), minister, d::EffortPermille::new(n)?)?),
+                    meeting_id.clone(),
+                    minister,
+                    d::EffortPermille::new(n)?,
+                )?),
             };
             let mut p = d::FinalPosition::new(
-                meeting_id, parsed_version, minister, position.into(), preferred)?;
+                meeting_id,
+                parsed_version,
+                minister,
+                position.into(),
+                preferred,
+            )?;
             p.set_public_details(checked, evidence_ids, rationale_summary)?;
-            Ok(AcceptedMinisterAction { public: PublicPosition::Final(p), private_effort })
+            Ok(AcceptedMinisterAction {
+                public: PublicPosition::Final(p),
+                private_effort,
+            })
         }
     }
 }
@@ -398,7 +444,9 @@ impl TryFrom<&d::Commitment> for PublicCommitment {
     fn try_from(c: &d::Commitment) -> Result<Self, Self::Error> {
         identifier(&c.id)?;
         identifier(&c.trigger)?;
-        if let Some(event) = &c.resolution_event { identifier(event)?; }
+        if let Some(event) = &c.resolution_event {
+            identifier(event)?;
+        }
         if c.funded_units > d::PILOT_CREDITS {
             return Err(WireError::Field("commitment.funded_units"));
         }
@@ -410,7 +458,8 @@ impl TryFrom<&d::Commitment> for PublicCommitment {
             kind: match c.kind {
                 d::CommitmentKind::Enforceable => "enforceable",
                 d::CommitmentKind::Political => "political",
-            }.into(),
+            }
+            .into(),
             funded_units: c.funded_units,
             trigger: c.trigger.clone(),
             deadline_quarter: c.deadline_quarter.value(),
@@ -418,7 +467,8 @@ impl TryFrom<&d::Commitment> for PublicCommitment {
                 d::CommitmentStatus::Pending => "pending",
                 d::CommitmentStatus::Honored => "honored",
                 d::CommitmentStatus::Broken => "broken",
-            }.into(),
+            }
+            .into(),
             resolution_event: c.resolution_event.clone(),
         })
     }
@@ -457,8 +507,11 @@ impl TryFrom<&d::RoleObservation> for PublicRoleView {
     type Error = WireError;
     fn try_from(role: &d::RoleObservation) -> Result<Self, Self::Error> {
         role.validate()?;
-        let commitments = role.owned_commitments.iter()
-            .map(PublicCommitment::try_from).collect::<Result<Vec<_>, _>>()?;
+        let commitments = role
+            .owned_commitments
+            .iter()
+            .map(PublicCommitment::try_from)
+            .collect::<Result<Vec<_>, _>>()?;
         Ok(Self {
             schema_version: role.schema_version(),
             campaign_id: role.campaign_id.clone(),
@@ -467,7 +520,8 @@ impl TryFrom<&d::RoleObservation> for PublicRoleView {
             ministry: role.ministry.into(),
             quarter: role.quarter.value(),
             allocation: Allocation {
-                staff: role.allocation.staff(), repairs: role.allocation.repairs(),
+                staff: role.allocation.staff(),
+                repairs: role.allocation.repairs(),
                 access: role.allocation.access(),
             },
             available_credits: role.available_credits,
@@ -507,31 +561,49 @@ mod tests {
     fn stage_fields_must_not_cross_and_absent_finance_effort_is_valid() {
         assert!(parse_minister_action(&minister("final", "finance", "omit"), 100).is_ok());
         assert!(parse_minister_action(&minister("final", "education", "omit"), 100).is_err());
-        let injected = minister("final","education","500").replace(
-            r#""conditions":[],"#, r#""counterproposal_source":{"kind":"menu","menu_id":"zz"},"conditions":[],"#);
+        let injected = minister("final", "education", "500").replace(
+            r#""conditions":[],"#,
+            r#""counterproposal_source":{"kind":"menu","menu_id":"zz"},"conditions":[],"#,
+        );
         assert!(parse_minister_action(&injected, 100).is_err());
-        let bad_first = minister("first","education","omit").replace(
-            r#""conditions":[],"#, r#""implementation_effort_permille":800,"conditions":[],"#);
+        let bad_first = minister("first", "education", "omit").replace(
+            r#""conditions":[],"#,
+            r#""implementation_effort_permille":800,"conditions":[],"#,
+        );
         assert!(parse_minister_action(&bad_first, 100).is_err());
     }
     #[test]
     fn public_view_requires_domain_validation_and_preserves_commitments() {
-        let mut role = d::RoleObservation::new(d::RoleObservationInput{
-            campaign_id:"c".into(), meeting_id:"m".into(), proposal_version:d::WireU64::new(1),
-            ministry:d::Ministry::Finance, quarter:d::Quarter::new(1).unwrap(),
-            allocation:d::Allocation::draft(50,40,10).unwrap(),available_credits:0,
-            belief_ppm:d::BeliefPpm::new(500000).unwrap(),
-        }).unwrap();
+        let mut role = d::RoleObservation::new(d::RoleObservationInput {
+            campaign_id: "c".into(),
+            meeting_id: "m".into(),
+            proposal_version: d::WireU64::new(1),
+            ministry: d::Ministry::Finance,
+            quarter: d::Quarter::new(1).unwrap(),
+            allocation: d::Allocation::draft(50, 40, 10).unwrap(),
+            available_credits: 0,
+            belief_ppm: d::BeliefPpm::new(500000).unwrap(),
+        })
+        .unwrap();
         role.owned_commitments.push(d::Commitment {
-            id:"commit".into(),issuer:d::Ministry::Finance,beneficiary:d::Ministry::Education,
-            proposal_version:d::WireU64::new(u64::MAX),kind:d::CommitmentKind::Political,
-            funded_units:5,trigger:"trigger".into(),deadline_quarter:d::DueQuarter::new(8).unwrap(),
-            status:d::CommitmentStatus::Pending,resolution_event:None,
+            id: "commit".into(),
+            issuer: d::Ministry::Finance,
+            beneficiary: d::Ministry::Education,
+            proposal_version: d::WireU64::new(u64::MAX),
+            kind: d::CommitmentKind::Political,
+            funded_units: 5,
+            trigger: "trigger".into(),
+            deadline_quarter: d::DueQuarter::new(8).unwrap(),
+            status: d::CommitmentStatus::Pending,
+            resolution_event: None,
         });
-        let wire=PublicRoleView::try_from(&role).unwrap();
-        let json=serde_json::to_value(&wire).unwrap();
-        assert_eq!(json["owned_commitments"][0]["proposal_version"],u64::MAX.to_string());
-        assert_eq!(json["owned_commitments"][0]["deadline_quarter"],8);
+        let wire = PublicRoleView::try_from(&role).unwrap();
+        let json = serde_json::to_value(&wire).unwrap();
+        assert_eq!(
+            json["owned_commitments"][0]["proposal_version"],
+            u64::MAX.to_string()
+        );
+        assert_eq!(json["owned_commitments"][0]["deadline_quarter"], 8);
         assert!(json.get("implementation_effort_permille").is_none());
         role.visible_evidence_ids.push("bad\u{202E}id".into());
         assert!(PublicRoleView::try_from(&role).is_err());
@@ -539,8 +611,10 @@ mod tests {
     #[test]
     fn generated_schema_carries_domain_numeric_and_canonical_bounds() {
         let command = serde_json::to_value(schemars::schema_for!(CommandEnvelope)).unwrap();
-        assert_eq!(command["properties"]["expected_world_version"]["pattern"],
-            "^(0|[1-9][0-9]{0,19})$");
+        assert_eq!(
+            command["properties"]["expected_world_version"]["pattern"],
+            "^(0|[1-9][0-9]{0,19})$"
+        );
         let minister = serde_json::to_value(schemars::schema_for!(MinisterAction)).unwrap();
         let as_text = minister.to_string();
         assert!(as_text.contains("1000"), "effort range missing");
