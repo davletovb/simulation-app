@@ -99,6 +99,9 @@ pub struct GameWorld {
     pub actions: Vec<GameAction>,
     /// Authoritative private state hash; not a public role projection.
     pub private_state_sha256: String,
+    /// Hiyal synchronous rounds freeze all three role observations at
+    /// the phase-entry boundary, not after each actor's partial commit.
+    pub frozen_role_anchor: Option<String>,
     pub world_version: String,
     pub quarter: u8,
     pub phase: String,
@@ -129,6 +132,7 @@ impl GameWorld {
             rules_identity:"p3-rules-2026-10-30-p4-authored-v1".into(),
             weights_ppm:weights,source_cutoff_utc:"2026-10-29T23:59:59Z".into(),
             actions:vec![], private_state_sha256:String::new(),
+            frozen_role_anchor:None,
             world_version:"0".into(),quarter:1,phase:"quarter_open".into(),
         };
         let campaign=world.fold()?;
@@ -223,6 +227,23 @@ impl GameWorld {
     /// checksums alone. The complete Hiyal journal still must be verified.
     pub fn verify(&self)->Result<(),String>{
         let campaign=self.fold()?;
+        let expected_anchor = if self.phase=="first_positions_frozen"
+            || self.phase=="final_positions_frozen" {
+            let entry_kind = if self.phase=="first_positions_frozen" {"propose"}
+                else {"freeze_final"};
+            let entry = self.actions.iter().rposition(|a| {
+                if entry_kind=="freeze_final" {a.kind==ActionKind::FreezeFinal}
+                else {a.kind==ActionKind::PlayerCommand
+                    && a.payload["command"]["kind"]=="propose"}
+            }).ok_or("frozen phase lacks boundary action")?;
+            let mut start=self.clone();
+            start.actions.truncate(entry+1);
+            let begin=start.fold()?;
+            Some(start.digest_campaign(&begin)?)
+        } else {None};
+        if expected_anchor!=self.frozen_role_anchor {
+            return Err("frozen role observation boundary mismatch".into());
+        }
         if campaign.world().world_version().to_decimal()!=self.world_version
             || campaign.world().quarter().value()!=self.quarter
             || Self::phase_of(&campaign)!=self.phase
@@ -331,7 +352,9 @@ impl GameWorld {
         }
         Ok(GameAction {
             actor:u8::try_from(actor.0).map_err(error)?,kind,payload,
-            observation_sha256:self.private_state_sha256.clone(),
+            observation_sha256:if actor_role(actor).is_some() {
+                self.frozen_role_anchor.clone().ok_or("missing frozen role anchor")?
+            } else { self.private_state_sha256.clone() },
         })
     }
 }
@@ -350,7 +373,10 @@ impl World for GameWorld {
     fn apply(&mut self,actor:AgentId,action:GameAction)->Result<(),String>{
         self.verify()?;
         if u64::from(action.actor)!=actor.0{return Err("actor mismatch".into());}
-        if action.observation_sha256!=self.private_state_sha256{
+        let expected_anchor=if actor_role(actor).is_some() {
+            self.frozen_role_anchor.as_ref().ok_or("missing frozen role anchor")?
+        } else {&self.private_state_sha256};
+        if &action.observation_sha256!=expected_anchor {
             return Err("stale or unbound observation".into());
         }
         if action!=self.planned(actor)? {
@@ -360,7 +386,15 @@ impl World for GameWorld {
         let mut candidate=self.clone();
         candidate.actions.push(action);
         let result=candidate.fold()?;
+        let was_phase=self.phase.clone();
         candidate.refresh(&result)?;
+        candidate.frozen_role_anchor =
+            if candidate.phase=="first_positions_frozen"
+                || candidate.phase=="final_positions_frozen" {
+                if candidate.phase!=was_phase {
+                    Some(candidate.private_state_sha256.clone())
+                } else {self.frozen_role_anchor.clone()}
+            } else {None};
         *self=candidate;
         Ok(())
     }
