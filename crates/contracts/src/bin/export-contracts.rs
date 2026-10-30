@@ -1,11 +1,14 @@
 //! Regenerate checked-in TypeScript and JSON Schema from the Serde wire DTOs.
 //! --check fails on drift; --emit prints initial artifacts for repository bootstrap.
 use myth_contracts::{
-    Allocation, CapacityCaps, CommandEnvelope, Condition, Counterproposal,
-    Family, MinisterAction, Ministry, PlayerAction, PublicRoleView, Stage, Vote,
+    Allocation, CapacityCaps, CommandEnvelope, Condition, Counterproposal, Family, MinisterAction,
+    Ministry, PlayerAction, PublicRoleView, Stage, Vote,
 };
 use schemars::schema_for;
-use std::{env, fs, path::{Path, PathBuf}};
+use std::{
+    env, fs,
+    path::{Path, PathBuf},
+};
 use ts_rs::TS;
 
 fn generated_types() -> String {
@@ -23,19 +26,29 @@ fn generated_types() -> String {
         <MinisterAction as TS>::decl(),
         <PublicRoleView as TS>::decl(),
     ];
-    format!("// GENERATED from myth-contracts. DO NOT EDIT.\n// All *_version and expected_world_version fields are decimal strings.\n\n{}\n",
-        declarations.join("\n\n"))
+    format!(
+        "// GENERATED from myth-contracts. DO NOT EDIT.\n// All *_version and expected_world_version fields are decimal strings.\n\n{}\n",
+        declarations.join("\n\n")
+    )
 }
 fn generated_schema<T: schemars::JsonSchema>() -> String {
-    format!("{}\n", serde_json::to_string_pretty(&schema_for!(T)).expect("schema serialization"))
+    format!(
+        "{}\n",
+        serde_json::to_string_pretty(&schema_for!(T)).expect("schema serialization")
+    )
 }
 fn put(root: &Path, relative: &str, content: &str, mode: &str) {
     let path = root.join(relative);
     match mode {
         "--check" => {
-            let old = fs::read_to_string(&path).unwrap_or_else(|e|
-                panic!("Missing generated artifact {}: {e}",path.display()));
-            assert_eq!(old, content, "Generated contract drift in {}", path.display());
+            let old = fs::read_to_string(&path)
+                .unwrap_or_else(|e| panic!("Missing generated artifact {}: {e}", path.display()));
+            assert_eq!(
+                old,
+                content,
+                "Generated contract drift in {}",
+                path.display()
+            );
         }
         "--emit" => {
             println!("MYTH_BEGIN:{relative}");
@@ -50,10 +63,30 @@ fn put(root: &Path, relative: &str, content: &str, mode: &str) {
     }
 }
 fn main() {
-    let mode=env::args().nth(1).unwrap_or_else(|| "--check".into());
-    let root=PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
-    put(&root, "apps/web/src/generated/transport.ts", &generated_types(), &mode);
-    put(&root, "docs/contracts/command.schema.json", &generated_schema::<CommandEnvelope>(), &mode);
-    put(&root, "docs/contracts/minister-action.schema.json", &generated_schema::<MinisterAction>(), &mode);
-    put(&root, "docs/contracts/public-role-view.schema.json", &generated_schema::<PublicRoleView>(), &mode);
+    let mode = env::args().nth(1).unwrap_or_else(|| "--check".into());
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+    put(
+        &root,
+        "apps/web/src/generated/transport.ts",
+        &generated_types(),
+        &mode,
+    );
+    put(
+        &root,
+        "docs/contracts/command.schema.json",
+        &generated_schema::<CommandEnvelope>(),
+        &mode,
+    );
+    put(
+        &root,
+        "docs/contracts/minister-action.schema.json",
+        &generated_schema::<MinisterAction>(),
+        &mode,
+    );
+    put(
+        &root,
+        "docs/contracts/public-role-view.schema.json",
+        &generated_schema::<PublicRoleView>(),
+        &mode,
+    );
 }
