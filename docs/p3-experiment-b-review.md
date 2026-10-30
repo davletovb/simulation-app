@@ -16,6 +16,10 @@
 
 **Release limits:** The first case specifies *delivery-paid tranche milestones*, not arbitrary new audit-dependent trust-fund/escrow triggers. A promise or ratification does **not** release money; payment is authorized only when already funded work is actually delivered. Reallocation keeps the same scope's partial carry and refuses reducing below pending protected units. No recurring maintenance fee outside its explicit funded service units, no debt or automatic refill. Future extensions must be versioned and should not smuggle in policy effects absent from the authored case.
 
+## Verified CI receipt
+
+[Essential offline CI #41091626021](https://github.com/davletovb/simulation-app/actions/runs/41091626021) **passed** at `48f22484eb7d17119faf73bafa8379d4bcbcdb82`. It executed Rustfmt, strict Clippy, complete Rust workspace tests, all 144 authored sensitivity variants and exact generated-result diff, source guards, P2 offline verification, local API and private checkpoint smoke, generated contracts, frontend build, and secret scans. This is successful software/mechanical verification of the bounded headless implementation, not empirical validation or P4 replay acceptance.
+
 ## Evidence and execution
 
 - [Frozen P2 source review](p2-country-pack-review.md) — original DfE headline pages and distinct authored gaps.
