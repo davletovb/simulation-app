@@ -213,6 +213,19 @@ mod tests {
         );
     }
     #[test]
+    fn finance_treats_political_misses_as_preferences_not_legal_veto(){
+        let mut f=view(Ministry::Finance,Allocation::draft(50,40,10).unwrap(),500_000);
+        f.owned_commitments.push(crate::Commitment{
+            id:"political".into(),issuer:Ministry::Finance,beneficiary:Ministry::Finance,
+            proposal_version:WireU64::new(1),kind:crate::CommitmentKind::Political,
+            funded_units:0,trigger:"monitor".into(),deadline_quarter:crate::DueQuarter::new(1).unwrap(),
+            status:crate::CommitmentStatus::Broken,resolution_event:Some("miss".into())
+        });
+        assert_eq!(decide(&f).unwrap().final_position.vote,Position::Support);
+        f.owned_commitments[0].kind=crate::CommitmentKind::Enforceable;
+        assert_eq!(decide(&f).unwrap().final_position.vote,Position::Oppose);
+    }
+    #[test]
     fn five_profile_only_anchor_pairs_do_not_imitate_player_amendments() {
         let mut pairs=0;
         for opening_staff in [40_u16,45,50,55,60] {
