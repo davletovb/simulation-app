@@ -9,8 +9,8 @@ use crate::world::{
 use crate::{
     Allocation, CapacityCaps, CohortWeights, CommandEnvelope, Commitment, CommitmentKind,
     CommitmentStatus, ContractError, DueQuarter, EffortPermille, FinalPosition, FirstPosition,
-    FundedScope, LedgerMove, Ministry, PILOT_CREDITS, PolicyFamily, Position,
-    PrivateEffortDeclaration, Quarter, SIX_QUARTERS, Treasury, WireU64, deliver_family_quarter,
+    FundedScope, LedgerMove, Ministry, PolicyFamily, Position,
+    PrivateEffortDeclaration, Quarter, SIX_QUARTERS, WireU64, deliver_family_quarter,
     validate_identifier,
 };
 use std::collections::{BTreeMap, BTreeSet};
@@ -20,6 +20,7 @@ const FAMILIES: [PolicyFamily; 3] = [
     PolicyFamily::Repairs,
     PolicyFamily::Access,
 ];
+#[cfg(test)]
 const ROLES: [Ministry; 3] = [
     Ministry::Finance,
     Ministry::Education,
@@ -554,7 +555,7 @@ impl Campaign {
                 &mut scoped,
             )?;
             delivered[ix] = delivery.total_delivered;
-            for (index, updated) in indexes.into_iter().zip(scoped.into_iter()) {
+            for (index, updated) in indexes.into_iter().zip(scoped) {
                 parts.scopes[index] = updated;
             }
             if delivery.total_delivered > 0 {
