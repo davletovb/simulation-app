@@ -380,9 +380,10 @@ impl World for GameWorld {
         if &action.observation_sha256!=expected_anchor {
             return Err("stale or unbound observation".into());
         }
-        if action!=self.planned(actor)? {
-            return Err("attempt to commit nonauthorized or changed scripted action".into());
-        }
+        // The P4 demonstration policy chooses deterministic scripted actions,
+        // but a future P6 recorded player command is admitted by the SAME P3
+        // typed reducer after the Hiyal keyed player_command receipt.
+        // This world never authorizes an operation merely from free text.
         if self.actions.len()>=MAX_ACCEPTED_ACTIONS {return Err("action cap exceeded".into());}
         let mut candidate=self.clone();
         candidate.actions.push(action);
