@@ -1,15 +1,10 @@
 import { useCallback, useEffect, useState } from 'react'
 import { FAMILIES, QUARTERS, draftStatus, type Allocation, type FamilyForecast } from './game'
 
-type ServiceFamily = 'staffing' | 'repairs' | 'access'
-interface ServiceLine { family: ServiceFamily; per_quarter: number[]; outstanding: number }
-interface ServicePreview {
-  kind: 'optimistic_upper_bound'
-  calculator: 'myth-domain'
-  authoritative_simulation: false
-  conditional_access_bonus: boolean
-  families: ServiceLine[]
-}
+import type { ForecastLine, ForecastResponse } from './generated/transport'
+type ServiceFamily = ForecastLine['family']
+type ServiceLine = ForecastLine
+type ServicePreview = ForecastResponse
 type PreviewState = { key: string; rows: FamilyForecast[] | null; status: 'ok' | 'unavailable' }
 const familyKey: Record<ServiceFamily, string> = {
   staffing: 'staff', repairs: 'repairs', access: 'access',
@@ -23,7 +18,7 @@ function parsePreview(raw: unknown): FamilyForecast[] {
       response.families.length !== FAMILIES.length) throw new Error('Unexpected preview contract')
   const source = new Map<string, ServiceLine>()
   for (const item of response.families) {
-    if (!item || !(item.family in familyKey) || source.has(item.family)) {
+    if (!item || !Object.prototype.hasOwnProperty.call(familyKey, item.family) || source.has(item.family)) {
       throw new Error('Unknown or duplicate family')
     }
     source.set(familyKey[item.family], item)
