@@ -119,6 +119,59 @@ mod tests {
             }
         }
     }
+    fn fixture(name: &str) -> Value {
+        let ministry = if name.contains("finance") { "finance" }
+            else if name.contains("infrastructure") { "infrastructure" }
+            else { "education" };
+        let stage = if name.starts_with("first_") { "first" } else { "final" };
+        let mut value=json!({
+            "schema_version":1,"stage":stage,"meeting_id":"m",
+            "proposal_version":"18446744073709551615",
+            "ministry":ministry,"position":"support",
+            "preferred_allocation":{"staff":50,"repairs":40,"access":10},
+            "conditions":[],"evidence_ids":[],"rationale_summary":""
+        });
+        if name.starts_with("first_menu_") {
+            value["counterproposal_source"]=json!({"kind":"menu","menu_id":"menu-1"});
+        }else if name.starts_with("first_new_typed_"){
+            value["counterproposal_source"]=json!({"kind":"new_typed"});
+        }else if ministry!="finance"{
+            value["implementation_effort_permille"]=json!(800);
+        }
+        value
+    }
+    fn conforms_to_subset(schema:&Value,value:&Value)->bool {
+        if let Some(choices)=schema.get("enum").and_then(Value::as_array) {
+            if !choices.contains(value){return false}
+        }
+        match schema["type"].as_str().unwrap_or("") {
+            "string"=>value.is_string(),
+            "integer"=>value.as_i64().is_some(),
+            "array"=>value.as_array().is_some_and(|a|a.iter()
+                .all(|v|conforms_to_subset(&schema["items"],v))),
+            "object"=>value.as_object().is_some_and(|v|{
+                let props=schema["properties"].as_object().unwrap();
+                let required=schema["required"].as_array().unwrap();
+                if v.len()!=props.len()||v.len()!=required.len(){return false}
+                props.iter().all(|(key,shape)|v.get(key)
+                    .is_some_and(|value|conforms_to_subset(shape,value)))
+            }),
+            _=>false,
+        }
+    }
+    #[test]
+    fn every_stage_and_ministry_profile_roundtrips_through_serde() {
+        let profiles=profiles();
+        for (name,schema) in profiles["profiles"].as_object().unwrap() {
+            let payload=fixture(name);
+            assert!(conforms_to_subset(schema,&payload),"schema mismatch: {name}");
+            let parsed=crate::parse_minister_action(&payload.to_string(),100);
+            assert!(parsed.is_ok(),"Serde rejected compliant profile: {name}");
+            let mut polluted=payload;
+            polluted["unapproved_field"]=json!(true);
+            assert!(crate::parse_minister_action(&polluted.to_string(),100).is_err());
+        }
+    }
     #[test]
     fn every_candidate_is_in_small_strict_schema_subset() {
         let content = profiles();
