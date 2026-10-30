@@ -1,0 +1,28 @@
+{
+  "cutoff_utc": "2026-10-29T23:59:59Z",
+  "items": [
+    {
+      "date": "2026-08-17",
+      "kind": "real_source_update",
+      "summary": "Official school workforce statistics update.",
+      "title": "School workforce release updated",
+      "url": "https://explore-education-statistics.service.gov.uk/find-statistics/school-workforce-in-england/2025"
+    },
+    {
+      "date": "2026-10-16",
+      "kind": "real_source_update",
+      "summary": "Official school census statistics update.",
+      "title": "School pupils and their characteristics release updated",
+      "url": "https://explore-education-statistics.service.gov.uk/find-statistics/school-pupils-and-their-characteristics/2025-26"
+    },
+    {
+      "date": "2027-01-01",
+      "kind": "fictional_simulation_news",
+      "summary": "Invented game event; not reporting about a real government body.",
+      "title": "Fictional pilot board convenes",
+      "url": null
+    }
+  ],
+  "label": "Real DfE release metadata versus explicitly fictional scenario headlines",
+  "schema_version": 1
+}
