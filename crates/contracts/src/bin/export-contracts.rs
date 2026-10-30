@@ -6,6 +6,9 @@ use myth_contracts::{
     PublicCommitment, PublicRoleView, ScriptedSeatVote, ScriptedVoteKind, ScriptedVotes, Stage,
     Vote,
 };
+use myth_contracts::checkpoint::{
+    CountryPack, EvidenceRecord, EventRecord, PrivateCheckpoint,
+};
 use schemars::schema_for;
 use std::{
     env, fs,
@@ -36,6 +39,8 @@ fn generated_types() -> String {
         <ScriptedVoteKind as TS>::decl(&config),
         <ScriptedSeatVote as TS>::decl(&config),
         <ScriptedVotes as TS>::decl(&config),
+        <EvidenceRecord as TS>::decl(&config),
+        <CountryPack as TS>::decl(&config),
     ];
     format!(
         "// GENERATED from myth-contracts. DO NOT EDIT.\n// All *_version and expected_world_version fields are decimal strings.\n\n{}\n",
@@ -109,6 +114,24 @@ fn main() {
         &root,
         "docs/contracts/scripted-votes.schema.json",
         &generated_schema::<ScriptedVotes>(),
+        &mode,
+    );
+    put(
+        &root,
+        "docs/contracts/country-pack.schema.json",
+        &generated_schema::<CountryPack>(),
+        &mode,
+    );
+    put(
+        &root,
+        "docs/contracts/private-checkpoint.schema.json",
+        &generated_schema::<PrivateCheckpoint>(),
+        &mode,
+    );
+    put(
+        &root,
+        "docs/contracts/event-record.schema.json",
+        &generated_schema::<EventRecord>(),
         &mode,
     );
 }
