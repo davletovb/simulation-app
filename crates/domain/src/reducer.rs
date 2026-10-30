@@ -524,62 +524,43 @@ impl Campaign {
         }
         Ok(())
     }
-    fn protected_scope_ids(&self, proposal: Allocation) -> Result<BTreeSet<String>, Rejection> {
-        let mut keep = BTreeSet::new();
+    fn protected_scope_units(&self, proposal: Allocation)
+        -> Result<BTreeMap<String,u16>, Rejection>
+    {
+        let mut keep=BTreeMap::new();
         for family in FAMILIES {
-            let ix = family_index(family);
-            let mut required = 0_u16;
-            for c in self.world.commitments() {
-                if c.kind != CommitmentKind::Enforceable || c.status != CommitmentStatus::Pending {
-                    continue;
-                }
-                let progress = self
-                    .conditions
-                    .iter()
-                    .find(|x| x.id == c.id)
+            let ix=family_index(family);
+            let mut required=0_u16;
+            for commitment in self.world.commitments() {
+                if commitment.kind!=CommitmentKind::Enforceable
+                    || commitment.status!=CommitmentStatus::Pending {continue;}
+                let info=self.conditions.iter().find(|p|p.id==commitment.id)
                     .ok_or(Rejection::InvalidCondition)?;
-                if progress.family != family {
-                    continue;
-                }
-                let done = self.delivered_lifetime[ix]
-                    .checked_sub(progress.baseline_delivered)
+                if info.family!=family {continue;}
+                let delivered=self.delivered_lifetime[ix].checked_sub(info.baseline_delivered)
                     .ok_or(Rejection::Arithmetic)?;
-                required = required
-                    .checked_add(c.funded_units.saturating_sub(done))
+                required=required.checked_add(commitment.funded_units.saturating_sub(delivered))
                     .ok_or(Rejection::Arithmetic)?;
             }
-            if required == 0 {
-                continue;
+            if required>proposal.units(family) {return Err(Rejection::ProtectedCommitment);}
+            let mut scopes:Vec<_>=self.world.scopes().iter().filter(|scope|
+                scope.family()==family && !scope.is_terminated() && scope.remaining_units()>0
+            ).collect();
+            scopes.sort_by(|x,y|x.activation_quarter().cmp(&y.activation_quarter())
+                .then_with(||x.id().cmp(y.id())));
+            let mut remaining=required;
+            for scope in scopes {
+                if remaining==0 {break;}
+                let held=scope.remaining_units().min(remaining);
+                keep.insert(scope.id().to_string(),held);
+                remaining-=held;
             }
-            let mut candidates: Vec<_> = self
-                .world
-                .scopes()
-                .iter()
-                .filter(|s| s.family() == family && !s.is_terminated() && s.remaining_units() > 0)
-                .collect();
-            candidates.sort_by(|a, b| {
-                a.activation_quarter()
-                    .cmp(&b.activation_quarter())
-                    .then_with(|| a.id().cmp(b.id()))
-            });
-            let mut retained = 0_u16;
-            for scope in candidates {
-                if retained >= required {
-                    break;
-                }
-                retained = retained
-                    .checked_add(scope.remaining_units())
-                    .ok_or(Rejection::Arithmetic)?;
-                keep.insert(scope.id().to_string());
-            }
-            if retained < required || retained > proposal.units(family) {
-                return Err(Rejection::ProtectedCommitment);
-            }
+            if remaining!=0 {return Err(Rejection::ProtectedCommitment);}
         }
         Ok(keep)
     }
     fn check_funding(&self, proposal: Allocation) -> Result<(), Rejection> {
-        self.protected_scope_ids(proposal)?;
+        self.protected_scope_units(proposal)?;
         let stock = u32::from(self.world.treasury().available())
             + FAMILIES
                 .iter()
@@ -595,34 +576,39 @@ impl Campaign {
         let mut parts = self.world.private_checkpoint_parts();
         // Preserve oldest scopes needed for authoritative pending obligations.
         // Never move fractional work from one scope to another.
-        let protected = self.protected_scope_ids(m.allocation)?;
+        let protected = self.protected_scope_units(m.allocation)?;
         let mut kept = [0_u16; 3];
         for scope in &mut parts.scopes {
-            if scope.is_terminated() || scope.remaining_units() == 0 {
-                continue;
+            if scope.is_terminated() || scope.remaining_units()==0 {continue;}
+            let remaining=scope.remaining_units();
+            let held=protected.get(scope.id()).copied().unwrap_or(0);
+            let releasable=remaining.checked_sub(held).ok_or(Rejection::Arithmetic)?;
+            if held==0 {
+                scope.terminate();
+            } else if releasable>0 {
+                *scope=FundedScope::restore(
+                    scope.id().to_string(),scope.family(),scope.activation_quarter(),
+                    held,scope.carry_permille(),scope.is_blocked(),false
+                )?;
             }
-            if protected.contains(scope.id()) {
-                let ix = family_index(scope.family());
-                kept[ix] = kept[ix]
-                    .checked_add(scope.remaining_units())
-                    .ok_or(Rejection::Arithmetic)?;
-                continue;
+            if let Some(shadow)=self.shadow_scopes.iter_mut().find(|item|item.id()==scope.id()) {
+                if held==0 {
+                    shadow.terminate();
+                } else if shadow.remaining_units()>held {
+                    *shadow=FundedScope::restore(
+                        shadow.id().to_string(),shadow.family(),shadow.activation_quarter(),
+                        held,shadow.carry_permille(),shadow.is_blocked(),false
+                    )?;
+                }
             }
-            let family = scope.family();
-            let units = scope.remaining_units();
-            scope.terminate();
-            if let Some(shadow) = self.shadow_scopes.iter_mut().find(|s| s.id() == scope.id()) {
-                shadow.terminate();
+            let ix=family_index(scope.family());
+            kept[ix]=kept[ix].checked_add(held).ok_or(Rejection::Arithmetic)?;
+            if releasable>0 {
+                let movement=LedgerMove::Release{family:scope.family(),credits:releasable};
+                let before=parts.treasury;
+                parts.treasury=before.apply(movement)?;
+                receipt.ledger.push(LedgerReceipt::new(before,movement,parts.treasury)?);
             }
-            let movement = LedgerMove::Release {
-                family,
-                credits: units,
-            };
-            let before = parts.treasury;
-            parts.treasury = before.apply(movement)?;
-            receipt
-                .ledger
-                .push(LedgerReceipt::new(before, movement, parts.treasury)?);
         }
         for family in FAMILIES {
             let units = m
