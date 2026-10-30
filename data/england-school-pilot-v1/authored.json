@@ -1,0 +1,220 @@
+{
+  "schema_version": 1,
+  "case_id": "england-school-delivery-v1",
+  "label": "United Kingdom - England fictional education delivery pilot",
+  "locale": "en-GB",
+  "start": "2027-Q1",
+  "quarters": 6,
+  "warning": "Illustrative game mechanics, not an official England policy, survey, population reconstruction, or forecast.",
+  "pilot": {
+    "credits": 100,
+    "GBP_conversion": null,
+    "borrow": false,
+    "refill": false,
+    "capacity": {
+      "staffing": 12,
+      "repairs": 10,
+      "access": 4
+    },
+    "activation_lag": {
+      "staffing": 1,
+      "repairs": 2,
+      "access": 0
+    },
+    "response_lag": 1,
+    "starting_support_ppm": 500000
+  },
+  "population": {
+    "universe": "synthetic school-service beneficiaries, NOT England population, pupil census counts, or UK adults",
+    "order": [
+      "urban_low",
+      "urban_middle",
+      "urban_high",
+      "rural_low",
+      "rural_middle",
+      "rural_high"
+    ],
+    "variants": [
+      {
+        "id": "authored_baseline",
+        "weights_ppm": [
+          260000,
+          320000,
+          220000,
+          70000,
+          80000,
+          50000
+        ]
+      },
+      {
+        "id": "authored_rural_shift",
+        "weights_ppm": [
+          220000,
+          270000,
+          180000,
+          110000,
+          130000,
+          90000
+        ]
+      },
+      {
+        "id": "authored_income_interaction",
+        "weights_ppm": [
+          300000,
+          260000,
+          240000,
+          30000,
+          140000,
+          30000
+        ]
+      }
+    ],
+    "observed_constraints": [
+      "six nonnegative cells",
+      "sum = 1000000 ppm"
+    ],
+    "unsupported_observed_margins": [
+      "rural pupil residence",
+      "income band by pupil residence",
+      "teacher-linked and parent/carer-linked affiliations"
+    ],
+    "affiliations": {
+      "teacher_linked_ppm": 50000,
+      "parent_carer_linked_ppm": 250000,
+      "both_ppm": 20000,
+      "source": "authored values per cell, overlap included; do not add to population"
+    }
+  },
+  "board": {
+    "name": "Fictional Education Delivery Board",
+    "support_votes_required": 2,
+    "seats": 3,
+    "meeting_rounds": 2,
+    "amendments_max": 1,
+    "player_can_override": false,
+    "ministers": [
+      {
+        "id": "finance",
+        "name": "Morgan Vale",
+        "fictional": true,
+        "interest": "audited affordable tranches"
+      },
+      {
+        "id": "education",
+        "name": "Elena Mercer",
+        "fictional": true,
+        "interest": "staffing continuity and rural access"
+      },
+      {
+        "id": "infrastructure",
+        "name": "Samir Reed",
+        "fictional": true,
+        "interest": "repair sequencing"
+      }
+    ],
+    "initial_enforceable_commitments": [],
+    "initial_political_promises": [
+      "Finance seeks funded milestones",
+      "Education seeks staffing continuity"
+    ]
+  },
+  "groups": [
+    {
+      "id": "school_workforce_association",
+      "initial_resource": 10,
+      "max_resource": 20,
+      "members": "authored teacher-linked households",
+      "next_quarter_action": "if staffing funded < 50 and resource >= 4, spend 4 to cap staffing effort at 800"
+    },
+    {
+      "id": "community_access_network",
+      "initial_resource": 4,
+      "max_resource": 12,
+      "members": "authored parent-linked households",
+      "next_quarter_action": "if eligible access exists and >= 10 active access credits, spend 1 for next-quarter +1 access capacity"
+    }
+  ],
+  "menu": [
+    {
+      "id": "balanced",
+      "credits": [
+        50,
+        40,
+        10
+      ],
+      "valid": true
+    },
+    {
+      "id": "staff_first",
+      "credits": [
+        60,
+        30,
+        10
+      ],
+      "valid": true
+    },
+    {
+      "id": "access_first",
+      "credits": [
+        40,
+        30,
+        20
+      ],
+      "valid": true
+    },
+    {
+      "id": "oversubscribed",
+      "credits": [
+        60,
+        40,
+        10
+      ],
+      "valid": false
+    },
+    {
+      "id": "defer",
+      "credits": [
+        0,
+        0,
+        0
+      ],
+      "valid": true
+    }
+  ],
+  "narrative": {
+    "id": "fictional_repair_disruption",
+    "kind": "authored_counterfactual",
+    "quarter": 2,
+    "patches": [
+      {
+        "field": "repair_capacity_cap",
+        "before": 10,
+        "after": 8
+      }
+    ],
+    "source_snapshot_changed": false
+  },
+  "news": [
+    {
+      "date": "2026-08-17",
+      "kind": "real_source_update",
+      "title": "School workforce release updated",
+      "url": "https://explore-education-statistics.service.gov.uk/find-statistics/school-workforce-in-england/2025",
+      "summary": "Official school workforce statistics update."
+    },
+    {
+      "date": "2026-10-16",
+      "kind": "real_source_update",
+      "title": "School pupils and their characteristics release updated",
+      "url": "https://explore-education-statistics.service.gov.uk/find-statistics/school-pupils-and-their-characteristics/2025-26",
+      "summary": "Official school census statistics update."
+    },
+    {
+      "date": "2027-01-01",
+      "kind": "fictional_simulation_news",
+      "title": "Fictional pilot board convenes",
+      "url": null,
+      "summary": "Invented game event; not reporting about a real government body."
+    }
+  ]
+}
