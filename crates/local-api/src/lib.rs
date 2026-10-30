@@ -371,7 +371,7 @@ mod tests {
         assert!(
             !scripted_votes(request(60, 40, 10))
                 .unwrap()
-                .final_package_approved
+                .passes_support_threshold
         );
     }
     #[test]
