@@ -1,0 +1,366 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "EventRecord",
+  "type": "object",
+  "properties": {
+    "campaign_id": {
+      "type": "string"
+    },
+    "event": {
+      "$ref": "#/$defs/Event"
+    },
+    "event_id": {
+      "type": "string"
+    },
+    "quarter": {
+      "type": "integer",
+      "format": "uint8",
+      "maximum": 255,
+      "minimum": 0
+    },
+    "schema_version": {
+      "type": "integer",
+      "format": "uint16",
+      "maximum": 65535,
+      "minimum": 0
+    },
+    "sequence": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]{0,19})$"
+    },
+    "world_version": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]{0,19})$"
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "campaign_id",
+    "event_id",
+    "sequence",
+    "world_version",
+    "quarter",
+    "event"
+  ],
+  "$defs": {
+    "Event": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "command_id": {
+              "type": "string"
+            },
+            "kind": {
+              "type": "string",
+              "const": "command_admitted"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "command_id"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "meeting_phase_declared"
+            },
+            "phase": {
+              "$ref": "#/$defs/Phase"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "phase"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "after": {
+              "$ref": "#/$defs/Treasury"
+            },
+            "before": {
+              "$ref": "#/$defs/Treasury"
+            },
+            "kind": {
+              "type": "string",
+              "const": "ledger_transfer"
+            },
+            "movement": {
+              "$ref": "#/$defs/Move"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "before",
+            "after",
+            "movement"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "delivered": {
+              "type": "integer",
+              "format": "uint16",
+              "maximum": 65535,
+              "minimum": 0
+            },
+            "family": {
+              "$ref": "#/$defs/Family"
+            },
+            "kind": {
+              "type": "string",
+              "const": "delivery_recorded"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "family",
+            "delivered"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "evidence_id": {
+              "type": "string"
+            },
+            "kind": {
+              "type": "string",
+              "const": "evidence_disclosed"
+            },
+            "recipient": {
+              "$ref": "#/$defs/Ministry"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "evidence_id",
+            "recipient"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "response_queued"
+            },
+            "source_event_id": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "source_event_id"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "quarter_advanced"
+            },
+            "next": {
+              "type": "integer",
+              "format": "uint8",
+              "maximum": 255,
+              "minimum": 0
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "next"
+          ]
+        }
+      ]
+    },
+    "Family": {
+      "type": "string",
+      "enum": [
+        "staffing",
+        "repairs",
+        "access"
+      ]
+    },
+    "Ministry": {
+      "type": "string",
+      "enum": [
+        "finance",
+        "education",
+        "infrastructure"
+      ]
+    },
+    "Move": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "credits": {
+              "type": "integer",
+              "format": "uint16",
+              "maximum": 65535,
+              "minimum": 0
+            },
+            "family": {
+              "$ref": "#/$defs/Family"
+            },
+            "kind": {
+              "type": "string",
+              "const": "reserve"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "family",
+            "credits"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "credits": {
+              "type": "integer",
+              "format": "uint16",
+              "maximum": 65535,
+              "minimum": 0
+            },
+            "family": {
+              "$ref": "#/$defs/Family"
+            },
+            "kind": {
+              "type": "string",
+              "const": "release"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "family",
+            "credits"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "credits": {
+              "type": "integer",
+              "format": "uint16",
+              "maximum": 65535,
+              "minimum": 0
+            },
+            "family": {
+              "$ref": "#/$defs/Family"
+            },
+            "kind": {
+              "type": "string",
+              "const": "spend_service"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "family",
+            "credits"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "credits": {
+              "type": "integer",
+              "format": "uint16",
+              "maximum": 65535,
+              "minimum": 0
+            },
+            "kind": {
+              "type": "string",
+              "const": "spend_audit"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "credits"
+          ]
+        }
+      ]
+    },
+    "Phase": {
+      "type": "string",
+      "enum": [
+        "quarter_open",
+        "first_positions_frozen",
+        "amendment_window",
+        "final_positions_frozen",
+        "resolved",
+        "quarter_closed"
+      ]
+    },
+    "Treasury": {
+      "type": "object",
+      "properties": {
+        "audit_spent": {
+          "type": "integer",
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0
+        },
+        "available": {
+          "type": "integer",
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0
+        },
+        "encumbered_access": {
+          "type": "integer",
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0
+        },
+        "encumbered_repairs": {
+          "type": "integer",
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0
+        },
+        "encumbered_staff": {
+          "type": "integer",
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0
+        },
+        "service_spent": {
+          "type": "integer",
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "available",
+        "encumbered_staff",
+        "encumbered_repairs",
+        "encumbered_access",
+        "service_spent",
+        "audit_spent"
+      ]
+    }
+  }
+}
