@@ -1,13 +1,11 @@
 //! Regenerate checked-in TypeScript and JSON Schema from the Serde wire DTOs.
 //! --check fails on drift, --write regenerates from the Rust source.
+use myth_contracts::checkpoint::{CountryPack, EventRecord, EvidenceRecord, PrivateCheckpoint};
 use myth_contracts::{
     Allocation, CapacityCaps, CommandEnvelope, Condition, Counterproposal, Family, ForecastLine,
     ForecastResponse, MinisterAction, Ministry, PlayerAction, PreviewCalculator, PreviewKind,
     PublicCommitment, PublicRoleView, ScriptedSeatVote, ScriptedVoteKind, ScriptedVotes, Stage,
     Vote,
-};
-use myth_contracts::checkpoint::{
-    CountryPack, EvidenceRecord, EventRecord, PrivateCheckpoint,
 };
 use schemars::schema_for;
 use std::{
