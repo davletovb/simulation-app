@@ -1354,6 +1354,41 @@ mod tests {
             meeting_id:"q2".into(),allocation:Allocation::draft(10,30,10).unwrap()
         })).err(),Some(Rejection::ProtectedCommitment));
         assert_eq!(c.world().world_version(),before);
+        // A smaller but lawful Q2 amendment retains exactly 12 protected
+        // staff credits in the original scope, and releases the other 38.
+        c.apply(player(&c,"propose-q2-allowed",PlayerCommand::Propose{
+            meeting_id:"q2".into(),allocation:Allocation::draft(30,30,10).unwrap()
+        })).unwrap();
+        for role in ROLES {
+            let pos=FirstPosition::new(
+                "q2".into(),c.proposal_version().unwrap(),role,Position::Support,
+                PreferredAllocation::assess(Allocation::draft(30,30,10).unwrap(),100).unwrap(),
+                CounterproposalOrigin::NewTyped
+            ).unwrap();
+            c.apply(Action::First(pos)).unwrap();
+        }
+        c.apply(Action::FreezeFinal{command_id:"freeze-q2".into()}).unwrap();
+        for role in ROLES {
+            let pos=FinalPosition::new(
+                "q2".into(),c.proposal_version().unwrap(),role,Position::Support,
+                PreferredAllocation::assess(Allocation::draft(30,30,10).unwrap(),100).unwrap()
+            ).unwrap();
+            let effort=if role==Ministry::Finance {None} else {
+                Some(PrivateEffortDeclaration::new(
+                    "q2".into(),role,EffortPermille::new(1000).unwrap()
+                ).unwrap())
+            };
+            c.apply(Action::Final(pos,effort)).unwrap();
+        }
+        c.apply(player(&c,"ratify-q2",PlayerCommand::Ratify{
+            meeting_id:"q2".into(),proposal_version:c.proposal_version().unwrap()
+        })).unwrap();
+        let staff:Vec<_>=c.world().scopes().iter().filter(|scope|
+            scope.family()==PolicyFamily::Staffing && !scope.is_terminated()
+        ).collect();
+        assert_eq!(staff.len(),2);
+        assert_eq!(staff.iter().map(|scope|scope.remaining_units()).sum::<u16>(),30);
+        assert_eq!(c.world().treasury().available(),26);
         c.apply(player(&c,"advance2",PlayerCommand::AdvanceQuarter)).unwrap();
         assert_eq!(c.world().commitments()[0].status,CommitmentStatus::Honored);
         assert_eq!(c.relationship()[0],52);
