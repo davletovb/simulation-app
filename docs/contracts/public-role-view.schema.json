@@ -1,0 +1,103 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "PublicRoleView",
+  "type": "object",
+  "properties": {
+    "allocation": {
+      "$ref": "#/$defs/Allocation"
+    },
+    "available_credits": {
+      "type": "integer",
+      "format": "uint16",
+      "maximum": 65535,
+      "minimum": 0
+    },
+    "belief_ppm": {
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0
+    },
+    "campaign_id": {
+      "type": "string"
+    },
+    "meeting_id": {
+      "type": "string"
+    },
+    "ministry": {
+      "$ref": "#/$defs/Ministry"
+    },
+    "proposal_version": {
+      "type": "string"
+    },
+    "quarter": {
+      "type": "integer",
+      "format": "uint8",
+      "maximum": 255,
+      "minimum": 0
+    },
+    "schema_version": {
+      "type": "integer",
+      "format": "uint16",
+      "maximum": 65535,
+      "minimum": 0
+    },
+    "visible_evidence_ids": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "campaign_id",
+    "meeting_id",
+    "proposal_version",
+    "ministry",
+    "quarter",
+    "allocation",
+    "available_credits",
+    "belief_ppm",
+    "visible_evidence_ids"
+  ],
+  "$defs": {
+    "Allocation": {
+      "type": "object",
+      "properties": {
+        "access": {
+          "type": "integer",
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0
+        },
+        "repairs": {
+          "type": "integer",
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0
+        },
+        "staff": {
+          "type": "integer",
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "staff",
+        "repairs",
+        "access"
+      ]
+    },
+    "Ministry": {
+      "type": "string",
+      "enum": [
+        "finance",
+        "education",
+        "infrastructure"
+      ]
+    }
+  }
+}
