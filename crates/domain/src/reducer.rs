@@ -374,7 +374,11 @@ impl Campaign {
                         {
                             return Err(Rejection::MeetingAlreadyUsed);
                         }
+                        if self.used_meeting_ids.contains(meeting_id) {
+                            return Err(Rejection::MeetingAlreadyUsed);
+                        }
                         self.check_funding(*allocation)?;
+                        self.used_meeting_ids.insert(meeting_id.clone());
                         self.meeting = Some(Meeting {
                             id: meeting_id.clone(),
                             version: WireU64::new(1),
@@ -1895,6 +1899,26 @@ mod tests {
             funded.world().treasury().service_spent(),
             4 + q2.delivered.iter().sum::<u16>()
         );
+    }
+    #[test]
+    fn reused_meeting_id_fails_before_consuming_next_quarter_meeting() {
+        let mut c=campaign();
+        open(&mut c,Allocation::draft(50,40,10).unwrap());
+        votes(&mut c,[true,true,true]);
+        let v=c.proposal_version().unwrap();
+        c.apply(player(&c,"ratify",PlayerCommand::Ratify{
+            meeting_id:"q1".into(),proposal_version:v
+        })).unwrap();
+        c.apply(player(&c,"advance1",PlayerCommand::AdvanceQuarter)).unwrap();
+        let version=c.world().world_version();
+        assert_eq!(c.apply(player(&c,"reuse",PlayerCommand::Propose {
+            meeting_id:"q1".into(),allocation:Allocation::draft(30,20,10).unwrap(),
+        })).err(),Some(Rejection::MeetingAlreadyUsed));
+        assert_eq!(c.world().world_version(),version);
+        c.apply(player(&c,"fresh",PlayerCommand::Propose {
+            meeting_id:"q2".into(),allocation:Allocation::draft(30,20,10).unwrap(),
+        })).unwrap();
+        assert_eq!(c.phase(),MeetingPhase::FirstPositionsFrozen);
     }
     #[test]
     fn signed_coefficients_keep_losing_cells_negative() {
