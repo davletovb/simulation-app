@@ -785,6 +785,29 @@ mod tests {
         std::fs::remove_dir_all(path).unwrap();
     }
     #[test]
+    fn minister_and_assistant_quarter_counts_are_durable_and_strict() {
+        let path = temporary().join("quarter-counts");
+        let mut ledger = Allowance::open(&path, "owner").unwrap();
+        let role = scope(Purpose::Minister, Some("limit-case"), Some(1));
+        for i in 0..14 {
+            ledger.reserve(&format!("minister-{i}"), role.clone(), route(), &request()).unwrap();
+        }
+        assert!(ledger.reserve("minister-over", role, route(), &request()).is_err());
+        let helper = scope(Purpose::Assistant, Some("limit-case"), Some(1));
+        for i in 0..2 {
+            ledger.reserve(&format!("assistant-{i}"), helper.clone(), route(), &request()).unwrap();
+        }
+        assert!(ledger.reserve("assistant-over", helper.clone(), route(), &request()).is_err());
+        assert_eq!(ledger.calls().len(), 16);
+        let remaining = ledger.remaining_micro_usd().unwrap();
+        drop(ledger);
+        let mut restarted = Allowance::open(&path, "owner").unwrap();
+        assert_eq!(restarted.remaining_micro_usd().unwrap(), remaining);
+        assert!(restarted.reserve("assistant-over", helper, route(), &request()).is_err());
+        drop(restarted);
+        std::fs::remove_dir_all(path).unwrap();
+    }
+    #[test]
     fn pre_dispatch_rejections_and_uncertain_across_resets() {
         let path = temporary();
         let mut ledger = Allowance::open(&path, "owner").unwrap();
