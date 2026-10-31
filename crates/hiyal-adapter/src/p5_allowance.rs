@@ -19,7 +19,9 @@ const BATCH_MICRO_USD: u64 = 3_000_000;
 
 fn valid_id(id: &str) -> bool {
     (1..=100).contains(&id.len())
-        && id.bytes().all(|c| c.is_ascii_alphanumeric() || matches!(c, b'_' | b'-' | b'.' | b':' | b'/'))
+        && id
+            .bytes()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, b'_' | b'-' | b'.' | b':' | b'/'))
 }
 fn reject(message: &str) -> String {
     message.to_owned()
@@ -68,7 +70,8 @@ pub struct PinnedRoute {
 }
 impl PinnedRoute {
     pub fn validate(&self) -> Result<(), String> {
-        if !valid_id(&self.model) || !valid_id(&self.provider)
+        if !valid_id(&self.model)
+            || !valid_id(&self.provider)
             || self.input_micro_usd_per_million == 0
             || self.input_micro_usd_per_million > 1_000_000
             || self.output_micro_usd_per_million == 0
@@ -150,10 +153,15 @@ impl Allowance {
             fs::set_permissions(dir, fs::Permissions::from_mode(0o700))
                 .map_err(|e| e.to_string())?;
         }
-        let mut lock = OpenOptions::new().read(true).write(true).create(true)
-            .truncate(false).open(dir.join("application-allowance.lock"))
+        let mut lock = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(dir.join("application-allowance.lock"))
             .map_err(|e| e.to_string())?;
-        lock.try_lock().map_err(|_| reject("allowance already owned by a process"))?;
+        lock.try_lock()
+            .map_err(|_| reject("allowance already owned by a process"))?;
         let data = dir.join("application-allowance.json");
         let state = if data.exists() {
             if fs::read(dir.join("application-allowance.lock")).map_err(|e| e.to_string())?
@@ -165,31 +173,39 @@ impl Allowance {
             if bytes.len() as u64 > MAX_FILE_BYTES {
                 return Err(reject("allowance file too large"));
             }
-            let value: Envelope = serde_json::from_slice(&bytes)
-                .map_err(|_| reject("allowance recovery failed"))?;
+            let value: Envelope =
+                serde_json::from_slice(&bytes).map_err(|_| reject("allowance recovery failed"))?;
             let computed = hash(&serde_json::to_vec(&value.payload).map_err(|e| e.to_string())?);
-            if computed != value.sha256 || value.payload.schema_version != 1
+            if computed != value.sha256
+                || value.payload.schema_version != 1
                 || value.payload.installation_id != installation
                 || value.payload.application_allowance_id != format!("installation:{installation}")
                 || value.payload.epoch_id == 0
                 || value.payload.epoch_funded_micro_usd > INITIAL_MICRO_USD
                 || value.payload.calls.len() > MAX_RECORDS
             {
-                return Err(reject("allowance recovery failed integrity or identity checks"));
+                return Err(reject(
+                    "allowance recovery failed integrity or identity checks",
+                ));
             }
             let mut ids = std::collections::BTreeSet::new();
             let mut reservations = std::collections::BTreeSet::new();
             for call in &value.payload.calls {
                 call.scope.validate()?;
                 call.route.validate()?;
-                if !valid_id(&call.call_id) || !valid_id(&call.reservation_id)
-                    || !ids.insert(&call.call_id) || !reservations.insert(&call.reservation_id)
-                    || call.epoch_id == 0 || call.epoch_id > value.payload.epoch_id
+                if !valid_id(&call.call_id)
+                    || !valid_id(&call.reservation_id)
+                    || !ids.insert(&call.call_id)
+                    || !reservations.insert(&call.reservation_id)
+                    || call.epoch_id == 0
+                    || call.epoch_id > value.payload.epoch_id
                     || call.maximum_micro_usd == 0
                     || call.maximum_micro_usd > INITIAL_MICRO_USD
                     || call.request_sha256.len() != 64
                     || (call.status == Status::Verified) != call.verified_charge_micro_usd.is_some()
-                    || call.verified_charge_micro_usd.is_some_and(|n| n > call.maximum_micro_usd)
+                    || call
+                        .verified_charge_micro_usd
+                        .is_some_and(|n| n > call.maximum_micro_usd)
                 {
                     return Err(reject("invalid durable allowance entry"));
                 }
@@ -201,9 +217,9 @@ impl Allowance {
             }
             // Never silently initialize a previously used installation: caller
             // must deliberately provision a fresh empty directory.
-            if fs::read_dir(dir).map_err(|e| e.to_string())?
-                .any(|x| x.is_ok_and(|v| v.file_name().to_string_lossy() != "application-allowance.lock"))
-            {
+            if fs::read_dir(dir).map_err(|e| e.to_string())?.any(|x| {
+                x.is_ok_and(|v| v.file_name().to_string_lossy() != "application-allowance.lock")
+            }) {
                 return Err(reject("missing ledger in nonempty allowance directory"));
             }
             State {
@@ -215,7 +231,12 @@ impl Allowance {
                 calls: Vec::new(),
             }
         };
-        let mut ledger = Self { dir: dir.into(), _lock: lock, state, poisoned: false };
+        let mut ledger = Self {
+            dir: dir.into(),
+            _lock: lock,
+            state,
+            poisoned: false,
+        };
         ledger.check_recovery()?;
         if !data.exists() {
             // Persist the installation marker before the ledger; a crash in
@@ -230,9 +251,14 @@ impl Allowance {
         call.epoch_id == self.state.epoch_id || call.status != Status::Verified
     }
     fn held(&self) -> Result<u64, String> {
-        self.state.calls.iter().filter(|c| self.chargeable_in_current_epoch(c))
-            .try_fold(0u64, |sum, c| sum.checked_add(c.maximum_micro_usd)
-                .ok_or_else(|| reject("allowance overflow")))
+        self.state
+            .calls
+            .iter()
+            .filter(|c| self.chargeable_in_current_epoch(c))
+            .try_fold(0u64, |sum, c| {
+                sum.checked_add(c.maximum_micro_usd)
+                    .ok_or_else(|| reject("allowance overflow"))
+            })
     }
     fn check_recovery(&self) -> Result<(), String> {
         if self.held()? > self.state.epoch_funded_micro_usd {
@@ -240,10 +266,12 @@ impl Allowance {
         }
         for call in &self.state.calls {
             let matches = self.state.calls.iter().filter(|x| {
-                x.scope.campaign_id == call.scope.campaign_id && x.scope.campaign_id.is_some()
+                x.scope.campaign_id == call.scope.campaign_id
+                    && x.scope.campaign_id.is_some()
                     && x.scope.quarter == call.scope.quarter
             });
-            let sum = matches.try_fold(0u64, |a, x| a.checked_add(x.maximum_micro_usd))
+            let sum = matches
+                .try_fold(0u64, |a, x| a.checked_add(x.maximum_micro_usd))
                 .ok_or("quarter overflow")?;
             if call.scope.quarter.is_some() && sum > QUARTER_MICRO_USD {
                 return Err(reject("recovered quarter exceeds cap"));
@@ -252,7 +280,9 @@ impl Allowance {
         Ok(())
     }
     pub fn remaining_micro_usd(&self) -> Result<u64, String> {
-        self.state.epoch_funded_micro_usd.checked_sub(self.held()?)
+        self.state
+            .epoch_funded_micro_usd
+            .checked_sub(self.held()?)
             .ok_or_else(|| reject("allowance exhausted"))
     }
     pub fn epoch_id(&self) -> u64 {
@@ -270,19 +300,26 @@ impl Allowance {
             let wrapper = serde_json::to_vec(&Envelope {
                 payload: serde_json::from_slice(&body).map_err(|e| e.to_string())?,
                 sha256: hash(&body),
-            }).map_err(|e| e.to_string())?;
+            })
+            .map_err(|e| e.to_string())?;
             if wrapper.len() as u64 > MAX_FILE_BYTES {
                 return Err(reject("ledger capacity exceeded"));
             }
             let temp = self.dir.join("application-allowance.new");
-            let mut f = OpenOptions::new().write(true).create(true).truncate(true)
-                .open(&temp).map_err(|e| e.to_string())?;
+            let mut f = OpenOptions::new()
+                .write(true)
+                .create(true)
+                .truncate(true)
+                .open(&temp)
+                .map_err(|e| e.to_string())?;
             f.write_all(&wrapper).map_err(|e| e.to_string())?;
             f.sync_all().map_err(|e| e.to_string())?;
             fs::rename(temp, self.dir.join("application-allowance.json"))
                 .map_err(|e| e.to_string())?;
             #[cfg(unix)]
-            File::open(&self.dir).and_then(|d| d.sync_all()).map_err(|e| e.to_string())?;
+            File::open(&self.dir)
+                .and_then(|d| d.sync_all())
+                .map_err(|e| e.to_string())?;
             Ok(())
         })();
         if attempt.is_err() {
@@ -291,22 +328,33 @@ impl Allowance {
         attempt
     }
     fn ensure_available(&self) -> Result<(), String> {
-        if self.poisoned { Err(reject("allowance persistence failed")) } else { Ok(()) }
+        if self.poisoned {
+            Err(reject("allowance persistence failed"))
+        } else {
+            Ok(())
+        }
     }
     /// Durable before network dispatch. A repeated call_id is read-only, even
     /// if the previous attempt crashed while reserved or dispatched.
     pub fn reserve(
-        &mut self, call_id: &str, scope: Scope, route: PinnedRoute,
+        &mut self,
+        call_id: &str,
+        scope: Scope,
+        route: PinnedRoute,
         request: &ModelRequest,
     ) -> Result<Admission, String> {
         self.ensure_available()?;
         scope.validate()?;
         route.validate()?;
-        if !valid_id(call_id) || request.provider != "openrouter"
-            || request.model != route.model || request.streaming
+        if !valid_id(call_id)
+            || request.provider != "openrouter"
+            || request.model != route.model
+            || request.streaming
             || !request.tool_schemas.is_empty()
-            || request.response_format.as_ref().is_none_or(|v| v["type"] != "json_schema"
-                || v["json_schema"]["strict"] != true)
+            || request
+                .response_format
+                .as_ref()
+                .is_none_or(|v| v["type"] != "json_schema" || v["json_schema"]["strict"] != true)
             || request.sampling.max_output_tokens.is_none()
         {
             return Err(reject("unapproved OpenRouter structured request"));
@@ -316,8 +364,14 @@ impl Allowance {
         // Conservative tokenizer-independent guard: bytes count as tokens.
         // Hiyal independently reserves with framing overhead.
         let max_input = if assistant { 5_000 } else { 3_000 };
-        if request.sampling.max_output_tokens.is_none_or(|x| x == 0 || x > max_output)
-            || serde_json::to_vec(request).map_err(|e| e.to_string())?.len() > max_input
+        if request
+            .sampling
+            .max_output_tokens
+            .is_none_or(|x| x == 0 || x > max_output)
+            || serde_json::to_vec(request)
+                .map_err(|e| e.to_string())?
+                .len()
+                > max_input
         {
             return Err(reject("declared request input/output cap exceeded"));
         }
@@ -331,12 +385,17 @@ impl Allowance {
         let maximum = config.reserve_amount(request)?;
         let digest = hash(&serde_json::to_vec(request).map_err(|e| e.to_string())?);
         if let Some(old) = self.state.calls.iter().find(|x| x.call_id == call_id) {
-            if old.scope != scope || old.route != route || old.request_sha256 != digest
+            if old.scope != scope
+                || old.route != route
+                || old.request_sha256 != digest
                 || old.maximum_micro_usd != maximum
             {
                 return Err(reject("call ID reused with changed request"));
             }
-            return Ok(Admission { call: old.clone(), fresh: false });
+            return Ok(Admission {
+                call: old.clone(),
+                fresh: false,
+            });
         }
         if self.state.calls.len() >= MAX_RECORDS {
             return Err(reject("call journal full"));
@@ -345,35 +404,64 @@ impl Allowance {
             return Err(reject("shared application allowance exhausted"));
         }
         if let Some(campaign) = &scope.campaign_id {
-            let previous: Vec<&Call> = self.state.calls.iter()
-                .filter(|c| c.scope.campaign_id.as_ref() == Some(campaign)).collect();
+            let previous: Vec<&Call> = self
+                .state
+                .calls
+                .iter()
+                .filter(|c| c.scope.campaign_id.as_ref() == Some(campaign))
+                .collect();
             if previous.len() >= 96 {
                 return Err(reject("campaign call cap exhausted"));
             }
-            let used = previous.iter().try_fold(0u64, |n, c| n.checked_add(c.maximum_micro_usd))
+            let used = previous
+                .iter()
+                .try_fold(0u64, |n, c| n.checked_add(c.maximum_micro_usd))
                 .ok_or("campaign overflow")?;
-            if used.checked_add(maximum).is_none_or(|n| n > CAMPAIGN_MICRO_USD) {
+            if used
+                .checked_add(maximum)
+                .is_none_or(|n| n > CAMPAIGN_MICRO_USD)
+            {
                 return Err(reject("campaign allowance exhausted"));
             }
             if let Some(q) = scope.quarter {
-                let within: Vec<&&Call> = previous.iter().filter(|c| c.scope.quarter == Some(q)).collect();
-                if within.len() >= 16 || (scope.purpose == Purpose::Minister
-                    && within.iter().filter(|c| c.scope.purpose == Purpose::Minister).count() >= 14)
+                let within: Vec<&&Call> = previous
+                    .iter()
+                    .filter(|c| c.scope.quarter == Some(q))
+                    .collect();
+                if within.len() >= 16
+                    || (scope.purpose == Purpose::Minister
+                        && within
+                            .iter()
+                            .filter(|c| c.scope.purpose == Purpose::Minister)
+                            .count()
+                            >= 14)
                 {
                     return Err(reject("quarter call cap exhausted"));
                 }
-                let used = within.iter().try_fold(0u64, |n, c| n.checked_add(c.maximum_micro_usd))
+                let used = within
+                    .iter()
+                    .try_fold(0u64, |n, c| n.checked_add(c.maximum_micro_usd))
                     .ok_or("quarter overflow")?;
-                if used.checked_add(maximum).is_none_or(|n| n > QUARTER_MICRO_USD) {
+                if used
+                    .checked_add(maximum)
+                    .is_none_or(|n| n > QUARTER_MICRO_USD)
+                {
                     return Err(reject("quarter allowance exhausted"));
                 }
             }
         }
         if let Some(batch) = &scope.batch_id {
-            let used = self.state.calls.iter().filter(|c| c.scope.batch_id.as_ref() == Some(batch))
+            let used = self
+                .state
+                .calls
+                .iter()
+                .filter(|c| c.scope.batch_id.as_ref() == Some(batch))
                 .try_fold(0u64, |n, c| n.checked_add(c.maximum_micro_usd))
                 .ok_or("batch overflow")?;
-            if used.checked_add(maximum).is_none_or(|n| n > BATCH_MICRO_USD) {
+            if used
+                .checked_add(maximum)
+                .is_none_or(|n| n > BATCH_MICRO_USD)
+            {
                 return Err(reject("evaluation batch exhausted"));
             }
         }
@@ -396,7 +484,10 @@ impl Allowance {
         Ok(Admission { call, fresh: true })
     }
     fn entry(&mut self, call_id: &str) -> Result<&mut Call, String> {
-        self.state.calls.iter_mut().find(|c| c.call_id == call_id)
+        self.state
+            .calls
+            .iter_mut()
+            .find(|c| c.call_id == call_id)
             .ok_or_else(|| reject("unknown call ID"))
     }
     /// Write a durable dispatch marker before sending bytes. Subsequent opens
@@ -404,17 +495,26 @@ impl Allowance {
     pub fn mark_dispatched(&mut self, call_id: &str) -> Result<(), String> {
         self.ensure_available()?;
         let entry = self.entry(call_id)?;
-        if entry.status != Status::Reserved { return Err(reject("attempt already dispatched")); }
+        if entry.status != Status::Reserved {
+            return Err(reject("attempt already dispatched"));
+        }
         entry.status = Status::Dispatched;
         self.persist()
     }
     /// A response without a verified invoice remains an unresolved charge.
     /// No reported token count ever refunds an upper-bound reservation.
-    pub fn record(&mut self, call_id: &str, input: Option<u64>, output: Option<u64>,
-        estimate_micro_usd: Option<u64>) -> Result<(), String> {
+    pub fn record(
+        &mut self,
+        call_id: &str,
+        input: Option<u64>,
+        output: Option<u64>,
+        estimate_micro_usd: Option<u64>,
+    ) -> Result<(), String> {
         self.ensure_available()?;
         let entry = self.entry(call_id)?;
-        if entry.status != Status::Dispatched { return Err(reject("receipt already recorded or no dispatch")); }
+        if entry.status != Status::Dispatched {
+            return Err(reject("receipt already recorded or no dispatch"));
+        }
         entry.status = Status::Recorded;
         entry.reported_input_tokens = input;
         entry.reported_output_tokens = output;
@@ -439,7 +539,11 @@ impl Allowance {
         if funded_micro_usd == 0 || funded_micro_usd > INITIAL_MICRO_USD {
             return Err(reject("invalid explicit funding"));
         }
-        let liability = self.state.calls.iter().filter(|c| c.status != Status::Verified)
+        let liability = self
+            .state
+            .calls
+            .iter()
+            .filter(|c| c.status != Status::Verified)
             .try_fold(0u64, |n, c| n.checked_add(c.maximum_micro_usd))
             .ok_or("liability overflow")?;
         if liability > funded_micro_usd {
@@ -457,24 +561,50 @@ mod tests {
     use hiyal::effects::{Message, Role, Sampling};
     fn request() -> ModelRequest {
         ModelRequest {
-            provider: "openrouter".into(), model: "test/model".into(),
+            provider: "openrouter".into(),
+            model: "test/model".into(),
             resolved_model_version: Some("fixed".into()),
-            messages: vec![Message { role: Role::User, content: "typed role-visible view".into(), tool_call_id: None }],
-            sampling: Sampling { temperature: Some(0.0), top_p: None, seed: Some(1), max_output_tokens: Some(400) },
-            tool_schemas: vec![], streaming: false,
-            response_format: Some(serde_json::json!({"type":"json_schema","json_schema":{"strict":true,"schema":{"type":"object"}}})),
+            messages: vec![Message {
+                role: Role::User,
+                content: "typed role-visible view".into(),
+                tool_call_id: None,
+            }],
+            sampling: Sampling {
+                temperature: Some(0.0),
+                top_p: None,
+                seed: Some(1),
+                max_output_tokens: Some(400),
+            },
+            tool_schemas: vec![],
+            streaming: false,
+            response_format: Some(
+                serde_json::json!({"type":"json_schema","json_schema":{"strict":true,"schema":{"type":"object"}}}),
+            ),
         }
     }
     fn route() -> PinnedRoute {
-        PinnedRoute { model: "test/model".into(), provider: "pinned-provider".into(),
-            input_micro_usd_per_million: 1_000_000, output_micro_usd_per_million: 5_000_000,
-            reasoning_disabled: true }
+        PinnedRoute {
+            model: "test/model".into(),
+            provider: "pinned-provider".into(),
+            input_micro_usd_per_million: 1_000_000,
+            output_micro_usd_per_million: 5_000_000,
+            reasoning_disabled: true,
+        }
     }
     fn scope(purpose: Purpose, campaign: Option<&str>, quarter: Option<u8>) -> Scope {
-        Scope { purpose, campaign_id: campaign.map(str::to_owned), quarter, batch_id: None }
+        Scope {
+            purpose,
+            campaign_id: campaign.map(str::to_owned),
+            quarter,
+            batch_id: None,
+        }
     }
     fn temporary() -> PathBuf {
-        let p = std::env::temp_dir().join(format!("myth-p5-{}-{:?}", std::process::id(), std::thread::current().id()));
+        let p = std::env::temp_dir().join(format!(
+            "myth-p5-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
         let _ = fs::remove_dir_all(&p);
         p
     }
@@ -501,18 +631,36 @@ mod tests {
             assert_eq!(restarted.remaining_micro_usd().unwrap(), prior);
             let entries = if reverse { ["c2", "c1"] } else { ["c1", "c2"] };
             for id in entries {
-                let s = scope(Purpose::Minister, Some(if id == "c1" { "campaign-a" } else { "campaign-b" }), Some(1));
+                let s = scope(
+                    Purpose::Minister,
+                    Some(if id == "c1" {
+                        "campaign-a"
+                    } else {
+                        "campaign-b"
+                    }),
+                    Some(1),
+                );
                 assert!(!restarted.reserve(id, s, route(), &request()).unwrap().fresh);
                 assert!(restarted.mark_dispatched(id).is_err());
             }
             restarted.verify_charge("c1", 5).unwrap();
             restarted.start_funded_epoch(INITIAL_MICRO_USD).unwrap();
-            let unresolved = restarted.calls().iter().filter(|c| c.status != Status::Verified)
-                .map(|c| c.maximum_micro_usd).sum::<u64>();
-            assert_eq!(restarted.remaining_micro_usd().unwrap(), INITIAL_MICRO_USD - unresolved);
+            let unresolved = restarted
+                .calls()
+                .iter()
+                .filter(|c| c.status != Status::Verified)
+                .map(|c| c.maximum_micro_usd)
+                .sum::<u64>();
+            assert_eq!(
+                restarted.remaining_micro_usd().unwrap(),
+                INITIAL_MICRO_USD - unresolved
+            );
             drop(restarted);
             let recovered = Allowance::open(&path, "owner").unwrap();
-            assert_eq!(recovered.remaining_micro_usd().unwrap(), INITIAL_MICRO_USD - unresolved);
+            assert_eq!(
+                recovered.remaining_micro_usd().unwrap(),
+                INITIAL_MICRO_USD - unresolved
+            );
             let _ = fs::remove_dir_all(&path);
         }
     }
@@ -520,8 +668,24 @@ mod tests {
     fn fails_closed_for_corruption_and_changed_retry() {
         let path = temporary();
         let mut ledger = Allowance::open(&path, "owner").unwrap();
-        ledger.reserve("call", scope(Purpose::Minister, Some("one"), Some(1)), route(), &request()).unwrap();
-        assert!(ledger.reserve("call", scope(Purpose::Minister, Some("two"), Some(1)), route(), &request()).is_err());
+        ledger
+            .reserve(
+                "call",
+                scope(Purpose::Minister, Some("one"), Some(1)),
+                route(),
+                &request(),
+            )
+            .unwrap();
+        assert!(
+            ledger
+                .reserve(
+                    "call",
+                    scope(Purpose::Minister, Some("two"), Some(1)),
+                    route(),
+                    &request()
+                )
+                .is_err()
+        );
         let saved = fs::read(path.join("application-allowance.json")).unwrap();
         drop(ledger);
         fs::write(path.join("application-allowance.json"), b"{}").unwrap();
@@ -538,11 +702,30 @@ mod tests {
         let mut ledger = Allowance::open(&path, "owner").unwrap();
         let mut bad = request();
         bad.streaming = true;
-        assert!(ledger.reserve("bad", scope(Purpose::Minister, Some("a"), Some(1)), route(), &bad).is_err());
-        ledger.reserve("reserved", scope(Purpose::Minister, Some("a"), Some(1)), route(), &request()).unwrap();
+        assert!(
+            ledger
+                .reserve(
+                    "bad",
+                    scope(Purpose::Minister, Some("a"), Some(1)),
+                    route(),
+                    &bad
+                )
+                .is_err()
+        );
+        ledger
+            .reserve(
+                "reserved",
+                scope(Purpose::Minister, Some("a"), Some(1)),
+                route(),
+                &request(),
+            )
+            .unwrap();
         let held = ledger.calls()[0].maximum_micro_usd;
         ledger.start_funded_epoch(INITIAL_MICRO_USD).unwrap();
-        assert_eq!(ledger.remaining_micro_usd().unwrap(), INITIAL_MICRO_USD - held);
+        assert_eq!(
+            ledger.remaining_micro_usd().unwrap(),
+            INITIAL_MICRO_USD - held
+        );
         drop(ledger);
         let _ = fs::remove_dir_all(path);
     }
