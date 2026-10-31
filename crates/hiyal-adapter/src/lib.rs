@@ -89,18 +89,12 @@ fn actor_role(actor: AgentId) -> Option<d::Ministry> {
         _ => None,
     }
 }
-fn role_name(role: d::Ministry) -> &'static str {
-    match role {
-        d::Ministry::Finance => "finance",
-        d::Ministry::Education => "education",
-        d::Ministry::Infrastructure => "infrastructure",
-    }
-}
-fn position_name(v: d::Position) -> &'static str {
-    match v {
-        d::Position::Support => "support",
-        d::Position::Conditional => "conditional",
-        d::Position::Oppose => "oppose",
+// Serialize the same typed vote enums as the validated P1 contracts.
+fn wire_vote(value:d::Position)->myth_contracts::Vote {
+    match value {
+        d::Position::Support=>myth_contracts::Vote::Support,
+        d::Position::Conditional=>myth_contracts::Vote::Conditional,
+        d::Position::Oppose=>myth_contracts::Vote::Oppose,
     }
 }
 fn allocation_value(a: d::Allocation) -> Value {
@@ -535,14 +529,14 @@ impl GameWorld {
                 };
                 json!({"stage":"first","schema_version":1,"meeting_id":meeting,
                     "proposal_version":view.proposal_version.to_decimal(),
-                    "ministry":role_name(role),"position":position_name(position),
+                    "ministry":myth_contracts::Ministry::from(role),"position":wire_vote(position),
                     "preferred_allocation":allocation_value(preference),
                     "counterproposal_source":origin,"conditions":[],"evidence_ids":[],
                     "rationale_summary":"Deterministic P0 profile decision"})
             } else {
                 let mut output = json!({"stage":"final","schema_version":1,
                     "meeting_id":meeting,"proposal_version":view.proposal_version.to_decimal(),
-                    "ministry":role_name(role),"position":position_name(position),
+                    "ministry":myth_contracts::Ministry::from(role),"position":wire_vote(position),
                     "preferred_allocation":allocation_value(preference),
                     "conditions":[],"evidence_ids":[],
                     "rationale_summary":"Deterministic P0 profile final vote"});
