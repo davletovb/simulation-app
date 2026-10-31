@@ -16,7 +16,9 @@ use myth_contracts::Allocation as WireAllocation;
 use myth_domain::PolicyFamily;
 use myth_hiyal_adapter::{
     ActionKind, GameWorld,
-    orchestrator::{GameTrial, advance_slice, create_campaign, inspect, resume},
+    orchestrator::{
+        GameTrial, advance_slice, advance_unmodified_quarter, create_campaign, inspect, resume,
+    },
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -27,6 +29,7 @@ use std::{
     fs::{self, File, OpenOptions},
     io::Write,
     path::{Path as FsPath, PathBuf},
+    sync::OnceLock,
     sync::{
         Arc, Mutex,
         atomic::{AtomicBool, Ordering},
@@ -36,6 +39,10 @@ use std::{
 use tokio::sync::{Mutex as AsyncMutex, broadcast};
 
 const MAX_COMMANDS: usize = 512;
+const FROZEN_NEWS: &str = include_str!("../../../data/england-school-pilot-v1/news-bundle.json");
+const FROZEN_COUNTRY: &str =
+    include_str!("../../../data/england-school-pilot-v1/country-pack.json");
+const FROZEN_VALUES: &str = include_str!("../../../data/england-school-pilot-v1/values.json");
 
 /// Removes uncommitted fork staging on *all* error paths. A published fork
 /// remains durable even if the following directory fsync fails.
@@ -72,9 +79,21 @@ pub struct Command {
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum CommandKind {
     AdvanceSlice,
-    Propose { allocation: WireAllocation },
-    Amend { allocation: WireAllocation },
-    Decide { ratify: bool },
+    ContinueQuarter,
+    FinishContinuation,
+    Propose {
+        allocation: WireAllocation,
+    },
+    Amend {
+        allocation: WireAllocation,
+    },
+    Decide {
+        ratify: bool,
+    },
+    OrderAudit {
+        family: myth_contracts::Family,
+        inspected_quarter: u8,
+    },
 }
 impl CommandKind {
     fn body(&self, world: &GameWorld) -> Result<Option<Value>, String> {
@@ -88,6 +107,8 @@ impl CommandKind {
         };
         Ok(match self {
             Self::AdvanceSlice => None,
+            Self::ContinueQuarter => Some(json!({"kind":"defer"})),
+            Self::FinishContinuation => None,
             Self::Propose { allocation } => Some(json!({
                 "kind":"propose","meeting_id":meeting,"allocation":allocation,
             })),
@@ -101,6 +122,14 @@ impl CommandKind {
                 "proposal_version":proposal_version()?,
             })),
             Self::Decide { ratify: false } => Some(json!({"kind":"defer"})),
+            Self::OrderAudit {
+                family,
+                inspected_quarter,
+            } => Some(json!({
+                "kind": "order_audit",
+                "family": family,
+                "inspected_quarter": inspected_quarter,
+            })),
         })
     }
 }
@@ -288,6 +317,231 @@ pub struct PublicDecision {
     pub final_support: u8,
     pub final_votes: u8,
 }
+/// Public P3 report only: reported activity and schedule, not private actual
+/// delivery or hidden minister implementation effort.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct PublicDelivery {
+    pub quarter: u8,
+    pub reported_cumulative: [u16; 3],
+    pub due_cumulative: [u16; 3],
+    pub weighted_support_ppm: u32,
+    pub staff_slowdown_next: bool,
+    pub access_bonus_next: bool,
+}
+/// Exact recorded-action replay is distinct from a new scripted fork.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct PublicNews {
+    pub date: String,
+    pub kind: String,
+    pub title: String,
+    pub summary: String,
+    pub url: Option<String>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct NewsBundle {
+    schema_version: u16,
+    cutoff_utc: String,
+    items: Vec<PublicNews>,
+    label: String,
+}
+/// Canonical Gregorian dates only; lexical cutoff checks require this first.
+fn strict_iso_date(date: &str) -> bool {
+    let b = date.as_bytes();
+    if b.len() != 10
+        || b[4] != b'-'
+        || b[7] != b'-'
+        || b.iter()
+            .enumerate()
+            .any(|(i, c)| i != 4 && i != 7 && !c.is_ascii_digit())
+    {
+        return false;
+    }
+    let (Ok(year), Ok(month), Ok(day)) = (
+        date[..4].parse::<u32>(),
+        date[5..7].parse::<u32>(),
+        date[8..10].parse::<u32>(),
+    ) else {
+        return false;
+    };
+    if year == 0 {
+        return false;
+    }
+    let leap = year % 4 == 0 && (year % 100 != 0 || year % 400 == 0);
+    let days = match month {
+        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+        4 | 6 | 9 | 11 => 30,
+        2 if leap => 29,
+        2 => 28,
+        _ => return false,
+    };
+    (1..=days).contains(&day)
+}
+fn parse_news_bundle(raw: &str) -> Result<(String, Vec<PublicNews>), String> {
+    let bundle: NewsBundle = serde_json::from_str(raw).map_err(|_| "invalid news bundle")?;
+    let cutoff = bundle
+        .cutoff_utc
+        .get(..10)
+        .ok_or("missing news cutoff date")?;
+    if bundle.schema_version != 1
+        || bundle.label.is_empty()
+        || bundle.items.len() > 12
+        || bundle.cutoff_utc.len() != 20
+        || !bundle.cutoff_utc.ends_with('Z')
+        || !strict_iso_date(cutoff)
+    {
+        return Err("news bundle/country cutoff mismatch".into());
+    }
+    for item in &bundle.items {
+        let real = item.kind == "real_source_update";
+        let fiction = item.kind == "fictional_simulation_news";
+        if !(real || fiction)
+            || !strict_iso_date(&item.date)
+            || item.title.is_empty()
+            || item.summary.is_empty()
+            || (real
+                && (item.date.as_str() > cutoff
+                    || !item
+                        .url
+                        .as_deref()
+                        .is_some_and(|url| url.starts_with("https://"))))
+            || (fiction && item.url.is_some())
+        {
+            return Err("unsafe or unclassified archived news".into());
+        }
+    }
+    Ok((bundle.cutoff_utc, bundle.items))
+}
+static VALIDATED_NEWS: OnceLock<Result<(String, Vec<PublicNews>), String>> = OnceLock::new();
+fn frozen_news(cutoff: &str) -> Result<Vec<PublicNews>, String> {
+    let (expected, news) = VALIDATED_NEWS
+        .get_or_init(|| parse_news_bundle(FROZEN_NEWS))
+        .as_ref()
+        .map_err(Clone::clone)?;
+    if expected != cutoff {
+        return Err("news cutoff differs from campaign pack".into());
+    }
+    Ok(news.clone())
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct PublicComparison {
+    pub mode: String,
+    pub source_campaign_id: Option<String>,
+    pub source_cursor: Option<String>,
+    pub inherited_shock_stream: bool,
+    pub post_fork_actor_actions_fixed: bool,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct PublicIndicator {
+    pub variable_id: String,
+    pub definition: String,
+    pub scope: String,
+    pub publisher: String,
+    pub reference_period: String,
+    pub display_value: String,
+    pub unit: String,
+    pub source_url: String,
+    pub quality_flags: Vec<String>,
+}
+#[derive(Deserialize)]
+struct SourcePack {
+    schema_version: u16,
+    cutoff_utc: String,
+    evidence: Vec<SourceFact>,
+}
+#[derive(Deserialize)]
+struct SourceFact {
+    stable_variable_id: String,
+    definition: String,
+    geographic_scope: String,
+    publisher: String,
+    reference_period: String,
+    source_url: String,
+    normalized_unit: String,
+}
+#[derive(Deserialize)]
+struct SourceValues {
+    schema_version: u16,
+    cutoff_utc: String,
+    records: Vec<SourceValue>,
+}
+#[derive(Deserialize)]
+struct SourceValue {
+    stable_variable_id: String,
+    raw_value: String,
+    normalized_unit: String,
+    quality_flags: Vec<String>,
+}
+fn parse_source_indicators() -> Result<(String, Vec<PublicIndicator>), String> {
+    let pack: SourcePack =
+        serde_json::from_str(FROZEN_COUNTRY).map_err(|_| "cannot parse frozen country source")?;
+    let values: SourceValues =
+        serde_json::from_str(FROZEN_VALUES).map_err(|_| "cannot parse frozen source values")?;
+    if pack.schema_version != 1
+        || values.schema_version != 1
+        || pack.cutoff_utc != values.cutoff_utc
+        || pack.evidence.len() != 8
+        || values.records.len() != 8
+    {
+        return Err("country evidence contract mismatch".into());
+    }
+    let indexed: BTreeMap<&str, &SourceValue> = values
+        .records
+        .iter()
+        .map(|entry| (entry.stable_variable_id.as_str(), entry))
+        .collect();
+    if indexed.len() != 8 {
+        return Err("duplicate frozen source value IDs".into());
+    }
+    let mut indicators = Vec::new();
+    for source in pack.evidence {
+        let v = indexed
+            .get(source.stable_variable_id.as_str())
+            .ok_or("missing matching frozen source value")?;
+        if source.normalized_unit != v.normalized_unit
+            || !source.source_url.starts_with("https://")
+            || source.definition.is_empty()
+            || source.geographic_scope.is_empty()
+            || v.raw_value.is_empty()
+        {
+            return Err("unverified frozen evidence metadata".into());
+        }
+        indicators.push(PublicIndicator {
+            variable_id: source.stable_variable_id,
+            definition: source.definition,
+            scope: source.geographic_scope,
+            publisher: source.publisher,
+            reference_period: source.reference_period,
+            display_value: v.raw_value.clone(),
+            unit: v.normalized_unit.clone(),
+            source_url: source.source_url,
+            quality_flags: v.quality_flags.clone(),
+        });
+    }
+    if indicators
+        .iter()
+        .map(|v| v.variable_id.as_str())
+        .collect::<std::collections::BTreeSet<_>>()
+        .len()
+        != 8
+    {
+        return Err("duplicate frozen source IDs".into());
+    }
+    Ok((pack.cutoff_utc, indicators))
+}
+static VALIDATED_INDICATORS: OnceLock<Result<(String, Vec<PublicIndicator>), String>> =
+    OnceLock::new();
+fn source_indicators(cutoff: &str) -> Result<Vec<PublicIndicator>, String> {
+    let (expected, rows) = VALIDATED_INDICATORS
+        .get_or_init(parse_source_indicators)
+        .as_ref()
+        .map_err(Clone::clone)?;
+    if expected != cutoff {
+        return Err("evidence cutoff differs from campaign pack".into());
+    }
+    Ok(rows.clone())
+}
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct PublicEvidence {
     pub case_pack: String,
@@ -296,6 +550,7 @@ pub struct PublicEvidence {
     pub scenario_sha256: String,
     pub attribution: String,
     pub scope: String,
+    pub indicators: Vec<PublicIndicator>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct PublicView {
@@ -307,10 +562,14 @@ pub struct PublicView {
     pub quarter: u8,
     pub phase: String,
     pub closed: bool,
+    pub continuation_pending: bool,
     pub proposal: Option<Value>,
     pub votes: Vec<PublicVote>,
     pub treasury: PublicTreasury,
     pub decisions: Vec<PublicDecision>,
+    pub delivery_history: Vec<PublicDelivery>,
+    pub news: Vec<PublicNews>,
+    pub comparison: PublicComparison,
     pub evidence: PublicEvidence,
     pub outcome: Option<String>,
     pub assumption: String,
@@ -410,9 +669,30 @@ fn capture(trial: &GameTrial) -> Result<PublicView, String> {
             .into(),
         scope: "Fictional England school-delivery case; not a forecast of actual policy outcomes"
             .into(),
+        indicators: source_indicators(&world.source_cutoff_utc)?,
     };
     let campaign = world.fold()?;
     let treasury = campaign.world().treasury();
+    let delivery_history: Vec<PublicDelivery> = campaign
+        .player_reports()
+        .into_iter()
+        .map(|report| PublicDelivery {
+            quarter: report.quarter.value(),
+            reported_cumulative: report.reported_cumulative,
+            due_cumulative: report.due_cumulative,
+            weighted_support_ppm: report.weighted_support_ppm,
+            staff_slowdown_next: report.staff_slowdown_next,
+            access_bonus_next: report.access_bonus_next,
+        })
+        .collect();
+    if delivery_history.len() > 6
+        || delivery_history
+            .iter()
+            .enumerate()
+            .any(|(i, report)| usize::from(report.quarter) != i + 1)
+    {
+        return Err("invalid public quarterly report sequence".into());
+    }
     let fiscal = PublicTreasury {
         available_credits: treasury.available(),
         encumbered_staff: treasury.encumbered(PolicyFamily::Staffing),
@@ -430,10 +710,20 @@ fn capture(trial: &GameTrial) -> Result<PublicView, String> {
         quarter:world.quarter,
         phase:format!("{:?}",world.phase),
         closed:world.is_closed(),
+        continuation_pending:world.continuation_pending(),
         proposal,
         votes,
         treasury:fiscal,
         decisions,
+        delivery_history,
+        news: frozen_news(&world.source_cutoff_utc)?,
+        comparison: PublicComparison {
+            mode: "primary_campaign".into(),
+            source_campaign_id: None,
+            source_cursor: None,
+            inherited_shock_stream: false,
+            post_fork_actor_actions_fixed: false,
+        },
         evidence,
         outcome,
         assumption:"Synthetic education-delivery rules; scripted cabinet, not live ministers or empirical predictions".into(),
@@ -446,6 +736,18 @@ fn capture_for(trial: &GameTrial, id: &str) -> Result<PublicView, String> {
     let mut view = capture(trial)?;
     view.campaign_id = id.into();
     view.trial_id = trial.store.genesis().trial_id.clone();
+    if let Some(fork) = read_fork_meta(&trial.store.dir)? {
+        if fork.branch_id != id {
+            return Err("fork identity mismatch".into());
+        }
+        view.comparison = PublicComparison {
+            mode: "fresh_scripted_branch".into(),
+            source_campaign_id: Some(fork.source_campaign_id),
+            source_cursor: Some(fork.source_cursor),
+            inherited_shock_stream: true,
+            post_fork_actor_actions_fixed: false,
+        };
+    }
     Ok(view)
 }
 #[derive(Clone, Serialize)]
@@ -476,6 +778,10 @@ pub struct Connected {
 }
 impl Connected {
     pub fn new(root: PathBuf) -> Result<Arc<Self>, String> {
+        // Fail closed before opening a campaign if the immutable source archive is invalid.
+        let cutoff = "2026-10-29T23:59:59Z";
+        frozen_news(cutoff)?;
+        source_indicators(cutoff)?;
         fs::create_dir_all(&root).map_err(|_| "cannot make private campaign root")?;
         #[cfg(unix)]
         {
@@ -663,6 +969,9 @@ fn schedule(owner: Arc<Owner>) {
                     Err(error) => Err(error),
                 };
                 let applied = match prepared {
+                    Ok(()) if engine.log.records[pos].kind == CommandKind::FinishContinuation => {
+                        advance_unmodified_quarter(&mut engine.trial).await
+                    }
                     Ok(()) => advance_slice(&mut engine.trial).await.map(|_| ()),
                     Err(error) => Err(error),
                 };
@@ -707,6 +1016,7 @@ fn schedule(owner: Arc<Owner>) {
                         quarter: 0,
                         phase: "IntegrityFailure".into(),
                         closed: false,
+                        continuation_pending: false,
                         proposal: None,
                         votes: vec![],
                         treasury: PublicTreasury {
@@ -718,6 +1028,15 @@ fn schedule(owner: Arc<Owner>) {
                             audit_spent: 0,
                         },
                         decisions: vec![],
+                        delivery_history: vec![],
+                        news: vec![],
+                        comparison: PublicComparison {
+                            mode: "verification_failed".into(),
+                            source_campaign_id: None,
+                            source_cursor: None,
+                            inherited_shock_stream: false,
+                            post_fork_actor_actions_fixed: false,
+                        },
                         evidence: PublicEvidence {
                             case_pack: "unavailable".into(),
                             source_cutoff_utc: "unavailable".into(),
@@ -725,6 +1044,7 @@ fn schedule(owner: Arc<Owner>) {
                             scenario_sha256: "unavailable".into(),
                             attribution: "Verification failed".into(),
                             scope: "No authenticated case evidence available".into(),
+                            indicators: vec![],
                         },
                         outcome: None,
                         assumption: "Offline verification failed".into(),
@@ -868,6 +1188,33 @@ async fn command(
     }
     if engine.trial.store.world().is_closed() {
         return Err(status(StatusCode::CONFLICT, "campaign closed"));
+    }
+    if matches!(
+        request.kind,
+        CommandKind::ContinueQuarter | CommandKind::FinishContinuation
+    ) && engine.trial.store.world().phase != myth_contracts::checkpoint::Phase::QuarterOpen
+    {
+        return Err(status(
+            StatusCode::CONFLICT,
+            "cannot continue an active cabinet meeting",
+        ));
+    }
+    if request.kind == CommandKind::FinishContinuation
+        && !engine.trial.store.world().continuation_pending()
+    {
+        return Err(status(
+            StatusCode::CONFLICT,
+            "no journaled continuation choice",
+        ));
+    }
+    if request.kind == CommandKind::ContinueQuarter
+        && (engine.trial.store.world().quarter < 2
+            || engine.trial.store.world().continuation_pending())
+    {
+        return Err(status(
+            StatusCode::CONFLICT,
+            "cannot repeat continuation choice",
+        ));
     }
     if let Some(body) = request
         .kind
@@ -1181,6 +1528,7 @@ pub fn routes() -> Router<Arc<Connected>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use myth_hiyal_adapter::orchestrator::run_until_closed;
     fn root() -> PathBuf {
         std::env::temp_dir().join(format!(
             "p6-connected-{}-{}",
@@ -2005,6 +2353,21 @@ mod tests {
         let later = accepted_step(&service, "report", CommandKind::AdvanceSlice, 6).await;
         assert_eq!(later.phase, "QuarterOpen");
         assert_eq!(later.decisions.len(), 1);
+        assert_eq!(later.delivery_history.len(), 1);
+        assert_eq!(later.delivery_history[0].quarter, 1);
+        assert_eq!(later.evidence.indicators.len(), 8);
+        assert!(
+            later
+                .evidence
+                .indicators
+                .iter()
+                .any(|item| item.variable_id == "teacher_fte" && item.display_value == "466,372")
+        );
+        assert_eq!(later.news.len(), 3);
+        assert_eq!(later.news[0].kind, "real_source_update");
+        assert_eq!(later.news[2].kind, "fictional_simulation_news");
+        assert_eq!(later.comparison.mode, "primary_campaign");
+        assert!(!later.comparison.post_fork_actor_actions_fixed);
         assert!(later.proposal.is_none());
         assert!(later.votes.is_empty());
         let payload = serde_json::to_string(&later).unwrap();
@@ -2019,6 +2382,215 @@ mod tests {
             assert!(!payload.contains(secret), "private field escaped: {secret}");
         }
         drop(service);
+        fs::remove_dir_all(dir).unwrap();
+    }
+    #[test]
+    fn p7_news_cutoff_rejects_noncanonical_and_impossible_dates() {
+        for bad in [
+            "1 November 2026",
+            "2026-10-30T12:00:00Z",
+            "2026-02-29",
+            "2026-13-01",
+            "2026-10-00",
+            "2026-10-32",
+            "2026-2-09",
+        ] {
+            assert!(!strict_iso_date(bad), "accepted non-ISO date {bad}");
+        }
+        assert!(strict_iso_date("2024-02-29"));
+        assert!(parse_news_bundle(&FROZEN_NEWS.replace("2026-08-17", "1 November 2026")).is_err());
+        assert!(parse_news_bundle(&FROZEN_NEWS.replace("2026-08-17", "2026-11-01")).is_err());
+    }
+    #[test]
+    fn p7_audit_command_preserves_typed_family_and_quarter() {
+        let world = GameWorld::initial("audit-wire").unwrap();
+        let body = CommandKind::OrderAudit {
+            family: myth_contracts::Family::Repairs,
+            inspected_quarter: 2,
+        }
+        .body(&world)
+        .unwrap()
+        .unwrap();
+        assert_eq!(
+            body,
+            json!({"kind":"order_audit","family":"repairs","inspected_quarter":2})
+        );
+    }
+    #[test]
+    fn p7_quarter_continuation_is_an_explicit_typed_player_action() {
+        let world = GameWorld::initial("continue-wire").unwrap();
+        assert_eq!(
+            CommandKind::ContinueQuarter.body(&world).unwrap(),
+            Some(json!({"kind":"defer"}))
+        );
+        assert_eq!(CommandKind::FinishContinuation.body(&world).unwrap(), None);
+    }
+    #[tokio::test]
+    async fn p7_two_fundable_resolutions_remain_distinct_when_programmes_continue() {
+        let dir = root();
+        let service = Connected::new(dir.clone()).unwrap();
+        let mut outcomes = Vec::new();
+        for (id, allocation) in [
+            (
+                "balanced-campaign",
+                WireAllocation {
+                    staff: 50,
+                    repairs: 40,
+                    access: 10,
+                },
+            ),
+            (
+                "staff-campaign",
+                WireAllocation {
+                    staff: 60,
+                    repairs: 30,
+                    access: 10,
+                },
+            ),
+        ] {
+            let mut serial = 0usize;
+            let mut step = |kind| {
+                serial += 1;
+                (kind, serial)
+            };
+            let (kind, n) = step(CommandKind::Propose { allocation });
+            accepted_step(&service, id, kind, n).await;
+            for _ in 0..3 {
+                let (kind, n) = step(CommandKind::AdvanceSlice);
+                accepted_step(&service, id, kind, n).await;
+            }
+            let view = service.owner(id, false).await.unwrap();
+            assert_eq!(
+                capture_for(&view.engine.lock().await.trial, id)
+                    .unwrap()
+                    .phase,
+                "FinalPositionsFrozen"
+            );
+            drop(view);
+            let (kind, n) = step(CommandKind::Decide { ratify: true });
+            let passed = accepted_step(&service, id, kind, n).await;
+            assert_eq!(passed.outcome.as_deref(), Some("ratified"));
+            let (kind, n) = step(CommandKind::AdvanceSlice);
+            assert_eq!(accepted_step(&service, id, kind, n).await.quarter, 2);
+            for quarter in 2..=6 {
+                if quarter == 3 {
+                    let (kind, n) = step(CommandKind::OrderAudit {
+                        family: myth_contracts::Family::Staffing,
+                        inspected_quarter: 2,
+                    });
+                    let checked = accepted_step(&service, id, kind, n).await;
+                    let owner = service.owner(id, false).await.unwrap();
+                    let audit_count = owner
+                        .engine
+                        .lock()
+                        .await
+                        .trial
+                        .store
+                        .world()
+                        .fold()
+                        .unwrap()
+                        .player_audits()
+                        .len();
+                    assert_eq!(audit_count, 1);
+                    assert!(
+                        !serde_json::to_string(&checked)
+                            .unwrap()
+                            .contains("inspected_cumulative")
+                    );
+                    drop(owner);
+                }
+                let (kind, n) = step(CommandKind::ContinueQuarter);
+                let chosen = accepted_step(&service, id, kind, n).await;
+                assert!(chosen.continuation_pending);
+                assert_eq!(chosen.delivery_history.len(), quarter as usize - 1);
+                let owner = service.owner(id, false).await.unwrap();
+                let engine = owner.engine.lock().await;
+                let world = engine.trial.store.world();
+                assert!(world.continuation_pending());
+                assert!(
+                    world
+                        .selected_player_command(
+                            "sneaky",
+                            json!({
+                                "kind":"propose", "meeting_id": format!("q{}", world.quarter),
+                                "allocation":{"staff":0,"repairs":0,"access":0}
+                            })
+                        )
+                        .is_err()
+                );
+                inspect(&engine.trial.store.dir).unwrap();
+                drop(engine);
+                drop(owner);
+                let (kind, n) = step(CommandKind::FinishContinuation);
+                let next = accepted_step(&service, id, kind, n).await;
+                assert!(!next.continuation_pending);
+                assert_eq!(next.delivery_history.len(), quarter as usize);
+            }
+            let owner = service.owner(id, false).await.unwrap();
+            let snapshot = capture_for(&owner.engine.lock().await.trial, id).unwrap();
+            assert!(snapshot.closed);
+            assert_eq!(snapshot.delivery_history.len(), 6);
+            outcomes.push(snapshot.delivery_history[5].reported_cumulative);
+            drop(owner);
+        }
+        assert_ne!(
+            outcomes[0], outcomes[1],
+            "distinct authorised policy allocations must give distinguishable public histories"
+        );
+        drop(service);
+        fs::remove_dir_all(dir).unwrap();
+    }
+    #[tokio::test]
+    async fn p7_complete_scripted_campaign_reports_exactly_six_quarters_and_replays() {
+        let dir = root();
+        let service = Connected::new(dir.clone()).unwrap();
+        let owner = service.owner("six-report", true).await.unwrap();
+        let final_view;
+        let saved_hash;
+        {
+            let mut engine = owner.engine.lock().await;
+            run_until_closed(&mut engine.trial).await.unwrap();
+            final_view = capture_for(&engine.trial, "six-report").unwrap();
+            assert!(final_view.closed);
+            assert_eq!(final_view.quarter, 6);
+            assert_eq!(final_view.delivery_history.len(), 6);
+            assert_eq!(
+                final_view
+                    .delivery_history
+                    .iter()
+                    .map(|r| r.quarter)
+                    .collect::<Vec<_>>(),
+                vec![1, 2, 3, 4, 5, 6]
+            );
+            assert_eq!(final_view.news.len(), 3);
+            assert_eq!(final_view.comparison.mode, "primary_campaign");
+            let t = &final_view.treasury;
+            assert_eq!(
+                u32::from(t.available_credits)
+                    + u32::from(t.encumbered_staff)
+                    + u32::from(t.encumbered_repairs)
+                    + u32::from(t.encumbered_access)
+                    + u32::from(t.service_spent)
+                    + u32::from(t.audit_spent),
+                100
+            );
+            saved_hash = inspect(&engine.trial.store.dir).unwrap().0;
+        }
+        drop(owner);
+        drop(service);
+        assert_eq!(inspect(&dir.join("six-report")).unwrap().0, saved_hash);
+        let reopened = Connected::new(dir.clone()).unwrap();
+        let restored = reopened.owner("six-report", false).await.unwrap();
+        let view = capture_for(&restored.engine.lock().await.trial, "six-report").unwrap();
+        assert_eq!(view.cursor, final_view.cursor);
+        assert_eq!(view.view_version, final_view.view_version);
+        assert_eq!(view.delivery_history.len(), 6);
+        assert_eq!(
+            view.treasury.service_spent,
+            final_view.treasury.service_spent
+        );
+        drop(restored);
+        drop(reopened);
         fs::remove_dir_all(dir).unwrap();
     }
     #[tokio::test]

@@ -920,6 +920,19 @@ pub async fn advance_slice(trial: &mut GameTrial) -> Result<bool, String> {
     trial.store.world().verify()?;
     Ok(true)
 }
+/// A durably admitted, explicit player choice to continue the existing
+/// programme. The PERIOD actor alone advances time; the player never
+/// impersonates the clock. No cabinet meeting is generated or re-ratified.
+pub async fn advance_unmodified_quarter(trial: &mut GameTrial) -> Result<(), String> {
+    if !trial.store.world().continuation_pending() {
+        return Err("unchanged-quarter advance requires a committed player choice".into());
+    }
+    enable(trial, &[PERIOD])?;
+    check_step(trial.step().await?)?;
+    trial.store.world().verify()?;
+    trial.checkpoint()?;
+    Ok(())
+}
 /// Performance-only sequential cabinet path: measures each complete Hiyal
 /// role step (including EveryEvent fsync), rather than dividing an opaque
 /// three-actor frozen batch by three. Recovery acceptance still separately

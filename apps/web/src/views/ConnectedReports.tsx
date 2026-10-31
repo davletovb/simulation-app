@@ -65,6 +65,12 @@ export function ConnectedCampaignReport() {
   const {data,isError}=usePublicView()
   const snapshot=data?.snapshot
   if (!snapshot) return <Pending error={isError}/>
+  if (snapshot.comparison.mode==='verification_failed') return <section className="panel" role="alert">
+    <h2>Journal verification failed</h2>
+    <p>The command's durable failure status was received. The current figures are not
+      verified. Stop the service and inspect the private save; do not continue
+      gameplay or trust a zeroed fallback snapshot.</p>
+  </section>
   return <section className="panel connected-public" aria-labelledby="connected-campaign-report">
     <h2 id="connected-campaign-report">Recorded quarterly decisions and consequences</h2>
     <p>Quarter {snapshot.quarter} · phase {snapshot.phase} ·
@@ -85,9 +91,44 @@ export function ConnectedCampaignReport() {
           {decision.allocation.repairs} repairs, {decision.allocation.access} access</span>}
       </li>)}
     </ol> : <p>No completed decision has been recorded yet.</p>}
-    <p className="connected-assumptions">Treasury balances are the verified current state,
-      not proof that any one decision caused a particular real-world outcome.
-      Detailed delivery and audit reporting requires P7.</p>
+    <h3>Saved quarterly public reports</h3>
+    {snapshot.delivery_history.length ? (
+      <table className="cohorts">
+        <caption>Public cumulative activity and schedules, not verified actual delivery</caption>
+        <thead><tr><th scope="col">Quarter</th><th scope="col">Reported staff / repair / access</th>
+          <th scope="col">Scheduled staff / repair / access</th><th scope="col">Weighted support</th></tr></thead>
+        <tbody>{snapshot.delivery_history.map(item => (
+          <tr key={item.quarter}><th scope="row">Q{item.quarter}</th>
+            <td>{item.reported_cumulative.join(' / ')}</td>
+            <td>{item.due_cumulative.join(' / ')}</td>
+            <td>{(item.weighted_support_ppm / 10000).toFixed(2)}% (authored game model)</td>
+          </tr>
+        ))}</tbody>
+      </table>
+    ) : <p>No quarter has advanced yet. A proposal and vote do not imply delivery.</p>}
+    {snapshot.delivery_history.at(-1)?.staff_slowdown_next &&
+      <p>Next-quarter risk: recorded workforce slowdown; projected throughput may fall.</p>}
+    {snapshot.delivery_history.at(-1)?.access_bonus_next &&
+      <p>Next-quarter effect: recorded community access-capacity bonus.</p>}
+    <h3>Replay and comparison provenance</h3>
+    <p>Mode: {snapshot.comparison.mode === 'primary_campaign'
+      ? 'Primary campaign · live committed game state (not a replay or fork)'
+      : snapshot.comparison.mode === 'exact_recorded_actions'
+      ? 'Explicitly verified recorded-action replay'
+      : snapshot.comparison.mode === 'fresh_scripted_branch'
+        ? 'Independent branch · new scripted actions after the fork'
+        : 'Verification failure'}.</p>
+    {snapshot.comparison.source_campaign_id && <p>Forked from {snapshot.comparison.source_campaign_id}
+      {' '}at source journal cursor {snapshot.comparison.source_cursor}. This is a local counterfactual
+      branch; its post-fork minister actions are not held fixed.</p>}
+    {snapshot.comparison.mode==='fresh_scripted_branch' && <p>
+      Inherited shock stream: {snapshot.comparison.inherited_shock_stream ? 'yes' : 'unverified'}.
+      Post-fork actor actions fixed: {snapshot.comparison.post_fork_actor_actions_fixed ? 'yes' : 'no'}.
+      Comparing separate branches is not an exact recorded-action replay.</p>}
+    <p className="connected-assumptions">Treasury balances and public reports are verified
+      projections of the saved synthetic state. Implementation effort, audited actual delivery,
+      undisclosed commitments and private actor beliefs are not included here.
+      No UK service-delivery or educational impact is empirically predicted.</p>
     <Boundary snapshot={snapshot}/>
   </section>
 }
@@ -106,6 +147,30 @@ export function ConnectedEvidenceReport() {
     </dl>
     <p>{snapshot.evidence.attribution}</p>
     <p>{snapshot.evidence.scope}</p>
+    <h3>Archived England education source indicators</h3>
+    <p>The eight figures below retain their original measurement universes and
+      reference periods. They are context for a fictional pilot, not measurements
+      of simulated delivery or actual pupil outcomes.</p>
+    <ul className="connected-public-list">
+      {snapshot.evidence.indicators.map(item=><li key={item.variable_id}>
+        <strong>{item.display_value} · {item.variable_id}</strong>
+        {' '}{item.definition}. {item.scope} · {item.reference_period}.
+        {' '}Publisher: {item.publisher}.
+        {' '}<a href={item.source_url} target="_blank" rel="noopener noreferrer">Archived source reference</a>
+        {item.quality_flags.length>0 && <> · Quality flags: {item.quality_flags.join(', ')}</>}
+      </li>)}
+    </ul>
+    <h3>Frozen news and scenario markers</h3>
+    <ul className="connected-public-list">
+      {snapshot.news.map((item,i)=><li key={item.date+'-'+i}>
+        <strong>{item.kind==='real_source_update' ? 'Archived real-source update' : 'Fictional simulation event'} · {item.date}</strong>
+        {' '}{item.title}. {item.summary}
+        {item.url && <> · <a href={item.url} target="_blank" rel="noopener noreferrer">Original published source</a></>}
+      </li>)}
+    </ul>
+    <p>Generated outcome reports are simulation outputs. News and country facts must be read
+      from the frozen sourced archive; narrative changes are fictional, not factual updates.
+      No LLM-authored briefing or news synthesis has been verified in this offline build.</p>
     <p className="connected-assumptions">A stable case-pack fingerprint proves which authored
       inputs were selected for this simulation. It does not independently verify the
       underlying country facts, news, model behavior or socioeconomic predictions.</p>
