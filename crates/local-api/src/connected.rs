@@ -453,10 +453,14 @@ struct Owner {
     sender: broadcast::Sender<Committed>,
     log_path: PathBuf,
     id: String,
+    // Keep the process-wide OS lock alive while any background command
+    // worker or campaign owner remains reachable.
+    _writer_lock: Arc<File>,
 }
 pub struct Connected {
     root: PathBuf,
     owners: Mutex<BTreeMap<String, Arc<Owner>>>,
+    _writer_lock: Arc<File>,
 }
 impl Connected {
     pub fn new(root: PathBuf) -> Result<Arc<Self>, String> {
@@ -467,9 +471,19 @@ impl Connected {
             fs::set_permissions(&root, fs::Permissions::from_mode(0o700))
                 .map_err(|_| "cannot protect campaign root")?;
         }
+        // File::try_lock is stable on the project's pinned Rust 1.99 toolchain.
+        // Its advisory OS lock remains held until the *last* owner/worker
+        // disappears, and is automatically released after a process crash.
+        let lock_file=OpenOptions::new().read(true).write(true).create(true)
+            .truncate(false).open(root.join(".p6-writer.lock"))
+            .map_err(|_|"cannot create local single-writer lock")?;
+        lock_file.try_lock().map_err(|_|
+            "another simulation API process already owns this save directory")?;
+        let _writer_lock=Arc::new(lock_file);
         Ok(Arc::new(Self {
             root,
             owners: Mutex::new(BTreeMap::new()),
+            _writer_lock,
         }))
     }
     fn owner(self: &Arc<Self>, id: &str) -> Result<Arc<Owner>, String> {
@@ -517,6 +531,7 @@ impl Connected {
             sender,
             log_path,
             id: id.to_owned(),
+            _writer_lock:self._writer_lock.clone(),
         });
         map.insert(id.into(), owner.clone());
         if owner.engine.try_lock().is_ok_and(|g| {
@@ -1041,6 +1056,16 @@ mod tests {
                 .unwrap()
                 .as_nanos()
         ))
+    }
+    #[test]
+    fn one_save_root_allows_only_one_os_writer() {
+        let path=root();
+        let first=Connected::new(path.clone()).unwrap();
+        assert!(Connected::new(path.clone()).is_err());
+        drop(first);
+        let recovered=Connected::new(path.clone()).unwrap();
+        drop(recovered);
+        fs::remove_dir_all(path).unwrap();
     }
     #[tokio::test]
     async fn durable_idempotency_and_scoped_recovery() {
