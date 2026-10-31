@@ -1248,6 +1248,62 @@ mod tests {
         fs::remove_dir_all(dir).unwrap();
     }
     #[tokio::test]
+    async fn mid_round_receipt_panic_restarts_without_duplicate_minister_actions(){
+        let dir=root();
+        let service=Connected::new(dir.clone()).unwrap();
+        accepted_step(&service,"mid-round",
+            CommandKind::Propose{allocation:WireAllocation{
+                staff:50,repairs:40,access:10,
+            }},1).await;
+        let owner=service.owner("mid-round").unwrap();
+        owner.engine.lock().await.trial.policy.fail_role_once=Some((
+            myth_hiyal_adapter::EDUCATION,
+            Arc::new(AtomicBool::new(true)),
+        ));
+        let version=owner.engine.lock().await.trial.store.world().world_version.clone();
+        let request=Command{
+            command_id:"failed-frozen-meeting".into(),
+            expected_world_version:version,
+            kind:CommandKind::AdvanceSlice,
+        };
+        let (_,Json(accepted))=command(State(service.clone()),
+            Path("mid-round".into()),Json(request)).await.unwrap();
+        assert_eq!(accepted.status,OperationStatus::Accepted);
+        // The intentional Hiyal test panic occurs after some receipts have
+        // been fsynced but before the complete frozen round commits.
+        for _ in 0..120{
+            if owner.engine.lock().await.trial.store.dir.join("pending-round.json").exists()
+                && owner.inflight.load(Ordering::Acquire) {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+        assert!(owner.engine.lock().await.trial.store.dir.join("pending-round.json").exists());
+        // Let the deliberately panicking background task release the OS
+        // writer locks before reopening this directory in the test process.
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        // Simulate process disposal; the new owner must recover journal and
+        // the durable accepted command without duplicating any seat.
+        drop(owner);drop(service);
+        let restored=Connected::new(dir.clone()).unwrap();
+        let live=restored.owner("mid-round").unwrap();
+        for _ in 0..160 {
+            if live.engine.lock().await.log.records.iter().any(|r|
+                r.command_id=="failed-frozen-meeting"
+                    && r.status==OperationStatus::Completed) {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+        let world=live.engine.lock().await;
+        assert_eq!(world.log.records.last().unwrap().status,OperationStatus::Completed);
+        assert_eq!(world.trial.store.world().actions.iter().filter(|a|
+            a.kind==ActionKind::MinisterAction).count(),3);
+        assert_eq!(capture(&world.trial).unwrap().votes.len(),3);
+        drop(world);drop(live);drop(restored);
+        fs::remove_dir_all(dir).unwrap();
+    }
+    #[tokio::test]
     async fn distinct_campaign_sse_and_command_namespaces_never_cross() {
         let dir = root();
         let service = Connected::new(dir.clone()).unwrap();
