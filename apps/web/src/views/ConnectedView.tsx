@@ -110,19 +110,16 @@ export async function loadSnapshot():Promise<Committed> {
   if (!validSnapshot(raw)) throw new Error('Invalid server snapshot')
   return raw
 }
-export async function fetchCommitted(cache: ReturnType<typeof useQueryClient>): Promise<Committed> {
-  const received = await loadSnapshot()
-  // Read after HTTP completes: SSE may have advanced the cache meanwhile.
-  return newer(cache.getQueryData<Committed>(CACHE_KEY) ?? null, received)
+// The authoritative cache is write-only through accept()->newer().
+// A React Query refetch must never overwrite a later SSE boundary: observers
+// therefore do not fetch or auto-refetch and subscribe to committed data only.
+export function useCommittedCampaign() {
+  return useQuery<Committed>({queryKey:CACHE_KEY,enabled:false,staleTime:Infinity})
 }
 
 export function ConnectedView({allocation}:{allocation:Allocation}) {
   const cache=useQueryClient()
-  const query=useQuery<Committed>({
-    queryKey:CACHE_KEY,
-    queryFn:()=>fetchCommitted(cache),
-    staleTime:2000,
-  })
+  const query=useCommittedCampaign()
   const current=query.data??null
   const [transport, setTransport] = useState<Transport>('connecting')
   const [pending, setPending] = useState<Pending | null>(readPending)
@@ -149,6 +146,10 @@ export function ConnectedView({allocation}:{allocation:Allocation}) {
     const updated=await loadSnapshot()
     accept(updated)
   }, [accept])
+
+  useEffect(() => {
+    void load().catch(() => setError('Verified campaign snapshot unavailable. Create a campaign explicitly if it does not exist.'))
+  }, [load])
 
   useEffect(() => {
     let alive = true
@@ -312,7 +313,7 @@ export function ConnectedView({allocation}:{allocation:Allocation}) {
         <span role="status" className="connected-status">{transport}</span>
       </div>
       {error && <p role="alert" className="connected-error">{error}</p>}
-      {query.isError && !snapshot && <p role="alert">The local campaign could not be loaded.</p>}
+      {error && !snapshot && <p role="alert">The local campaign could not be loaded.</p>}
       {!snapshot ? (
         <div className="connected-grid"><p>Loading a verified committed boundary…</p>
           <ActionButton onClick={() => void createCampaign()}>Start or open this campaign</ActionButton>
