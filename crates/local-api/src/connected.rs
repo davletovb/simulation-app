@@ -190,6 +190,59 @@ fn persist_log(path: &FsPath, log: &Log) -> Result<(), String> {
         .map_err(|_| "cannot sync command directory")?;
     Ok(())
 }
+/// A fork is a distinct local command scope, preserving the Hiyal genesis,
+/// recorded effects and shock streams up to a verified decision boundary.
+/// It is offline-only; inherited receipts must never be used to fund live API.
+#[derive(Clone,Debug,Serialize,Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ForkMeta {
+    schema_version:u16,
+    branch_id:String,
+    source_campaign_id:String,
+    source_cursor:String,
+    source_state_sha256:String,
+}
+#[derive(Clone,Debug,Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ForkRequest {
+    branch_id:String,
+    expected_cursor:String,
+    expected_world_version:String,
+}
+#[derive(Clone,Debug,Serialize)]
+pub struct ForkReceipt {
+    branch_id:String,
+    source_campaign_id:String,
+    source_cursor:String,
+    source_state_sha256:String,
+    shock_schedule:String,
+}
+fn fork_receipt(meta:&ForkMeta)->ForkReceipt {
+    ForkReceipt{
+        branch_id:meta.branch_id.clone(),
+        source_campaign_id:meta.source_campaign_id.clone(),
+        source_cursor:meta.source_cursor.clone(),
+        source_state_sha256:meta.source_state_sha256.clone(),
+        shock_schedule:"exact Hiyal genesis and stream state inherited".into(),
+    }
+}
+fn read_fork_meta(dir:&FsPath)->Result<Option<ForkMeta>,String>{
+    let file=dir.join("p6-fork-origin.json");
+    if !file.exists(){return Ok(None);}
+    let bytes=fs::read(file).map_err(|_|"cannot read fork provenance")?;
+    if bytes.len()>4096{return Err("oversized fork provenance".into());}
+    let meta:ForkMeta=serde_json::from_slice(&bytes)
+        .map_err(|_|"invalid fork provenance")?;
+    if meta.schema_version!=1 || !valid_id(&meta.branch_id)
+        || !valid_id(&meta.source_campaign_id)
+        || meta.branch_id==meta.source_campaign_id
+        || meta.source_cursor.parse::<u64>().is_err()
+        || meta.source_state_sha256.len()!=64
+        || !meta.source_state_sha256.bytes().all(|b|b.is_ascii_hexdigit()) {
+        return Err("unsafe fork provenance".into());
+    }
+    Ok(Some(meta))
+}
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct PublicVote {
     ministry: String,
@@ -288,6 +341,14 @@ fn capture(trial: &GameTrial) -> Result<PublicView, String> {
         mode:"offline_scripted",
     })
 }
+/// Hiyal's original campaign/trial identity is preserved in the journal;
+/// the API's logical branch ID is distinct and scopes commands/SSE.
+fn capture_for(trial:&GameTrial,id:&str)->Result<PublicView,String>{
+    let mut view=capture(trial)?;
+    view.campaign_id=id.into();
+    view.trial_id=trial.store.genesis.trial_id.clone();
+    Ok(view)
+}
 #[derive(Clone, Serialize)]
 pub struct Committed {
     pub snapshot: PublicView,
@@ -303,6 +364,7 @@ struct Owner {
     inflight: AtomicBool,
     sender: broadcast::Sender<Committed>,
     log_path: PathBuf,
+    id: String,
 }
 pub struct Connected {
     root: PathBuf,
@@ -340,7 +402,15 @@ impl Connected {
             create_campaign(&path, id, 43, id)?
         };
         if trial.store.world().campaign_id != id {
-            return Err("campaign identity differs from path".into());
+            let provenance=read_fork_meta(&path)?.ok_or("missing fork provenance")?;
+            if provenance.branch_id!=id
+                || provenance.source_campaign_id!=trial.store.world().campaign_id
+                || inspect(&path)?.2 < provenance.source_cursor.parse::<u64>()
+                    .map_err(|_|"invalid fork source cursor")? {
+                return Err("fork origin mismatch or truncated journal".into());
+            }
+        } else if read_fork_meta(&path)?.is_some() {
+            return Err("fork provenance may not overwrite a primary campaign".into());
         }
         let log_path = self.root.join(format!("{id}.commands.json"));
         let log = read_log(&log_path, id)?;
@@ -354,6 +424,7 @@ impl Connected {
             inflight: AtomicBool::new(false),
             sender,
             log_path,
+            id:id.to_owned(),
         });
         map.insert(id.into(), owner.clone());
         if owner.engine.try_lock().is_ok_and(|g| {
@@ -413,7 +484,7 @@ fn schedule(owner: Arc<Owner>) {
                 engine.trial.clear_player_command();
                 applied
             };
-            let snap = capture(&engine.trial);
+            let snap = capture_for(&engine.trial,&owner.id);
             let (completion, cursor) = match (result, snap) {
                 (Ok(()), Ok(snap)) => (Ok(snap.clone()), Some(snap.cursor)),
                 (Err(_), _) | (_, Err(_)) => (
@@ -442,7 +513,7 @@ fn schedule(owner: Arc<Owner>) {
                 });
             } else {
                 let _ = owner.sender.send(Committed {
-                    snapshot: capture(&engine.trial).unwrap_or(PublicView {
+                    snapshot: capture_for(&engine.trial,&owner.id).unwrap_or(PublicView {
                         schema_version: 1,
                         campaign_id: old.campaign_id.clone(),
                         trial_id: old.campaign_id.clone(),
@@ -494,7 +565,7 @@ async fn snapshot(
         .map_err(|_| status(StatusCode::CONFLICT, "campaign unavailable"))?;
     let engine = owner.engine.lock().await;
     Ok(Json(Committed {
-        snapshot: capture(&engine.trial)
+        snapshot: capture_for(&engine.trial,&owner.id)
             .map_err(|_| status(StatusCode::CONFLICT, "verification failed"))?,
         operation: None,
     }))
@@ -622,7 +693,7 @@ async fn subscribed_boundary(
     let receiver = owner.sender.subscribe();
     let engine = owner.engine.lock().await;
     let committed = Committed {
-        snapshot: capture(&engine.trial)?,
+        snapshot: capture_for(&engine.trial,&owner.id)?,
         operation: engine.log.records.last().cloned(),
     };
     Ok((committed, receiver))
@@ -683,12 +754,101 @@ async fn stream_events(
             .text("keepalive"),
     ))
 }
+async fn fork(
+    State(service):State<Arc<Connected>>,
+    Path(id):Path<String>,Json(request):Json<ForkRequest>,
+)->Result<(StatusCode,Json<ForkReceipt>),Failure>{
+    use myth_contracts::checkpoint::Phase;
+    if !valid_id(&request.branch_id) || request.branch_id==id
+        || request.branch_id.len()+5>64 {
+        return Err(status(StatusCode::BAD_REQUEST,"invalid fork branch identity"));
+    }
+    let owner=service.owner(&id)
+        .map_err(|_|status(StatusCode::CONFLICT,"source unavailable"))?;
+    let engine=owner.engine.lock().await;
+    if engine.poisoned || engine.trial.store.world().phase!=Phase::Resolved
+        || engine.trial.store.dir.join("pending-round.json").exists()
+        || engine.log.records.iter().any(|r|r.status==OperationStatus::Accepted) {
+        return Err(status(StatusCode::CONFLICT,"not a verified quiescent decision boundary"));
+    }
+    let boundary=capture_for(&engine.trial,&owner.id)
+        .map_err(|_|status(StatusCode::CONFLICT,"source replay verification failed"))?;
+    if boundary.cursor!=request.expected_cursor
+        || boundary.view_version!=request.expected_world_version {
+        return Err(status(StatusCode::CONFLICT,"fork boundary is stale"));
+    }
+    let source=&engine.trial.store.dir;
+    let source_hash=inspect(source)
+        .map_err(|_|status(StatusCode::CONFLICT,"source journal invalid"))?.0;
+    let meta=ForkMeta{
+        schema_version:1,
+        branch_id:request.branch_id.clone(),
+        source_campaign_id:engine.trial.store.world().campaign_id.clone(),
+        source_cursor:boundary.cursor,
+        source_state_sha256:source_hash,
+    };
+    let dst=service.root.join(&request.branch_id);
+    if dst.exists() {
+        let existing=read_fork_meta(&dst)
+            .map_err(|_|status(StatusCode::CONFLICT,"existing branch invalid"))?;
+        if existing.as_ref().is_some_and(|v|
+            v.branch_id==meta.branch_id && v.source_campaign_id==meta.source_campaign_id
+                && v.source_cursor==meta.source_cursor && v.source_state_sha256==meta.source_state_sha256){
+            return Ok((StatusCode::OK,Json(fork_receipt(&meta))));
+        }
+        return Err(status(StatusCode::CONFLICT,"branch already exists at another boundary"));
+    }
+    // Do not copy unverified output, temp artifacts, locks or auth secrets.
+    // Only the Hiyal manifest, exact journal and optional verified snapshot
+    // and receipts are eligible for a bounded local offline fork.
+    let stage=service.root.join(format!(".{}.fork-stage",request.branch_id));
+    fs::create_dir(&stage)
+        .map_err(|_|status(StatusCode::CONFLICT,"fork staging exists or cannot be created"))?;
+    for name in ["manifest.json","events.jsonl","effects.jsonl","snapshot.json"] {
+        let original=source.join(name);
+        if !original.exists(){continue;}
+        let metadata=fs::symlink_metadata(&original)
+            .map_err(|_|status(StatusCode::CONFLICT,"fork source metadata unavailable"))?;
+        if !metadata.file_type().is_file() || metadata.len()>64*1024*1024 {
+            return Err(status(StatusCode::CONFLICT,"unsafe source artifact for fork"));
+        }
+        let target=stage.join(name);
+        fs::copy(&original,&target)
+            .map_err(|_|status(StatusCode::INTERNAL_SERVER_ERROR,"cannot copy fork journal"))?;
+        File::open(&target).and_then(|file|file.sync_all())
+            .map_err(|_|status(StatusCode::INTERNAL_SERVER_ERROR,"cannot sync fork journal"))?;
+    }
+    let raw=serde_json::to_vec(&meta)
+        .map_err(|_|status(StatusCode::INTERNAL_SERVER_ERROR,"cannot encode fork metadata"))?;
+    let mut file=OpenOptions::new().create_new(true).write(true)
+        .open(stage.join("p6-fork-origin.json"))
+        .map_err(|_|status(StatusCode::INTERNAL_SERVER_ERROR,"cannot stage fork metadata"))?;
+    file.write_all(&raw).and_then(|_|file.sync_all())
+        .map_err(|_|status(StatusCode::INTERNAL_SERVER_ERROR,"cannot sync fork provenance"))?;
+    #[cfg(unix)]
+    File::open(&stage).and_then(|f|f.sync_all())
+        .map_err(|_|status(StatusCode::INTERNAL_SERVER_ERROR,"cannot sync fork staging"))?;
+    // Verify the copied committed boundary before publishing it.
+    let clone_hash=inspect(&stage)
+        .map_err(|_|status(StatusCode::CONFLICT,"copied journal did not strictly replay"))?;
+    if clone_hash.0!=meta.source_state_sha256
+        || clone_hash.2.to_string()!=meta.source_cursor {
+        return Err(status(StatusCode::CONFLICT,"fork hash or cursor mismatch"));
+    }
+    fs::rename(&stage,&dst)
+        .map_err(|_|status(StatusCode::CONFLICT,"fork publication failed"))?;
+    #[cfg(unix)]
+    File::open(&service.root).and_then(|f|f.sync_all())
+        .map_err(|_|status(StatusCode::INTERNAL_SERVER_ERROR,"cannot sync branch directory"))?;
+    Ok((StatusCode::CREATED,Json(fork_receipt(&meta))))
+}
 pub fn routes() -> Router<Arc<Connected>> {
     Router::new()
         .route("/api/campaigns/{id}/snapshot", get(snapshot))
         .route("/api/campaigns/{id}/commands", post(command))
         .route("/api/campaigns/{id}/commands/{command_id}", get(operation))
         .route("/api/campaigns/{id}/events", get(stream_events))
+        .route("/api/campaigns/{id}/forks", post(fork))
 }
 #[cfg(test)]
 mod tests {
@@ -831,6 +991,51 @@ mod tests {
         drop(owner);
         drop(service);
         fs::remove_dir_all(dir).unwrap();
+    }
+    #[tokio::test]
+    async fn verified_decision_fork_inherits_shocks_but_diverges_independently() {
+        let dir=root();
+        let service=Connected::new(dir.clone()).unwrap();
+        let allocation=WireAllocation{staff:50,repairs:40,access:10};
+        accepted_step(&service,"source",CommandKind::Propose{allocation},1).await;
+        accepted_step(&service,"source",CommandKind::AdvanceSlice,2).await;
+        accepted_step(&service,"source",CommandKind::AdvanceSlice,3).await;
+        accepted_step(&service,"source",CommandKind::AdvanceSlice,4).await;
+        let resolved=accepted_step(&service,"source",CommandKind::Decide{ratify:true},5).await;
+        assert_eq!(resolved.phase,"Resolved");
+        let request=ForkRequest{
+            branch_id:"alternate".into(),expected_cursor:resolved.cursor.clone(),
+            expected_world_version:resolved.view_version.clone(),
+        };
+        let (created,Json(receipt))=fork(State(service.clone()),Path("source".into()),
+            Json(request.clone())).await.unwrap();
+        assert_eq!(created,StatusCode::CREATED);
+        assert_eq!(receipt.source_campaign_id,"source");
+        let (duplicate,Json(again))=fork(State(service.clone()),Path("source".into()),
+            Json(request)).await.unwrap();
+        assert_eq!(duplicate,StatusCode::OK);
+        assert_eq!(again.source_state_sha256,receipt.source_state_sha256);
+        let original=service.owner("source").unwrap();
+        let branch=service.owner("alternate").unwrap();
+        let before=inspect(&original.engine.lock().await.trial.store.dir).unwrap();
+        assert_eq!(before,inspect(&branch.engine.lock().await.trial.store.dir).unwrap());
+        assert_eq!(capture_for(&branch.engine.lock().await.trial,"alternate").unwrap().campaign_id,
+            "alternate");
+        // The cloned manifest carries the exact exogenous schedule while
+        // the command and journal namespaces remain independent.
+        assert_eq!(
+            serde_json::to_value(&original.engine.lock().await.trial.store.genesis.initial_streams).unwrap(),
+            serde_json::to_value(&branch.engine.lock().await.trial.store.genesis.initial_streams).unwrap());
+        let fork_advanced=accepted_step(&service,"alternate",CommandKind::AdvanceSlice,1).await;
+        assert_eq!(fork_advanced.quarter,2);
+        assert_eq!(inspect(&original.engine.lock().await.trial.store.dir).unwrap(),before);
+        assert_ne!(inspect(&branch.engine.lock().await.trial.store.dir).unwrap(),before);
+        drop(branch);drop(original);drop(service);
+        let recovered=Connected::new(dir.clone()).unwrap();
+        assert_eq!(
+            capture_for(&recovered.owner("alternate").unwrap().engine.lock().await.trial,"alternate")
+                .unwrap().cursor,fork_advanced.cursor);
+        drop(recovered);fs::remove_dir_all(dir).unwrap();
     }
     #[tokio::test]
     async fn command_identity_persists_through_lost_ack_and_restart() {
