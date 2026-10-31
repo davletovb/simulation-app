@@ -32,6 +32,7 @@ impl OpenRouterBackend {
         }
         let client = Client::builder()
             .redirect(Policy::none())
+            .no_proxy()
             .https_only(true)
             .timeout(Duration::from_secs(20))
             .build()

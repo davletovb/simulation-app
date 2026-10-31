@@ -46,7 +46,7 @@ async fn run(trial_dir: &Path, ledger_dir: &Path, installation: &str) -> Result<
     let provider: Arc<dyn Backend> = Arc::new(OpenRouterBackend::from_env(route.clone())?);
     let allowance = Arc::new(Mutex::new(Allowance::open(ledger_dir, installation)?));
     let mut trial =
-        if trial_dir.join("snapshot.json").exists() || trial_dir.join("genesis.json").exists() {
+        if trial_dir.exists() {
             resume_live(trial_dir, false, route, allowance.clone(), provider)?
         } else {
             create_live(

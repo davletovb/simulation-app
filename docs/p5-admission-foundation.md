@@ -1,29 +1,46 @@
-# P5 offline admission foundation — review packet
+# P5 — OpenRouter cabinet implementation and verification
 
-**Branch:** `feat/p5-offline-admission-ledger`. **State:** implementation candidate, **not** a completed P5 gate. No live calls have been made.
+**Status (31 October 2026):** Offline implementation and mock-provider verification in draft [PR #12](https://github.com/davletovb/simulation-app/pull/12); **P5's live Experiment A gate is not complete**. No paid inference, provider capability certification, or live model-behavior claims are recorded here. The P4 default scripted path and keyless replay remain supported. This document supersedes the earlier admission-only review packet.
 
-The `myth-hiyal-adapter::p5_allowance` module adds a single-owner, local, fail-closed shared allowance, independent of Hiyal's per-trial `GovernedBackend`. It intentionally does not enable network dispatch, configure a live trial, or make a minister decision.
+## Architecture and implementation
 
-## Implemented behavior
+The game owns an installation-specific, single-writer, durable `Allowance`. Its authoritative journal is independent of Hiyal trial receipts and rebuildable UI views. Before each external call, a stable remote attempt ID is reserved, an upper-bound charge is persisted and fsynced, and dispatch is durably marked. Crash/timeout/missing-usage charges are **unknown and retained**, never assumed zero. Reusing an existing attempt ID does not repeat a paid dispatch; a new provider attempt would require a fresh ID, new reservation, and independent operator action. The ledger has a $10 initial shared epoch; no automatic restart/monthly/campaign reset. Explicit funded epochs retain history and carry unresolved liabilities. Operator-verified prior-epoch charges remain deducted from the receiving epoch, not silently refunded. This is neither a distributed wallet nor provider billing truth.
 
-- A process-owned filesystem lock remains held for the allowance lifetime. A separate installation anchor detects a lost or replaced ledger; an invalid hash, identity, malformed state or unavailable persistence prevents recovery. The initial $10 allowance is provisioned only for a deliberately empty directory.
-- Each call has a stable call ID, reservation ID, purpose (minister, assistant, authoring, evaluation), optional campaign/quarter/batch, pinned model/provider/prices, request digest, upper-bound reservation and lifecycle state. An existing call ID with identical data is inspectable but is **never** redispatched. A new billed attempt must have a new call ID.
-- Before an application dispatches a provider request, it must call `reserve` and then `mark_dispatched`; both atomically replace and fsync the authoritative file. A crash at either boundary leaves the full reservation held. Missing provider usage never refunds it. A recorded response is distinct from operator-verified charge.
-- The current epoch retains its own full reservations and all unresolved prior-epoch liabilities. A new explicitly funded epoch cannot be opened if its funding is below carried liabilities. Restart and campaign switching do not create an allowance.
-- The request admission path accepts only `openrouter` provider requests with non-streaming strict JSON-schema response format and a pinned compatible route. It refuses unknown/unbounded prices or reasoning, oversized requests, excess output tokens, and quarter/campaign/batch/shared caps. It uses a **conservative request-byte-as-token** input test and the pinned Hiyal `BudgetConfig::reserve_amount` function, including Hiyal's framing allowance. This is not tokenizer accounting, exact billing or a provider quote.
-- Tests cover two campaigns opened in either order, assistant/authoring calls outside a trial, occupied owner lock, replaying stable IDs, incompatible ID reuse, corrupted/deleted ledger, reserved/dispatched/recorded recovery, and funded epoch rollover with uncertain charges.
+The ordering matters: **Hiyal Trial → game-owned keyed SharedAdmissionBackend → a separate per-trial GovernedBackend → pinned provider**. Hiyal's pinned GovernedBackend forwards to its inner backend without the effect key; wrapping it *outside* the keyed game ledger would lose durable attempt identity. The game ledger therefore receives and verifies Hiyal's full effect key first, reserves durably, and only then invokes that trial's independently budgeted Hiyal backend. On resume the game ledger is opened/recovered before any trial dispatch; Hiyal recovers its immutable budget from existing receipts. The trial also persists its immutable route/provider/prices and refuses changed settings across resume. The backend-only player-command echo uses an explicit Hiyal allowlist and cannot mutate the world through model output.
 
-## Remaining work before P5 is complete
+The opt-in `OpenRouterBackend` targets only OpenRouter's HTTPS chat completions endpoint. It uses a pinned model/provider, restricted provider order and allowlist, `allow_fallbacks=false`, `require_parameters=true`, strict JSON-schema output, bounded output, no streaming or model-issued tools, no redirects or environment proxy, a finite timeout and bounded response size. It fetches generation metadata to check **actual** reported model/provider identity before a model action is accepted. A denied/malformed/ambiguous provider response is an operational failure, not a fabricated opposition/support vote, and its uncertain cost remains reserved. The actual model/route has **not** been certified live; route slugs versus provider display names must be tested on the deliberately selected provider.
 
-**P5-01:** route capability verification, actual OpenRouter-only HTTP transport (no other external providers), strict schema parsing against typed role observations and actual route/model identity validation. Keep all live requests opt-in and avoid automatic model/provider fallbacks.
+The minister adapter supplies three distinct role mandates (Finance, Education and Infrastructure), frozen role-visible `PublicRoleView` data, an allowlisted projection of state, the latest six owned commitments as **prompt memory** and up to twelve visible evidence IDs. The P3 authoritative commitment registry remains unbounded by prompt eviction and is checked by the reducer; no speeches, raw player text or news bodies enter the role prompt. A minister can change its typed allocation preference, vote, conditions and (for Education or Infrastructure only) private effort. Schema validation enforces the frozen meeting, stage, proposal version and minister seat. Invalid model output aborts the current action rather than changing authority or mutating state. Repair/retry orchestration and an in-game retry control are **not** present in this slice.
 
-**P5-02:** wire this ledger to the Hiyal *per-trial* `GovernedBackend`, with immutable trial budget configuration and explicit recovery ordering. Add stronger per-logical-action repair/retry ceilings, explicit reset operator command/audit history, genuine provider-bill reconciliation and broader fault injection around fsync boundaries. This candidate ledger currently has only its own local lock; it is **not** wired to trial orchestration or to the API.
+## Cost and activation policy
 
-**P5-03/P5-04:** ministers' independent frozen decisions, persistent commitment-based memory, bounded role-visible prompts, typed final votes and private effort, adversarial captured response suites, and genuine crash-injection tests through Hiyal's receipt path.
+The fixed contract caps are **$0.25/quarter, $1.50/campaign/trial, $3/evaluation batch, $10/installation's initial epoch**, at most 16 requests/quarter and 96/campaign, with minister input/output limits and route prices as declared in [P0-04](p0-case-contract.md). The shared ledger charges full conservative reservations even when a provider reports fewer tokens; Hiyal's immutable per-trial cap does likewise. Reported usage, estimates and verified bills are separately recorded. The game must never infer exact invoice amounts from the reservation.
 
-**P5-05:** manually authorized, strictly capped live Experiment A and exact offline recorded replay. No API key or paid call was used for this branch.
+**Routine CI is offline and cannot perform live inference.** The local API's `MYTH_MODE=live` remains disabled; P6 owns UI wiring. A private/manual CLI exists:
 
-## Local checks to run
+```sh
+cargo +1.99.1 run --locked -p myth-hiyal-adapter --bin p5-pilot -- inspect <trial-dir>
+```
+
+This verifies the existing Hiyal journal and prints hashes without key/network calls.
+
+To manually run a **new four-quarter / 24-normal-minister-slot** Experiment A candidate with the explicitly provisioned OpenRouter key, the operator must provide backend-only `OPENROUTER_API_KEY`, `MYTH_P5_MODEL`, `MYTH_P5_PROVIDER`, `MYTH_P5_INPUT_MICRO_PER_M`, `MYTH_P5_OUTPUT_MICRO_PER_M`, `MYTH_P5_ROUTE_PRICE_VERIFIED=yes`, and `MYTH_P5_MANUAL_AUTHORIZATION=AUTHORIZE_34_CALL_EXPERIMENT_A` in a private environment. Then:
+
+```sh
+cargo +1.99.1 run --locked -p myth-hiyal-adapter --bin p5-pilot -- pilot <new-trial-dir> <dedicated-allowance-dir> <installation-id>
+```
+
+**Do not run this command as CI.** Operator authorization, key provisioning, price/schema/route research, sufficient OpenRouter credits and a review of the conservative reservation assumptions are prerequisites; no secrets should appear in terminal history, shell scripts, commits or browser bundles. The CLI never automatically retries, never selects a model or paid alternative, and pauses on a failed seat; the originally planned 34-attempt envelope includes optional repair/manual retry allowances that are *not* yet orchestrated. The pilot can report the resulting authoritative state/receipt counters and exact keyless journal hash, but it does **not** automatically declare that P0-05 behavior criteria pass. A positive Experiment A decision still requires predeclared denominator/latency/privacy/commitment/feasibility and baseline comparisons.
+
+## Executed offline evidence and limitations
+
+- The earlier admission foundation passed full essential CI [run 41182729532](https://github.com/davletovb/simulation-app/actions/runs/41182729532).
+- The enlarged fake-cabinet Hiyal integration, shared accounting, 20 instruction-injection probes, malformed/missing-usage provider payloads, full six-quarter mocked disagreement, and keyless exact replay passed Rust tests within full [CI run 41188415444](https://github.com/davletovb/simulation-app/actions/runs/41188415444). Later CLI/route-binding changes require their own latest green CI record before being called verified.
+- Distinguish in-process restart tests from independent multi-process power-loss recovery. The latter and more exhaustive fsync/atomic-rename fault injection remain unverified.
+- Neither offline fake provider success nor successful Hiyal replay establishes OpenRouter route availability, strict-output support, charged provider identity, observed response latency, billing accuracy, independent model judgments, confidentiality against live adversaries, or real-world educational predictions.
+- P5-05 remains **open** pending explicit, budgeted live Experiment A; P5-04's complete recovery and adversarial suite, and P5-03's visible bounded retries also remain open as acceptance work. Do not mark whole P5 complete by documentation alone.
+
+## CI and local verification
 
 ```sh
 cargo +1.99.1 fmt --all -- --check
@@ -31,4 +48,4 @@ cargo +1.99.1 clippy --workspace --all-targets --locked -- -D warnings
 cargo +1.99.1 test --workspace --locked
 ```
 
-Do **not** check off any P5 task based only on the presence of these source files. CI results and independent review must be recorded separately. Do not call this a distributed spending wallet or an exact OpenRouter invoice.
+The essential GitHub Actions workflow runs these offline, plus P2/P3 fixtures, API smoke, schema drift, frontend build and secret scans. Live calls are **never** a CI step.
