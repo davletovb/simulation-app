@@ -205,7 +205,7 @@ struct State {
     epoch_funded_micro_usd: u64,
     epochs: Vec<EpochRecord>,
     calls: Vec<Call>,
-    #[serde(default,skip_serializing_if="Vec::is_empty")]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     archived: Vec<ArchivedCall>,
 }
 #[derive(Serialize, Deserialize)]
@@ -320,18 +320,29 @@ impl Allowance {
             let mut archive_ids = std::collections::BTreeSet::new();
             for archived in &value.payload.archived {
                 archived.scope.validate()?;
-                if archived.id_sha256.len()!=64 || archived.record_sha256.len()!=64
+                if archived.id_sha256.len() != 64
+                    || archived.record_sha256.len() != 64
                     || !archived.id_sha256.bytes().all(|b| b.is_ascii_hexdigit())
-                    || !archived.record_sha256.bytes().all(|b| b.is_ascii_hexdigit())
+                    || !archived
+                        .record_sha256
+                        .bytes()
+                        .all(|b| b.is_ascii_hexdigit())
                     || !archive_ids.insert(archived.id_sha256.as_str())
-                    || archived.epoch_id==0 || archived.epoch_id>=value.payload.epoch_id
-                    || archived.maximum_micro_usd==0 || archived.maximum_micro_usd>INITIAL_MICRO_USD
-                    || archived.verified_charge_micro_usd>archived.maximum_micro_usd {
+                    || archived.epoch_id == 0
+                    || archived.epoch_id >= value.payload.epoch_id
+                    || archived.maximum_micro_usd == 0
+                    || archived.maximum_micro_usd > INITIAL_MICRO_USD
+                    || archived.verified_charge_micro_usd > archived.maximum_micro_usd
+                {
                     return Err(reject("invalid verified call archive"));
                 }
             }
-            if value.payload.calls.iter().any(|call|
-                archive_ids.contains(hash(call.call_id.as_bytes()).as_str())) {
+            if value
+                .payload
+                .calls
+                .iter()
+                .any(|call| archive_ids.contains(hash(call.call_id.as_bytes()).as_str()))
+            {
                 return Err(reject("active call duplicates verified archive"));
             }
             value.payload
@@ -396,31 +407,51 @@ impl Allowance {
                 .ok_or_else(|| reject("allowance overflow"))
         })
     }
-    fn quarter_usage(&self,campaign:&str,quarter:u8)->Result<(u64,usize,usize),String> {
-        let current=self.state.calls.iter().filter(|c|c.scope.campaign_id.as_deref()==Some(campaign)
-            && c.scope.quarter==Some(quarter))
-            .map(|c|(&c.scope,c.maximum_micro_usd));
-        let archived=self.state.archived.iter().filter(|c|c.scope.campaign_id.as_deref()==Some(campaign)
-            && c.scope.quarter==Some(quarter))
-            .map(|c|(&c.scope,c.maximum_micro_usd));
-        current.chain(archived).try_fold((0u64,0usize,0usize),
-            |(cash,count,ministers),(scope,amount)|{
-                Ok((cash.checked_add(amount).ok_or("quarter overflow")?,
-                    count+1,ministers+usize::from(scope.purpose==Purpose::Minister)))
+    fn quarter_usage(&self, campaign: &str, quarter: u8) -> Result<(u64, usize, usize), String> {
+        let current = self
+            .state
+            .calls
+            .iter()
+            .filter(|c| {
+                c.scope.campaign_id.as_deref() == Some(campaign) && c.scope.quarter == Some(quarter)
             })
+            .map(|c| (&c.scope, c.maximum_micro_usd));
+        let archived = self
+            .state
+            .archived
+            .iter()
+            .filter(|c| {
+                c.scope.campaign_id.as_deref() == Some(campaign) && c.scope.quarter == Some(quarter)
+            })
+            .map(|c| (&c.scope, c.maximum_micro_usd));
+        current.chain(archived).try_fold(
+            (0u64, 0usize, 0usize),
+            |(cash, count, ministers), (scope, amount)| {
+                Ok((
+                    cash.checked_add(amount).ok_or("quarter overflow")?,
+                    count + 1,
+                    ministers + usize::from(scope.purpose == Purpose::Minister),
+                ))
+            },
+        )
     }
     fn check_recovery(&self) -> Result<(), String> {
         if self.held()? > self.state.epoch_funded_micro_usd {
             return Err(reject("recovered allowance exceeded funded amount"));
         }
-        let scopes=self.state.calls.iter().map(|c| &c.scope)
-            .chain(self.state.archived.iter().map(|c|&c.scope));
-        let quarters: std::collections::BTreeSet<_>=scopes
-            .filter_map(|scope|scope.campaign_id.as_ref().zip(scope.quarter))
-            .map(|(c,q)|(c.clone(),q)).collect();
-        for (campaign,quarter) in quarters {
-            let (money,calls,ministers)=self.quarter_usage(&campaign,quarter)?;
-            if money>QUARTER_MICRO_USD || calls>16 || ministers>14 {
+        let scopes = self
+            .state
+            .calls
+            .iter()
+            .map(|c| &c.scope)
+            .chain(self.state.archived.iter().map(|c| &c.scope));
+        let quarters: std::collections::BTreeSet<_> = scopes
+            .filter_map(|scope| scope.campaign_id.as_ref().zip(scope.quarter))
+            .map(|(c, q)| (c.clone(), q))
+            .collect();
+        for (campaign, quarter) in quarters {
+            let (money, calls, ministers) = self.quarter_usage(&campaign, quarter)?;
+            if money > QUARTER_MICRO_USD || calls > 16 || ministers > 14 {
                 return Err(reject("recovered quarter exceeded call or cost cap"));
             }
         }
@@ -498,7 +529,12 @@ impl Allowance {
         }
         let maximum = validate_model_request(request, &route, &scope.purpose)?;
         let digest = hash(&serde_json::to_vec(request).map_err(|e| e.to_string())?);
-        if self.state.archived.iter().any(|old| old.id_sha256==hash(call_id.as_bytes())) {
+        if self
+            .state
+            .archived
+            .iter()
+            .any(|old| old.id_sha256 == hash(call_id.as_bytes()))
+        {
             return Err(reject("archived paid call ID cannot be reused"));
         }
         if let Some(old) = self.state.calls.iter().find(|x| x.call_id == call_id) {
@@ -527,18 +563,26 @@ impl Allowance {
                 .iter()
                 .filter(|c| c.scope.campaign_id.as_ref() == Some(campaign))
                 .collect();
-            let historical=self.state.archived.iter().filter(|c| c.scope.campaign_id.as_ref()==Some(campaign));
-            let historic_count=historical.clone().count();
-            let historic_cost=historical.try_fold(0u64,|n,c|n.checked_add(c.maximum_micro_usd)
-                .ok_or("archived campaign overflow"))?;
-            if previous.len()+historic_count >= 96 {
+            let historical = self
+                .state
+                .archived
+                .iter()
+                .filter(|c| c.scope.campaign_id.as_ref() == Some(campaign));
+            let historic_count = historical.clone().count();
+            let historic_cost = historical.try_fold(0u64, |n, c| {
+                n.checked_add(c.maximum_micro_usd)
+                    .ok_or("archived campaign overflow")
+            })?;
+            if previous.len() + historic_count >= 96 {
                 return Err(reject("campaign call cap exhausted"));
             }
             let used = previous
                 .iter()
                 .try_fold(0u64, |n, c| n.checked_add(c.maximum_micro_usd))
                 .ok_or("campaign overflow")?;
-            if used.checked_add(historic_cost).and_then(|n|n.checked_add(maximum))
+            if used
+                .checked_add(historic_cost)
+                .and_then(|n| n.checked_add(maximum))
                 .is_none_or(|n| n > CAMPAIGN_MICRO_USD)
             {
                 return Err(reject("campaign allowance exhausted"));
@@ -557,11 +601,20 @@ impl Allowance {
             }
         }
         if let Some(batch) = &scope.batch_id {
-            let used = self.state.calls.iter().filter(|c|c.scope.batch_id.as_ref()==Some(batch))
-                .map(|c|c.maximum_micro_usd)
-                .chain(self.state.archived.iter().filter(|c|c.scope.batch_id.as_ref()==Some(batch))
-                    .map(|c|c.maximum_micro_usd))
-                .try_fold(0u64,|n,x|n.checked_add(x))
+            let used = self
+                .state
+                .calls
+                .iter()
+                .filter(|c| c.scope.batch_id.as_ref() == Some(batch))
+                .map(|c| c.maximum_micro_usd)
+                .chain(
+                    self.state
+                        .archived
+                        .iter()
+                        .filter(|c| c.scope.batch_id.as_ref() == Some(batch))
+                        .map(|c| c.maximum_micro_usd),
+                )
+                .try_fold(0u64, |n, x| n.checked_add(x))
                 .ok_or("batch overflow")?;
             if used
                 .checked_add(maximum)
@@ -671,29 +724,44 @@ impl Allowance {
             funded_micro_usd,
             carried_unresolved_micro_usd: liability,
         });
-        let verified=self.state.calls.iter().filter(|c|c.status==Status::Verified).count();
-        if self.state.archived.len().checked_add(verified).is_none_or(|x|x>MAX_ARCHIVED) {
+        let verified = self
+            .state
+            .calls
+            .iter()
+            .filter(|c| c.status == Status::Verified)
+            .count();
+        if self
+            .state
+            .archived
+            .len()
+            .checked_add(verified)
+            .is_none_or(|x| x > MAX_ARCHIVED)
+        {
             return Err(reject("verified archive capacity exhausted"));
         }
         self.state.epoch_id = epoch;
         self.state.epoch_funded_micro_usd = funded_micro_usd;
         // Explicit funded epochs are the only compaction boundary. Retain
         // every uncertain/reserved/recorded call verbatim across all resets.
-        let mut active=Vec::new();
+        let mut active = Vec::new();
         for call in std::mem::take(&mut self.state.calls) {
-            if call.status==Status::Verified {
-                let bytes=serde_json::to_vec(&call).map_err(|e|e.to_string())?;
-                self.state.archived.push(ArchivedCall{
-                    id_sha256:hash(call.call_id.as_bytes()),
-                    record_sha256:hash(&bytes),
-                    scope:call.scope,
-                    epoch_id:call.epoch_id,
-                    maximum_micro_usd:call.maximum_micro_usd,
-                    verified_charge_micro_usd:call.verified_charge_micro_usd.ok_or("missing verified amount")?,
+            if call.status == Status::Verified {
+                let bytes = serde_json::to_vec(&call).map_err(|e| e.to_string())?;
+                self.state.archived.push(ArchivedCall {
+                    id_sha256: hash(call.call_id.as_bytes()),
+                    record_sha256: hash(&bytes),
+                    scope: call.scope,
+                    epoch_id: call.epoch_id,
+                    maximum_micro_usd: call.maximum_micro_usd,
+                    verified_charge_micro_usd: call
+                        .verified_charge_micro_usd
+                        .ok_or("missing verified amount")?,
                 });
-            } else {active.push(call);}
+            } else {
+                active.push(call);
+            }
         }
-        self.state.calls=active;
+        self.state.calls = active;
         self.persist()?;
         Ok(self.state.epoch_id)
     }
@@ -969,49 +1037,94 @@ mod tests {
     }
     #[test]
     fn verified_epoch_compaction_retains_idempotency_and_quarter_caps() {
-        let path=temporary().join("verified-archive");
-        let mut ledger=Allowance::open(&path,"owner").unwrap();
+        let path = temporary().join("verified-archive");
+        let mut ledger = Allowance::open(&path, "owner").unwrap();
         for i in 0..14 {
-            let id=format!("minister-{i}");
-            ledger.reserve(&id,scope(Purpose::Minister,Some("campaign-a"),Some(1)),route(),&request()).unwrap();
+            let id = format!("minister-{i}");
+            ledger
+                .reserve(
+                    &id,
+                    scope(Purpose::Minister, Some("campaign-a"), Some(1)),
+                    route(),
+                    &request(),
+                )
+                .unwrap();
             ledger.mark_dispatched(&id).unwrap();
-            ledger.record(&id,Some(10),Some(3),Some(7)).unwrap();
-            ledger.verify_charge(&id,7).unwrap();
+            ledger.record(&id, Some(10), Some(3), Some(7)).unwrap();
+            ledger.verify_charge(&id, 7).unwrap();
         }
         for i in 0..2 {
-            let id=format!("assistant-{i}");
-            ledger.reserve(&id,scope(Purpose::Assistant,Some("campaign-a"),Some(1)),route(),&request()).unwrap();
+            let id = format!("assistant-{i}");
+            ledger
+                .reserve(
+                    &id,
+                    scope(Purpose::Assistant, Some("campaign-a"), Some(1)),
+                    route(),
+                    &request(),
+                )
+                .unwrap();
             ledger.mark_dispatched(&id).unwrap();
-            ledger.record(&id,Some(10),Some(2),None).unwrap();
-            ledger.verify_charge(&id,7).unwrap();
+            ledger.record(&id, Some(10), Some(2), None).unwrap();
+            ledger.verify_charge(&id, 7).unwrap();
         }
         ledger.start_funded_epoch(INITIAL_MICRO_USD).unwrap();
-        assert_eq!(ledger.calls().len(),0);
-        assert_eq!(ledger.state.archived.len(),16);
-        assert!(ledger.reserve("assistant-extra",scope(Purpose::Assistant,Some("campaign-a"),Some(1)),
-            route(),&request()).is_err());
-        assert!(ledger.reserve("minister-0",scope(Purpose::Minister,Some("campaign-a"),Some(1)),
-            route(),&request()).is_err());
+        assert_eq!(ledger.calls().len(), 0);
+        assert_eq!(ledger.state.archived.len(), 16);
+        assert!(
+            ledger
+                .reserve(
+                    "assistant-extra",
+                    scope(Purpose::Assistant, Some("campaign-a"), Some(1)),
+                    route(),
+                    &request()
+                )
+                .is_err()
+        );
+        assert!(
+            ledger
+                .reserve(
+                    "minister-0",
+                    scope(Purpose::Minister, Some("campaign-a"), Some(1)),
+                    route(),
+                    &request()
+                )
+                .is_err()
+        );
         drop(ledger);
-        let again=Allowance::open(&path,"owner").unwrap();
-        assert_eq!(again.state.archived.len(),16);
-        assert_eq!(again.quarter_usage("campaign-a",1).unwrap().1,16);
-        drop(again);std::fs::remove_dir_all(path).unwrap();
+        let again = Allowance::open(&path, "owner").unwrap();
+        assert_eq!(again.state.archived.len(), 16);
+        assert_eq!(again.quarter_usage("campaign-a", 1).unwrap().1, 16);
+        drop(again);
+        std::fs::remove_dir_all(path).unwrap();
     }
     #[test]
     fn unverified_calls_do_not_disappear_during_epoch_archival() {
-        let path=temporary().join("uncertain-archive");
-        let mut ledger=Allowance::open(&path,"owner").unwrap();
-        ledger.reserve("unknown",scope(Purpose::Authoring,None,None),route(),&request()).unwrap();
-        let held=ledger.calls()[0].maximum_micro_usd;
+        let path = temporary().join("uncertain-archive");
+        let mut ledger = Allowance::open(&path, "owner").unwrap();
+        ledger
+            .reserve(
+                "unknown",
+                scope(Purpose::Authoring, None, None),
+                route(),
+                &request(),
+            )
+            .unwrap();
+        let held = ledger.calls()[0].maximum_micro_usd;
         ledger.start_funded_epoch(INITIAL_MICRO_USD).unwrap();
-        assert_eq!(ledger.calls().len(),1);
+        assert_eq!(ledger.calls().len(), 1);
         assert!(ledger.state.archived.is_empty());
-        assert_eq!(ledger.remaining_micro_usd().unwrap(),INITIAL_MICRO_USD-held);
+        assert_eq!(
+            ledger.remaining_micro_usd().unwrap(),
+            INITIAL_MICRO_USD - held
+        );
         drop(ledger);
-        let reopened=Allowance::open(&path,"owner").unwrap();
-        assert_eq!(reopened.remaining_micro_usd().unwrap(),INITIAL_MICRO_USD-held);
-        drop(reopened);std::fs::remove_dir_all(path).unwrap();
+        let reopened = Allowance::open(&path, "owner").unwrap();
+        assert_eq!(
+            reopened.remaining_micro_usd().unwrap(),
+            INITIAL_MICRO_USD - held
+        );
+        drop(reopened);
+        std::fs::remove_dir_all(path).unwrap();
     }
     #[test]
     fn pre_dispatch_rejections_and_uncertain_across_resets() {
