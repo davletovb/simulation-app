@@ -1264,7 +1264,7 @@ mod tests {
             allocation: allocation.clone(),
         })
         .unwrap();
-        assert_eq!(forecast.calculator, "myth_domain");
+        assert_eq!(forecast.families.len(), 3);
         let preview_ms = preview_started.elapsed().as_millis();
         let commit_started = std::time::Instant::now();
         let result =
