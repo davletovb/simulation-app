@@ -81,9 +81,10 @@ impl SharedAdmissionBackend {
     fn checked_response(
         response: Result<EffectResult, String>, route: &PinnedRoute,
     ) -> Result<EffectResult, String> {
-        match response? {
-            EffectResult::Model { ref effective_model, .. } if effective_model == &route.model => {
-                Ok(response.unwrap())
+        let result = response?;
+        match &result {
+            EffectResult::Model { effective_model, .. } if effective_model == &route.model => {
+                Ok(result)
             }
             EffectResult::Model { .. } => Err("provider returned an unapproved model identity".into()),
             EffectResult::UnsupportedCapability { .. } =>
