@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "typecheck": "tsc",
+    "test:connected": "node --test scripts/committed-regression.mjs",
     "build": "tsc && vite build",
     "preview": "vite preview"
   },

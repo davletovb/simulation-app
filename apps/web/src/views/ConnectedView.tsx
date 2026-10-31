@@ -1,3 +1,4 @@
+import {newer} from '../committedReducer.mjs'
 import { useCallback, useEffect, useState } from 'react'
 import {useQuery,useQueryClient} from '@tanstack/react-query'
 import { draftStatus, type Allocation } from '../game'
@@ -65,21 +66,6 @@ function validSnapshot(raw: unknown): raw is Committed {
     typeof s.evidence.source_cutoff_utc==='string' &&
     typeof s.evidence.scope==='string' &&
     !!s.treasury && Object.values(s.treasury).every(n=>Number.isInteger(n) && n>=0 && n<=100)
-}
-function newer(old: Committed | null, next: Committed): Committed {
-  // Backend SSE ID and view version are a single committed snapshot boundary.
-  // Compare integers as BigInt, never float: journal cursors are unbounded u64.
-  if (old && BigInt(next.snapshot.cursor) < BigInt(old.snapshot.cursor)) return old
-  if (old && old.snapshot.cursor === next.snapshot.cursor &&
-    old.snapshot.view_version !== next.snapshot.view_version) {
-    throw new Error('Conflicting view version at one committed cursor')
-  }
-  if (old && old.snapshot.cursor === next.snapshot.cursor &&
-    old.snapshot.view_version === next.snapshot.view_version) {
-    // Same-boundary status refresh can still update command operation.
-    return { snapshot: old.snapshot, operation: next.operation ?? old.operation }
-  }
-  return next
 }
 function exactAllocation(a:Allocation,available:number):boolean{
   return (['staff','repairs','access'] as const).every(k=>

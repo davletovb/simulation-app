@@ -131,6 +131,8 @@ jobs:
       - name: Install pinned frontend dependencies
         if: steps.web.outputs.present == 'true'
         run: npm --prefix apps/web ci --ignore-scripts --no-audit --no-fund
+      - name: Verify committed SSE reducer (offline)
+        run: npm --prefix apps/web run test:connected
       - name: Typecheck and build interface
         if: steps.web.outputs.present == 'true'
         run: npm --prefix apps/web run build
