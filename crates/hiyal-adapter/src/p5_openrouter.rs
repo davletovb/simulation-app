@@ -9,7 +9,8 @@ use hiyal::{
 };
 use reqwest::{Client, redirect::Policy};
 use serde_json::{Value, json};
-use std::time::Duration;
+use std::{time::Duration, path::{Path,PathBuf}, fs::{self,OpenOptions}, io::Write};
+use sha2::{Digest,Sha256};
 
 const CHAT_URL: &str = "https://openrouter.ai/api/v1/chat/completions";
 const GENERATION_URL: &str = "https://openrouter.ai/api/v1/generation";
@@ -19,6 +20,7 @@ pub struct OpenRouterBackend {
     client: Client,
     secret: String,
     route: PinnedRoute,
+    custody_dir: Option<PathBuf>,
 }
 impl OpenRouterBackend {
     /// Deliberately no model choice, secret or network call in constructors.
@@ -45,7 +47,44 @@ impl OpenRouterBackend {
             client,
             secret,
             route,
+            custody_dir: None,
         })
+    }
+    /// Private, fsynced custody of completed provider replies. Required
+    /// before live POST dispatch; the completion stays available if the
+    /// eventual generation-metadata lookup fails after a paid response.
+    pub fn with_custody_dir(mut self, trial_dir: &Path) -> Self {
+        self.custody_dir=Some(trial_dir.join("p5-completion-custody"));
+        self
+    }
+    fn preserve_completion(&self, bytes: &[u8]) -> Result<(),String> {
+        let dir=self.custody_dir.as_ref().ok_or("private completion custody not configured")?;
+        if !dir.parent().is_some_and(|p| p.join("manifest.json").is_file()) {
+            return Err("trial not initialized for provider completion custody".into());
+        }
+        fs::create_dir_all(dir).map_err(|_| "cannot initialize private completion custody")?;
+        #[cfg(unix)]
+        { use std::os::unix::fs::PermissionsExt;
+          fs::set_permissions(dir,fs::Permissions::from_mode(0o700))
+            .map_err(|_| "cannot protect completion custody")?; }
+        let digest=format!("{:x}",Sha256::digest(bytes));
+        let target=dir.join(format!("{digest}.json"));
+        if target.exists() {
+            if fs::read(target).map_err(|_| "cannot recheck saved completion")? != bytes {
+                return Err("saved completion hash collision or corruption".into());
+            }
+            return Ok(());
+        }
+        let temp=dir.join(format!("{digest}.tmp"));
+        let mut file=OpenOptions::new().write(true).create_new(true).open(&temp)
+            .map_err(|_| "cannot create durable completion custody")?;
+        file.write_all(bytes).map_err(|_| "cannot write durable completion")?;
+        file.sync_all().map_err(|_| "cannot sync durable completion")?;
+        fs::rename(&temp,&target).map_err(|_| "cannot publish durable completion")?;
+        #[cfg(unix)]
+        fs::File::open(dir).and_then(|f| f.sync_all())
+            .map_err(|_| "cannot sync completion directory")?;
+        Ok(())
     }
     fn request_body(&self, request: &ModelRequest) -> Result<Value, String> {
         validate_model_request(request,&self.route,&Purpose::Authoring)?;
@@ -267,6 +306,9 @@ impl Backend for OpenRouterBackend {
                 return Err("model transport cannot execute tools".into());
             };
             let body = self.request_body(request)?;
+            if self.custody_dir.is_none() {
+                return Err("private completion custody must be configured before POST".into());
+            }
             // Do not send the key, request content or response in error strings.
             let response = self
                 .client
@@ -280,6 +322,9 @@ impl Backend for OpenRouterBackend {
                 return Err("OpenRouter HTTP failure; charge unknown".into());
             }
             let bytes = bounded_bytes(response).await?;
+            // This fsync precedes all schema/identity/generation checks.
+            // Never put raw model output in error text or a public log.
+            self.preserve_completion(&bytes)?;
             let value: Value = serde_json::from_slice(&bytes)
                 .map_err(|_| "malformed provider response; charge unknown")?;
             let (output, generation) = parse_completion(&value, self.route.echoed_model())?;
