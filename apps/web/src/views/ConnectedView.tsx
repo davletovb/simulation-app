@@ -18,6 +18,7 @@ export interface Snapshot {
   quarter: number
   phase: string
   closed: boolean
+  continuation_pending:boolean
   proposal: { staff: number; repairs: number; access: number } | null
   votes: Vote[]
   treasury:{
@@ -41,7 +42,7 @@ export interface Snapshot {
     access_bonus_next:boolean
   }[]
   comparison: {
-    mode:'exact_recorded_actions'|'fresh_scripted_branch'|'verification_failed'
+    mode:'primary_campaign'|'exact_recorded_actions'|'fresh_scripted_branch'|'verification_failed'
     source_campaign_id:string|null
     source_cursor:string|null
     inherited_shock_stream:boolean
@@ -80,7 +81,8 @@ function validSnapshot(raw: unknown): raw is Committed {
     typeof s.cursor === 'string' && /^\d+$/.test(s.cursor) &&
     typeof s.view_version === 'string' && s.view_version.length > 0 &&
     Number.isInteger(s.quarter) && typeof s.phase === 'string' &&
-    typeof s.closed === 'boolean' && s.mode === 'offline_scripted' &&
+    typeof s.closed === 'boolean' && typeof s.continuation_pending === 'boolean' &&
+    s.mode === 'offline_scripted' &&
     Array.isArray(s.votes) && s.votes.length <= 36 &&
     Array.isArray(s.decisions) && s.decisions.length<=6 &&
     Array.isArray(s.news) && s.news.length<=12 &&
@@ -93,13 +95,16 @@ function validSnapshot(raw: unknown): raw is Committed {
       Array.isArray(r.due_cumulative) && r.due_cumulative.length===3 &&
       [...r.reported_cumulative,...r.due_cumulative].every(n=>Number.isSafeInteger(n) && n>=0 && n<=100) &&
       Number.isInteger(r.weighted_support_ppm) && r.weighted_support_ppm>=0 && r.weighted_support_ppm<=1000000) &&
-    !!s.comparison && ['exact_recorded_actions','fresh_scripted_branch','verification_failed'].includes(s.comparison.mode) &&
+    !!s.comparison && ['primary_campaign','exact_recorded_actions','fresh_scripted_branch','verification_failed'].includes(s.comparison.mode) &&
     typeof s.comparison.inherited_shock_stream==='boolean' &&
     typeof s.comparison.post_fork_actor_actions_fixed==='boolean' &&
     !!s.evidence && typeof s.evidence.case_pack==='string' &&
     typeof s.evidence.source_cutoff_utc==='string' &&
     typeof s.evidence.scope==='string' &&
-    Array.isArray(s.evidence.indicators) && s.evidence.indicators.length===8 &&
+    Array.isArray(s.evidence.indicators) &&
+    s.evidence.indicators.length===(s.comparison.mode==='verification_failed'?0:8) &&
+    (s.comparison.mode!=='verification_failed' ||
+      (s.phase==='IntegrityFailure' && s.news.length===0 && obj.operation?.status==='failed')) &&
     s.evidence.indicators.every(item=>typeof item.variable_id==='string' &&
       typeof item.display_value==='string' && typeof item.source_url==='string' &&
       item.source_url.startsWith('https://') && Array.isArray(item.quality_flags)) &&
@@ -118,7 +123,7 @@ function makeCommandId(): string {
 
 /** Connected P6 panel. Rust alone owns all world changes and committed reports.
  * This preview cannot dispatch OpenRouter calls and cannot interpret rules. */
-type PlayerCommand = { kind: 'advance_slice' | 'continue_quarter' } | { kind:'propose' | 'amend'; allocation:Allocation } |
+type PlayerCommand = { kind: 'advance_slice' | 'continue_quarter' | 'finish_continuation' } | { kind:'propose' | 'amend'; allocation:Allocation } |
   {kind:'decide';ratify:boolean} |
   {kind:'order_audit';family:'staffing'|'repairs'|'access';inspected_quarter:number}
 interface Pending {id:string;version:string;action:PlayerCommand}
@@ -143,7 +148,11 @@ export function ConnectedView({allocation}:{allocation:Allocation}) {
   const cache=useQueryClient()
   const query=useQuery<Committed>({
     queryKey:CACHE_KEY,
-    queryFn:async()=>newer(cache.getQueryData<Committed>(CACHE_KEY)??null,await loadSnapshot()),
+    queryFn:async()=>{
+      const old=cache.getQueryData<Committed>(CACHE_KEY)
+      const incoming=await loadSnapshot()
+      return old?.snapshot.comparison.mode==='verification_failed' ? incoming : newer(old??null,incoming)
+    },
     staleTime:2000,
   })
   const current=query.data??null
@@ -153,9 +162,16 @@ export function ConnectedView({allocation}:{allocation:Allocation}) {
   const [forkId, setForkId] = useState<string|null>(null)
   const [auditFamily,setAuditFamily] = useState<'staffing'|'repairs'|'access'>('repairs')
   const [auditQuarter,setAuditQuarter] = useState(1)
+  const [auditAcknowledged,setAuditAcknowledged] = useState(false)
   const accept = useCallback((raw: unknown) => {
     if (!validSnapshot(raw)) throw new Error('Incorrect versioned server view')
-    cache.setQueryData<Committed>(CACHE_KEY,old=>newer(old??null,raw))
+    // A journal-verification failure is a terminal status frame, not an old
+    // normal boundary. Never silently discard it solely because cursor=0.
+    cache.setQueryData<Committed>(CACHE_KEY,old=>
+      raw.snapshot.comparison.mode==='verification_failed' ||
+      old?.snapshot.comparison.mode==='verification_failed' ? raw : newer(old??null,raw))
+    if (raw.snapshot.comparison.mode==='verification_failed')
+      setError('Journal verification failed. Stop the service and inspect the private save.')
     if (raw.operation && raw.operation.status !== 'accepted') {
       setPending(old => {
         if (old && old.id === raw.operation?.command_id) {
@@ -359,9 +375,12 @@ export function ConnectedView({allocation}:{allocation:Allocation}) {
             ) : (
               <>
                 {snapshot.phase === 'QuarterOpen' && snapshot.quarter > 1 &&
-                  <ActionButton onClick={() => void advance({kind:'continue_quarter'})}>
-                    Continue existing programme; advance quarter</ActionButton>}
-                {snapshot.phase === 'QuarterOpen' && <ActionButton tone="primary"
+                  (snapshot.continuation_pending
+                    ? <ActionButton tone="primary" onClick={() => void advance({kind:'finish_continuation'})}>
+                        Advance authorized quarter (decision journaled)</ActionButton>
+                    : <ActionButton onClick={() => void advance({kind:'continue_quarter'})}>
+                        Keep programme: record decision to skip new meeting</ActionButton>)}
+                {snapshot.phase === 'QuarterOpen' && !snapshot.continuation_pending && <ActionButton tone="primary"
                   disabled={draftStatus(allocation)!=='valid' || !exactAllocation(allocation,snapshot.treasury.available_credits)}
                   onClick={() => void advance({kind:'propose',allocation})}>Submit draft proposal</ActionButton>}
                 {snapshot.phase === 'AmendmentWindow' && <ActionButton tone="primary"
@@ -373,11 +392,14 @@ export function ConnectedView({allocation}:{allocation:Allocation}) {
                     <ActionButton onClick={() => void advance({kind:'decide',ratify:false})}>Defer proposal</ActionButton>
                   </>
                 )}
-                {!snapshot.closed && <ActionButton onClick={() => void advance({kind:'advance_slice'})}>
+                {!snapshot.closed && !snapshot.continuation_pending &&
+                  <ActionButton onClick={() => void advance({kind:'advance_slice'})}>
                   Continue scripted phase</ActionButton>}
               </>
             )}
-            {!snapshot.closed && snapshot.quarter >= 3 && snapshot.delivery_history.length > 0 && !pending && (
+            {!snapshot.closed && snapshot.phase === 'QuarterOpen' &&
+              !snapshot.continuation_pending && snapshot.quarter >= 3 &&
+              snapshot.delivery_history.length > 0 && !pending && (
               <div className="connected-audit">
                 <label>Audit family <select value={auditFamily}
                   onChange={e=>setAuditFamily(e.target.value as typeof auditFamily)}>
@@ -390,13 +412,19 @@ export function ConnectedView({allocation}:{allocation:Allocation}) {
                     Q{r.quarter}
                   </option>)}
                 </select></label>
-                <ActionButton onClick={() => void advance({
+                <label><input type="checkbox" checked={auditAcknowledged}
+                  onChange={e=>setAuditAcknowledged(e.target.checked)}/>
+                  I understand that the first audit costs 0 credits and later audits cost
+                  2 credits each; full findings are available only in the offline
+                  private operator report after stopping the API.</label>
+                <ActionButton disabled={!auditAcknowledged} onClick={() => void advance({
                   kind:'order_audit', family:auditFamily,
                   inspected_quarter:Math.min(auditQuarter,snapshot.delivery_history.length)
-                })}>Request delivery audit</ActionButton>
-                <small>Available from Q3 for an already completed period with scheduled work.
-                  First eligible audit is free, later audits cost 2 pilot credits.
-                  Private audit findings are not broadcast in public SSE.</small>
+                })}>Request audit (offline report only; up to 2 credits)</ActionButton>
+                <small>Q3 onward, for completed periods with scheduled work. No private
+                  findings appear in the browser or SSE. Stop the local API and run
+                  myth-report to inspect the result; this is an operator debugging
+                  tool, not a role-scoped chair interface.</small>
               </div>
             )}
             {snapshot.phase==='Resolved' && !pending && <ActionButton onClick={() => void createFork()}>Fork this verified decision</ActionButton>}
@@ -412,7 +440,9 @@ export function ConnectedView({allocation}:{allocation:Allocation}) {
           </p>}
           <p className="connected-assumptions">In Q2–Q6, choose either a new funded proposal
             (with a fresh vote) or continue the existing programme unchanged.
-            Continuing advances delivery and deadlines without a new meeting;
+            Continuing records your skip-meeting choice first; then explicitly
+            advance the quarter. The two journaled steps survive restarts.
+            That advances delivery and deadlines without a new meeting;
             approved but undelivered allocations do not reset each quarter.</p>
           <p className="connected-assumptions">Only the Rust service can commit actions. This scripted path does not yet accept custom policy cards or run Experiment C′.</p>
         </>

@@ -46,6 +46,12 @@ export function ConnectedCampaignReport() {
   const {data,isError}=usePublicView()
   const snapshot=data?.snapshot
   if (!snapshot) return <Pending error={isError}/>
+  if (snapshot.comparison.mode==='verification_failed') return <section className="panel" role="alert">
+    <h2>Journal verification failed</h2>
+    <p>The command's durable failure status was received. The current figures are not
+      verified. Stop the service and inspect the private save; do not continue
+      gameplay or trust a zeroed fallback snapshot.</p>
+  </section>
   return <section className="panel connected-public" aria-labelledby="connected-campaign-report">
     <h2 id="connected-campaign-report">Recorded quarterly decisions and consequences</h2>
     <p>Quarter {snapshot.quarter} · phase {snapshot.phase} ·
@@ -86,17 +92,20 @@ export function ConnectedCampaignReport() {
     {snapshot.delivery_history.at(-1)?.access_bonus_next &&
       <p>Next-quarter effect: recorded community access-capacity bonus.</p>}
     <h3>Replay and comparison provenance</h3>
-    <p>Mode: {snapshot.comparison.mode === 'exact_recorded_actions'
-      ? 'Recorded actions · exact journal replay'
+    <p>Mode: {snapshot.comparison.mode === 'primary_campaign'
+      ? 'Primary campaign · live committed game state (not a replay or fork)'
+      : snapshot.comparison.mode === 'exact_recorded_actions'
+      ? 'Explicitly verified recorded-action replay'
       : snapshot.comparison.mode === 'fresh_scripted_branch'
         ? 'Independent branch · new scripted actions after the fork'
         : 'Verification failure'}.</p>
     {snapshot.comparison.source_campaign_id && <p>Forked from {snapshot.comparison.source_campaign_id}
       {' '}at source journal cursor {snapshot.comparison.source_cursor}. This is a local counterfactual
       branch; its post-fork minister actions are not held fixed.</p>}
-    <p>Inherited shock stream: {snapshot.comparison.inherited_shock_stream ? 'yes' : 'unverified'}.
+    {snapshot.comparison.mode==='fresh_scripted_branch' && <p>
+      Inherited shock stream: {snapshot.comparison.inherited_shock_stream ? 'yes' : 'unverified'}.
       Post-fork actor actions fixed: {snapshot.comparison.post_fork_actor_actions_fixed ? 'yes' : 'no'}.
-      Comparing separate branches is not an exact recorded-action replay.</p>
+      Comparing separate branches is not an exact recorded-action replay.</p>}
     <p className="connected-assumptions">Treasury balances and public reports are verified
       projections of the saved synthetic state. Implementation effort, audited actual delivery,
       undisclosed commitments and private actor beliefs are not included here.

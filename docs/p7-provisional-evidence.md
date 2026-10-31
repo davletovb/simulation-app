@@ -43,3 +43,10 @@ The P7 public evidence projection now binds the eight frozen `country-pack.json`
 ### Additional connected public/private audit regression
 
 At a Q3 open boundary after the approved Q1 package and Q2 delivery, the first free staffing audit inspects Q2. The test checks that the committed private P3 audit ledger contains one audit and that the public snapshot does not expose `inspected_cumulative`. The later-quarter continuation still uses the single authorized PERIOD actor, not an arbitrary player clock action. See the current PR CI for executed status.
+
+## PR #16 review correction (31 October 2026)
+- A Q2+ continuation now consists of two durable, recoverable commands: an explicit player Defer in the Hiyal journal, then an authorized PERIOD action. World planning refuses a period skip without a matching open-quarter Defer.
+- The public snapshot exposes only the pending continuation marker, never private model state. Audit actions are visible only at an eligible Q3+ QuarterOpen phase. The UI asks for an explicit acknowledgement of a possible 2-credit charge and states that detailed findings require stopped-service operator inspection (no chair-identity auth is claimed).
+- Normal primary campaigns are labelled primary (not replay). Frozen source metadata/news are validated once per server process; real-source dates are canonical Gregorian ISO dates.
+- Failure frames are separately admitted to the browser view and not silently discarded as old journal cursor 0; validation requires a failed operation and the expected IntegrityFailure shape.
+- The offline inspector holds the save root's exclusive OS writer lock and explicitly declares operator/debug privilege, not chair-role visibility.

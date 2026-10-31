@@ -17,7 +17,7 @@ MYTH_MODE=scripted cargo +1.99.1 run --locked -p myth-local-api --bin myth-local
 
 Navigate to `http://127.0.0.1:8787/?campaign=demo-england`. A Q1 programme can allocate 50/40/10 or 60/30/10 pilot credits to staffing/repairs/access. After a valid cabinet vote, advance Q1; for Q2–Q6 **continue the existing programme** to retain its undelivered credits and see policy lags, or propose a new affordable programme. The quarter changes only after a committed advance; a 202 response does not mean success. The intended audit action starts in Q3 and may inspect a previously completed quarter with a funded scheduled activity. An ineligible audit is rejected, not fabricated.
 
-## Strict local inspection and private player history
+## Strict local inspection and privileged operator history
 
 **Stop the API server first** to avoid competing with the exclusive Hiyal writer, then run:
 
@@ -26,7 +26,7 @@ cargo +1.99.1 run --locked -p myth-local-api --bin myth-report -- \
   local-data/saves/hiyal-campaigns/demo-england
 ```
 
-This validates the exact Hiyal journal, resumes replay-only, reconstructs the P3 campaign and checks the private authoritative digest before printing. The report contains committed treasury, public quarterly observations, player-only audit truth and full commitment statuses. It is **sensitive local operator output**: don't publish it via the static site, SSE, or repository. `myth-report` does not call OpenRouter; it does not independently prove data fidelity or empirical policy effectiveness.
+This validates the exact Hiyal journal, resumes replay-only, reconstructs the P3 campaign and checks the private authoritative digest before printing. The report contains committed treasury, public quarterly observations, privileged audit truth and minister-private commitment statuses. It is **privileged local operator/debug output, not a chair role view**: don't publish it via the static site, SSE, or repository. `myth-report` does not call OpenRouter; it does not independently prove data fidelity or empirical policy effectiveness.
 
 For a backup, **stop the server**, copy the entire `local-data/saves/hiyal-campaigns` directory (including manifest, events, effects, private snapshots, and admission logs) into a private backup location, and preserve restrictive filesystem permissions. Restore the complete set to an empty private save directory, restart offline, and compare the output of `myth-report` against the pre-backup cursor and authoritative hash. Never reconstruct a campaign from the browser cache, copy only a checkpoint, merge branch directories, or strip unconfirmed spending reservations.
 
@@ -46,3 +46,5 @@ The default API **rejects `MYTH_MODE=live`**. The app's P5 shared spending allow
 
 **Known release limitations:** English-only; tiny six-cell artificial population; toy fiscal credits; no prediction of educational attainment, growth, welfare or UK political behaviour; no hosted services or online multiplayer; narrative/assistant live responses are not yet validated.
 
+
+**PR #16 review corrections:** Continue an unchanged Q2–Q6 programme in two explicit, idempotent steps: record the player's choice, then advance via PERIOD. The first step's P3 Defer is replay-bound; this cannot be bypassed by a stale orchestrator pause state. The audit button is Q3+/QuarterOpen only, has an explicit up-to-2-credit acknowledgement, and visibly says findings require an offline operator/debug inspection. This CLI is **not** a playable chair-specific role projection; minister-private commitments must never be copied into the player's UI.
