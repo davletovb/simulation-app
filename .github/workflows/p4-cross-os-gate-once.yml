@@ -1,8 +1,5 @@
 name: P4 manually requested Linux/macOS arm64 replay and resource gate
 on:
-  push:
-    branches: [feat/p4-hiyal-recovery]
-    paths: [.github/workflows/p4-cross-os-gate-once.yml]
   workflow_dispatch:
 permissions:
   contents: read
