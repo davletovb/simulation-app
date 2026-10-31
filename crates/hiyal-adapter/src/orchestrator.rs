@@ -10,11 +10,16 @@ use hiyal::{
     effects::{EffectResult, Message, ModelRequest, Role, Sampling, Usage},
     experiment::{EffectPolicy, Step, Trial},
     runtime::{Backend, BillingDisposition, BoxResult, EffectSpec, Receipt},
+    guard::{ToolExecutor,ToolRule},
     scheduler::Scheduling,
     storage::Durability,
 };
 use myth_contracts::checkpoint::Phase;
-use crate::{p5_allowance::PinnedRoute, p5_cabinet};
+use crate::{
+    p5_allowance::{Allowance, PinnedRoute, Purpose, Scope},
+    p5_backend::{SharedAdmissionBackend, governed_trial},
+    p5_cabinet,
+};
 use serde_json::json;
 use std::{
     collections::BTreeSet,
@@ -133,7 +138,11 @@ impl EffectPolicy<GameWorld> for GamePolicy {
             return Err("effect receipt count mismatch".into());
         }
         for (spec, receipt) in expected.iter().zip(receipts) {
-            if receipt.spec != *spec || receipt.billing != BillingDisposition::NotCharged {
+            let allowed_billing = receipt.billing == BillingDisposition::NotCharged
+                || (self.live_route.is_some()
+                    && matches!(spec,EffectSpec::Tool{..})
+                    && receipt.billing == BillingDisposition::Unknown);
+            if receipt.spec != *spec || !allowed_billing {
                 return Err("incorrect request or billing disposition".into());
             }
             let valid = match (&receipt.result, spec) {
@@ -253,12 +262,33 @@ impl Backend for PlayerCommandTool {
         })
     }
 }
+/// Only the already-validated, read-only P4 player-command echo is
+/// permitted through the live GovernedBackend. It cannot mutate the world.
+impl ToolExecutor for PlayerCommandTool {
+    fn validate(&self, name: &str, input: &serde_json::Value) -> Result<(), String> {
+        if name != "player_command"
+            || input["schema_version"] != 1
+            || input["actor"] != 0
+            || input["command_body"]["schema_version"] != 1
+        {
+            return Err("unapproved player tool".into());
+        }
+        myth_contracts::parse_command(&input["command_body"].to_string())
+            .map_err(|_| "invalid player command for tool".into()).map(|_| ())
+    }
+    fn call<'a>(&'a self, name: &'a str, input: &'a serde_json::Value) -> BoxResult<'a> {
+        Box::pin(async move {
+            Backend::resolve(self, &EffectSpec::Tool { name: name.into(), input: input.clone() }).await
+        })
+    }
+}
 /// The schedule mirror lives with its exclusive-writer trial, never in a
 /// process-global cache. Resume reconstructs it with one verified journal
 /// inspection outside any lock.
 pub struct GameTrial {
     inner: Trial<GameWorld, GamePolicy>,
     paused: BTreeSet<AgentId>,
+    live_admission: Option<Arc<SharedAdmissionBackend>>,
 }
 impl GameTrial {
     /// Keep the private scheduler mirror synchronized even when a caller
@@ -301,6 +331,7 @@ fn create_world(dir: &Path, name: &str, seed: u64, world: GameWorld) -> Result<G
     Ok(GameTrial {
         inner,
         paused: BTreeSet::new(),
+        live_admission: None,
     })
 }
 pub fn create(dir: &Path, name: &str, seed: u64) -> Result<GameTrial, String> {
@@ -323,6 +354,71 @@ pub fn resume(dir: &Path, replay_only: bool) -> Result<GameTrial, String> {
     Ok(GameTrial {
         inner,
         paused: persisted.schedule.paused,
+        live_admission: None,
+    })
+}
+
+fn minister_scope(world: &GameWorld) -> Scope {
+    Scope {
+        purpose: Purpose::Minister,
+        campaign_id: Some(world.campaign_id.clone()),
+        quarter: Some(world.quarter),
+        batch_id: None,
+    }
+}
+fn live_governor(backend: Arc<SharedAdmissionBackend>) -> Result<Arc<dyn Backend>, String> {
+    let governed = governed_trial(backend)
+        .allow_tool("player_command", ToolRule {
+            max_input_bytes: 12_288,
+            requires_approval: false,
+            has_external_side_effects: false,
+        })?
+        .with_executor(Arc::new(PlayerCommandTool));
+    Ok(Arc::new(governed))
+}
+/// The caller must open and recover the installation ledger first. Neither
+/// this function nor P1's ordinary loopback service enables live inference.
+pub fn create_live(
+    dir: &Path, name: &str, seed: u64, campaign_id: &str,
+    route: PinnedRoute, ledger: Arc<std::sync::Mutex<Allowance>>,
+    provider: Arc<dyn Backend>,
+) -> Result<GameTrial,String> {
+    let world = GameWorld::initial(campaign_id)?;
+    let admitted = Arc::new(SharedAdmissionBackend::new(
+        ledger, provider, route.clone(), minister_scope(&world),
+    )?);
+    let governor = live_governor(admitted.clone())?;
+    let mut inner = Trial::create(
+        dir, name, seed, WORLD_KIND, world,
+        GamePolicy { live_route: Some(route), ..GamePolicy::default() },
+        governor, ACTORS.to_vec(), Scheduling::RoundRobin,
+    )?;
+    inner.store.set_durability(Durability::EveryEvent)?;
+    Ok(GameTrial { inner, paused: BTreeSet::new(), live_admission: Some(admitted) })
+}
+/// Resume with the SAME immutable Hiyal budget and route, and an already
+/// recovered shared allowance. Saved model receipts are never re-dispatched.
+pub fn resume_live(
+    dir: &Path, replay_only: bool, route: PinnedRoute,
+    ledger: Arc<std::sync::Mutex<Allowance>>,
+    provider: Arc<dyn Backend>,
+) -> Result<GameTrial,String> {
+    let persisted = hiyal::storage::Store::<GameWorld,GameAction>::inspect_read_only(dir)?;
+    persisted.world.verify()?;
+    let admitted = Arc::new(SharedAdmissionBackend::new(
+        ledger, provider, route.clone(), minister_scope(&persisted.world),
+    )?);
+    let governor = live_governor(admitted.clone())?;
+    let mut inner = Trial::resume(
+        dir, WORLD_KIND,
+        GamePolicy { live_route: Some(route), ..GamePolicy::default() },
+        governor, replay_only,
+    )?;
+    inner.store.set_durability(Durability::EveryEvent)?;
+    inner.store.world().verify()?;
+    Ok(GameTrial {
+        inner, paused: persisted.schedule.paused,
+        live_admission: Some(admitted),
     })
 }
 fn enable(trial: &mut GameTrial, allowed: &[AgentId]) -> Result<(), String> {
@@ -349,6 +445,9 @@ fn check_step(step: Step<GameWorld>) -> Result<(), String> {
 /// One explicitly chosen logical action or three frozen minister decisions.
 /// Scheduling changes are Hiyal durable control records, *not* calendar time.
 pub async fn advance_slice(trial: &mut GameTrial) -> Result<bool, String> {
+    if let Some(live) = &trial.live_admission {
+        live.set_scope(minister_scope(trial.store.world()))?;
+    }
     // Hiyal persists a plan before dispatch and removes it *after* all
     // committed entries. A crash after the final commit can leave the plan
     // present even when the P3 phase has already advanced. Drain that plan
