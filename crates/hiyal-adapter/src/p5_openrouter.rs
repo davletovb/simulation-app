@@ -2,7 +2,7 @@
 //! HTTP backend cannot submit strict response_format schemas; we keep its
 //! Hiyal Backend effect boundary but use an OpenRouter-only HTTP adapter.
 //! The API key is never Debug-formatted, logged, serialized, or put in a receipt.
-use crate::p5_allowance::PinnedRoute;
+use crate::p5_allowance::{validate_model_request,PinnedRoute,Purpose};
 use hiyal::{
     effects::{EffectResult, ModelRequest, Role, Usage},
     runtime::{Backend, BoxResult, EffectSpec},
@@ -30,6 +30,10 @@ impl OpenRouterBackend {
         if secret.trim().is_empty() || secret.contains(['\r', '\n']) {
             return Err("invalid OpenRouter credential".into());
         }
+        if !route.reasoning_parameter_supported
+            && std::env::var("MYTH_P5_NON_REASONING_ROUTE_VERIFIED").ok().as_deref()!=Some("yes") {
+            return Err("non-reasoning route must be independently certified before omitting reasoning control".into());
+        }
         let client = Client::builder()
             .redirect(Policy::none())
             .no_proxy()
@@ -44,6 +48,7 @@ impl OpenRouterBackend {
         })
     }
     fn request_body(&self, request: &ModelRequest) -> Result<Value, String> {
+        validate_model_request(request,&self.route,&Purpose::Authoring)?;
         if request.provider != "openrouter"
             || request.model != self.route.model
             || request.resolved_model_version.as_deref() != Some(self.route.provider.as_str())
@@ -101,7 +106,6 @@ impl OpenRouterBackend {
             "response_format": format,
             "stream": false,
             "max_tokens": request.sampling.max_output_tokens,
-            "reasoning": {"effort":"none"},
             "provider": {
                 "order": [self.route.provider],
                 "only": [self.route.provider],
@@ -113,6 +117,9 @@ impl OpenRouterBackend {
                 }
             }
         });
+        if self.route.reasoning_parameter_supported {
+            body["reasoning"]=json!({"effort":"none"});
+        }
         if let Some(t) = request.sampling.temperature {
             body["temperature"] = json!(t);
         }
@@ -140,22 +147,30 @@ impl OpenRouterBackend {
         {
             return Err("missing safe generation id".into());
         }
-        let response = self
-            .client
-            .get(GENERATION_URL)
-            .bearer_auth(&self.secret)
-            .query(&[("id", id)])
-            .send()
-            .await
-            .map_err(|_| "provider generation metadata unavailable")?;
-        if !response.status().is_success() {
-            return Err("generation metadata not confirmed".into());
+        let mut final_response = None;
+        // Retry only the read-only generation-metadata GET, never the paid
+        // completion POST. OpenRouter may publish metadata asynchronously.
+        for n in 0..4 {
+            let response=self.client.get(GENERATION_URL)
+                .bearer_auth(&self.secret).query(&[("id",id)]).send().await;
+            if let Ok(response) = response {
+                if response.status().is_success() {
+                    final_response=Some(response);
+                    break;
+                }
+                if !(response.status().as_u16()==404
+                    || response.status().as_u16()==429
+                    || response.status().is_server_error()) {
+                    return Err("generation metadata returned terminal status".into());
+                }
+            }
+            if n<3 { tokio::time::sleep(Duration::from_millis(200*(n+1))).await; }
         }
-        let bytes = bounded_bytes(response).await?;
-        let value: Value =
-            serde_json::from_slice(&bytes).map_err(|_| "invalid generation metadata")?;
-        if value["data"]["model"] != self.route.model {
-            return Err("generation metadata reported model mismatch".into());
+        let response=final_response.ok_or("generation metadata not confirmed after bounded retry")?;
+        let bytes=bounded_bytes(response).await?;
+        let value: Value=serde_json::from_slice(&bytes).map_err(|_| "invalid generation metadata")?;
+        if value["data"]["model"] != self.route.echoed_model() {
+            return Err("generation metadata reported unapproved resolved model".into());
         }
         let actual = value["data"]["provider_name"]
             .as_str()
@@ -267,10 +282,18 @@ impl Backend for OpenRouterBackend {
             let bytes = bounded_bytes(response).await?;
             let value: Value = serde_json::from_slice(&bytes)
                 .map_err(|_| "malformed provider response; charge unknown")?;
-            let (output, generation) = parse_completion(&value, &self.route.model)?;
+            let (output, generation) = parse_completion(&value, self.route.echoed_model())?;
             // The completion alone does not name the actual provider. Query
             // its generation metadata before admitting a typed minister vote.
             self.verify_generation(&generation).await?;
+            // Return the immutable requested model identity after verifying
+            // the exact approved echoed model and actual provider separately.
+            let output = match output {
+                EffectResult::Model { content, usage, .. } => EffectResult::Model {
+                    content, usage, effective_model: self.route.model.clone()
+                },
+                other => other,
+            };
             Ok(output)
         })
     }

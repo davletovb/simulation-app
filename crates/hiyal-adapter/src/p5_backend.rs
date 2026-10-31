@@ -223,13 +223,15 @@ mod tests {
             input_micro_usd_per_million: 1_000_000,
             output_micro_usd_per_million: 5_000_000,
             reasoning_disabled: true,
+            reasoning_parameter_supported: false,
+            response_model: None,
         }
     }
     fn req() -> ModelRequest {
         ModelRequest {
             provider: "openrouter".into(),
             model: "test/model".into(),
-            resolved_model_version: Some("pin".into()),
+            resolved_model_version: Some("provider".into()),
             messages: vec![Message {
                 role: Role::User,
                 content: "safe".into(),
@@ -279,8 +281,8 @@ mod tests {
             route(),
             Scope {
                 purpose: Purpose::Assistant,
-                campaign_id: None,
-                quarter: None,
+                campaign_id: Some("a".into()),
+                quarter: Some(1),
                 batch_id: None,
             },
         )

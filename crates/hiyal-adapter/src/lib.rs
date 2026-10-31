@@ -611,6 +611,22 @@ impl World for GameWorld {
             {
                 return Err("model action lacked matching frozen role receipt".into());
             }
+            // Defense in depth: a syntactically valid digest is not proof of
+            // receipt authenticity. Enforce frozen role/stage/version and the
+            // complete typed action contract again at the world boundary.
+            // The Hiyal journal must be inspected separately to bind the
+            // digest to an actual receipt; world logic never trusts the hash
+            // alone to authorize an arbitrary minister payload.
+            let frozen = GameObservation {
+                schema_version: 1,
+                synthetic_receipts: self.synthetic_receipts,
+                actor: action.actor,
+                phase: self.phase,
+                quarter: self.quarter,
+                expected_world_version: self.world_version.clone(),
+                action: planned.clone(),
+            };
+            crate::p5_cabinet::checked_action(&frozen, &action.payload.to_string())?;
         }
         if self.actions.len() >= MAX_ACCEPTED_ACTIONS {
             return Err("action cap exceeded".into());

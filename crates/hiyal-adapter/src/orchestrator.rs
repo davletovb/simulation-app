@@ -1097,6 +1097,8 @@ mod tests {
             input_micro_usd_per_million: 1_000_000,
             output_micro_usd_per_million: 5_000_000,
             reasoning_disabled: true,
+            reasoning_parameter_supported: false,
+            response_model: None,
         };
         let mut trial = create_live(
             &path,

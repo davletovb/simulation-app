@@ -16,6 +16,41 @@ const MAX_FILE_BYTES: u64 = 2 * 1024 * 1024;
 const QUARTER_MICRO_USD: u64 = 250_000;
 const CAMPAIGN_MICRO_USD: u64 = 1_500_000;
 const BATCH_MICRO_USD: u64 = 3_000_000;
+pub const MINISTER_REQUEST_BYTES: usize = 12_288;
+pub const ASSISTANT_REQUEST_BYTES: usize = 20_480;
+pub const MINISTER_OUTPUT_TOKENS: u32 = 400;
+pub const ASSISTANT_OUTPUT_TOKENS: u32 = 800;
+
+/// One set of hard admission limits for the ledger, OpenRouter transport,
+/// and role-request construction. Hiyal counts serialized UTF-8 bytes plus
+/// framing as conservative token-equivalent input for price reservations;
+/// provider-specific actual token counts are not independently certified.
+pub fn validate_model_request(
+    request: &ModelRequest, route: &PinnedRoute, purpose: &Purpose,
+) -> Result<u64, String> {
+    route.validate()?;
+    if request.provider != "openrouter"
+        || request.model != route.model
+        || request.resolved_model_version.as_deref() != Some(route.provider.as_str())
+        || request.streaming || !request.tool_schemas.is_empty()
+        || request.response_format.as_ref().is_none_or(|v| {
+            v["type"] != "json_schema" || v["json_schema"]["strict"] != true
+                || v["json_schema"]["schema"]["type"] != "object"
+                || v["json_schema"]["name"].as_str().is_none_or(|n| n.is_empty() || n.len() > 64)
+        }) {
+        return Err(reject("unapproved OpenRouter strict-schema request"));
+    }
+    let assistant = *purpose != Purpose::Minister;
+    let config = BudgetConfig {
+        maximum_micro_usd: CAMPAIGN_MICRO_USD,
+        prompt_micro_usd_per_token: 1,
+        output_micro_usd_per_token: 5,
+        max_input_bytes: if assistant {ASSISTANT_REQUEST_BYTES} else {MINISTER_REQUEST_BYTES},
+        max_output_tokens: if assistant {ASSISTANT_OUTPUT_TOKENS} else {MINISTER_OUTPUT_TOKENS},
+    };
+    config.reserve_amount(request)
+}
+
 
 fn valid_id(id: &str) -> bool {
     (1..=100).contains(&id.len())
@@ -54,7 +89,7 @@ impl Scope {
             || self.batch_id.as_deref().is_some_and(|x| !valid_id(x))
             || self.quarter.is_some_and(|q| !(1..=6).contains(&q))
             || self.quarter.is_some() != self.campaign_id.is_some()
-            || (self.purpose == Purpose::Minister && self.campaign_id.is_none())
+            || (matches!(self.purpose, Purpose::Minister | Purpose::Assistant) && self.campaign_id.is_none())
             || (self.purpose == Purpose::Evaluation && self.batch_id.is_none())
         {
             return Err(reject("invalid call scope"));
@@ -70,8 +105,16 @@ pub struct PinnedRoute {
     pub input_micro_usd_per_million: u64,
     pub output_micro_usd_per_million: u64,
     pub reasoning_disabled: bool,
+    #[serde(default)]
+    pub reasoning_parameter_supported: bool,
+    /// An exact reviewed resolved/echo model slug, not an arbitrary fallback.
+    #[serde(default)]
+    pub response_model: Option<String>,
 }
 impl PinnedRoute {
+    pub fn echoed_model(&self) -> &str {
+        self.response_model.as_deref().unwrap_or(&self.model)
+    }
     pub fn validate(&self) -> Result<(), String> {
         if !valid_id(&self.model)
             || !valid_id(&self.provider)
@@ -80,6 +123,7 @@ impl PinnedRoute {
             || self.output_micro_usd_per_million == 0
             || self.output_micro_usd_per_million > 5_000_000
             || !self.reasoning_disabled
+            || self.response_model.as_deref().is_some_and(|name| !valid_id(name))
         {
             return Err(reject("unapproved, unpriced or unbounded model route"));
         }
@@ -299,21 +343,24 @@ impl Allowance {
                 .ok_or_else(|| reject("allowance overflow"))
         })
     }
+    fn quarter_usage(&self, campaign: &str, quarter: u8) -> Result<(u64,usize,usize),String> {
+        self.state.calls.iter().filter(|c| c.scope.campaign_id.as_deref()==Some(campaign)
+            && c.scope.quarter==Some(quarter))
+            .try_fold((0u64,0usize,0usize), |(cash,calls,ministers),c| {
+                Ok((cash.checked_add(c.maximum_micro_usd).ok_or("quarter overflow")?,
+                    calls + 1, ministers + usize::from(c.scope.purpose==Purpose::Minister)))
+            })
+    }
     fn check_recovery(&self) -> Result<(), String> {
         if self.held()? > self.state.epoch_funded_micro_usd {
             return Err(reject("recovered allowance exceeded funded amount"));
         }
         for call in &self.state.calls {
-            let mut matches = self.state.calls.iter().filter(|x| {
-                x.scope.campaign_id == call.scope.campaign_id
-                    && x.scope.campaign_id.is_some()
-                    && x.scope.quarter == call.scope.quarter
-            });
-            let sum = matches
-                .try_fold(0u64, |a, x| a.checked_add(x.maximum_micro_usd))
-                .ok_or("quarter overflow")?;
-            if call.scope.quarter.is_some() && sum > QUARTER_MICRO_USD {
-                return Err(reject("recovered quarter exceeds cap"));
+            if let (Some(c),Some(q))=(&call.scope.campaign_id,call.scope.quarter) {
+                let (amount,count,minister_count)=self.quarter_usage(c,q)?;
+                if amount>QUARTER_MICRO_USD || count>16 || minister_count>14 {
+                    return Err(reject("recovered quarter exceeds durable call or cost cap"));
+                }
             }
         }
         Ok(())
@@ -385,43 +432,8 @@ impl Allowance {
         self.ensure_available()?;
         scope.validate()?;
         route.validate()?;
-        if !valid_id(call_id)
-            || request.provider != "openrouter"
-            || request.model != route.model
-            || request.streaming
-            || !request.tool_schemas.is_empty()
-            || request
-                .response_format
-                .as_ref()
-                .is_none_or(|v| v["type"] != "json_schema" || v["json_schema"]["strict"] != true)
-            || request.sampling.max_output_tokens.is_none()
-        {
-            return Err(reject("unapproved OpenRouter structured request"));
-        }
-        let assistant = scope.purpose != Purpose::Minister;
-        let max_output = if assistant { 800 } else { 400 };
-        // Conservative tokenizer-independent guard: bytes count as tokens.
-        // Hiyal independently reserves with framing overhead.
-        let max_input = if assistant { 5_000 } else { 3_000 };
-        if request
-            .sampling
-            .max_output_tokens
-            .is_none_or(|x| x == 0 || x > max_output)
-            || serde_json::to_vec(request)
-                .map_err(|e| e.to_string())?
-                .len()
-                > max_input
-        {
-            return Err(reject("declared request input/output cap exceeded"));
-        }
-        let config = BudgetConfig {
-            maximum_micro_usd: CAMPAIGN_MICRO_USD,
-            prompt_micro_usd_per_token: 1,
-            output_micro_usd_per_token: 5,
-            max_input_bytes: if assistant { 20_480 } else { 12_288 },
-            max_output_tokens: max_output,
-        };
-        let maximum = config.reserve_amount(request)?;
+        if !valid_id(call_id) { return Err(reject("invalid call identifier")); }
+        let maximum = validate_model_request(request, &route, &scope.purpose)?;
         let digest = hash(&serde_json::to_vec(request).map_err(|e| e.to_string())?);
         if let Some(old) = self.state.calls.iter().find(|x| x.call_id == call_id) {
             if old.scope != scope
@@ -463,28 +475,11 @@ impl Allowance {
                 return Err(reject("campaign allowance exhausted"));
             }
             if let Some(q) = scope.quarter {
-                let within: Vec<&&Call> = previous
-                    .iter()
-                    .filter(|c| c.scope.quarter == Some(q))
-                    .collect();
-                if within.len() >= 16
-                    || (scope.purpose == Purpose::Minister
-                        && within
-                            .iter()
-                            .filter(|c| c.scope.purpose == Purpose::Minister)
-                            .count()
-                            >= 14)
-                {
+                let (used,count,minister_count) = self.quarter_usage(campaign,q)?;
+                if count >= 16 || (scope.purpose==Purpose::Minister && minister_count>=14) {
                     return Err(reject("quarter call cap exhausted"));
                 }
-                let used = within
-                    .iter()
-                    .try_fold(0u64, |n, c| n.checked_add(c.maximum_micro_usd))
-                    .ok_or("quarter overflow")?;
-                if used
-                    .checked_add(maximum)
-                    .is_none_or(|n| n > QUARTER_MICRO_USD)
-                {
+                if used.checked_add(maximum).is_none_or(|n| n>QUARTER_MICRO_USD) {
                     return Err(reject("quarter allowance exhausted"));
                 }
             }

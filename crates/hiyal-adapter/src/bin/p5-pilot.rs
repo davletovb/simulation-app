@@ -30,8 +30,13 @@ fn pinned_route() -> Result<PinnedRoute, String> {
             .parse()
             .map_err(|_| "invalid output price")?,
         reasoning_disabled: true,
+            reasoning_parameter_supported: env::var("MYTH_P5_REASONING_PARAMETER_SUPPORTED")
+            .ok().as_deref()==Some("yes"),
+        response_model: env::var("MYTH_P5_RESPONSE_MODEL").ok(),
     };
     route.validate()?;
+    // Exact provider-echo model and reasoning support are operator-reviewed
+    // route capabilities, frozen in the durable trial route identity.
     if required("MYTH_P5_ROUTE_PRICE_VERIFIED")? != "yes" {
         return Err("operator must separately verify route, schema and prices".into());
     }

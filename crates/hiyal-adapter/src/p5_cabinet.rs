@@ -1,7 +1,7 @@
 //! Bounded, typed, role-visible P5 minister model requests. No speeches,
 //! player chat, news text or secret authoring notes enter the model context.
 use crate::GameObservation;
-use crate::p5_allowance::PinnedRoute;
+use crate::p5_allowance::{validate_model_request,PinnedRoute,Purpose};
 use hiyal::{
     effects::{Message, ModelRequest, Role, Sampling},
     runtime::EffectSpec,
@@ -115,6 +115,7 @@ pub fn request(obs: &GameObservation, route: &PinnedRoute) -> Result<EffectSpec,
             }
         })),
     };
+    validate_model_request(&req, route, &Purpose::Minister)?;
     Ok(EffectSpec::Model(req))
 }
 /// Parse and verify the answer against the immutable frozen role view, not
@@ -188,6 +189,8 @@ mod tests {
             input_micro_usd_per_million: 1_000_000,
             output_micro_usd_per_million: 5_000_000,
             reasoning_disabled: true,
+            reasoning_parameter_supported: false,
+            response_model: None,
         };
         for n in 0..20 {
             let mut manipulated = baseline.clone();
@@ -224,6 +227,8 @@ mod tests {
             input_micro_usd_per_million: 1_000_000,
             output_micro_usd_per_million: 5_000_000,
             reasoning_disabled: true,
+            reasoning_parameter_supported: false,
+            response_model: None,
         };
         let EffectSpec::Model(model) = request(&observed, &route).unwrap() else {
             panic!("minister request must be a model effect");
