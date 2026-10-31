@@ -416,16 +416,10 @@ impl GameWorld {
         }
         let kind = body["kind"].as_str().ok_or("missing typed command kind")?;
         let valid_phase = match (self.phase, kind) {
-            (Phase::QuarterOpen, "defer")
-                if self.quarter > 1 && !self.continuation_pending() =>
-            {
+            (Phase::QuarterOpen, "defer") if self.quarter > 1 && !self.continuation_pending() => {
                 true
             }
-            (Phase::QuarterOpen, "propose" | "order_audit")
-                if !self.continuation_pending() =>
-            {
-                true
-            }
+            (Phase::QuarterOpen, "propose" | "order_audit") if !self.continuation_pending() => true,
             (Phase::AmendmentWindow, "amend") => true,
             (Phase::FinalPositionsFrozen, "ratify" | "defer")
                 if self.final_votes_this_meeting() == 3 =>
@@ -554,7 +548,9 @@ impl GameWorld {
                 "expected_world_version":self.world_version,"command":body});
         } else if actor == PERIOD {
             if self.phase != Phase::Resolved && !self.continuation_pending() {
-                return Err("period actor requires resolved meeting or journaled continuation".into());
+                return Err(
+                    "period actor requires resolved meeting or journaled continuation".into(),
+                );
             }
             kind = ActionKind::PlayerCommand;
             payload = json!({"schema_version":1,"campaign_id":self.campaign_id,
@@ -747,6 +743,10 @@ mod p7_period_authorization_tests {
         assert_eq!(world.phase, Phase::QuarterOpen);
         assert!(!world.continuation_pending());
         assert!(world.observe(PERIOD).is_err());
-        assert!(world.selected_player_command("skip-q1", json!({"kind":"defer"})).is_err());
+        assert!(
+            world
+                .selected_player_command("skip-q1", json!({"kind":"defer"}))
+                .is_err()
+        );
     }
 }

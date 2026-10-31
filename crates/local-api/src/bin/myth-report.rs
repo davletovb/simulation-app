@@ -10,11 +10,16 @@ fn run() -> Result<(), String> {
         return Err("usage: myth-report <private-hiyal-campaign-directory>".into());
     }
     let dir = Path::new(&args[1]);
-    let root = dir.parent().ok_or("campaign needs a containing private save root")?;
-    let lock = OpenOptions::new().read(true).write(true)
+    let root = dir
+        .parent()
+        .ok_or("campaign needs a containing private save root")?;
+    let lock = OpenOptions::new()
+        .read(true)
+        .write(true)
         .open(root.join(".p6-writer.lock"))
         .map_err(|_| "missing P6 writer lock: stop the API and inspect a managed save root")?;
-    lock.try_lock().map_err(|_| "local API holds the save writer lock; stop it before running myth-report")?;
+    lock.try_lock()
+        .map_err(|_| "local API holds the save writer lock; stop it before running myth-report")?;
     // The OS lock remains held through inspection, replay and report output.
     // Complete read-only integrity verification occurs before any values
     // are printed. Replays use recorded actions/receipts without a provider.

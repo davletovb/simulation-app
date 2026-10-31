@@ -29,12 +29,12 @@ use std::{
     fs::{self, File, OpenOptions},
     io::Write,
     path::{Path as FsPath, PathBuf},
+    sync::OnceLock,
     sync::{
         Arc, Mutex,
         atomic::{AtomicBool, Ordering},
     },
     time::Duration,
-    sync::OnceLock,
 };
 use tokio::sync::{Mutex as AsyncMutex, broadcast};
 
@@ -348,15 +348,25 @@ struct NewsBundle {
 /// Canonical Gregorian dates only; lexical cutoff checks require this first.
 fn strict_iso_date(date: &str) -> bool {
     let b = date.as_bytes();
-    if b.len() != 10 || b[4] != b'-' || b[7] != b'-'
-        || b.iter().enumerate().any(|(i, c)| i != 4 && i != 7 && !c.is_ascii_digit())
+    if b.len() != 10
+        || b[4] != b'-'
+        || b[7] != b'-'
+        || b.iter()
+            .enumerate()
+            .any(|(i, c)| i != 4 && i != 7 && !c.is_ascii_digit())
     {
         return false;
     }
     let (Ok(year), Ok(month), Ok(day)) = (
-        date[..4].parse::<u32>(), date[5..7].parse::<u32>(), date[8..10].parse::<u32>(),
-    ) else { return false; };
-    if year == 0 { return false; }
+        date[..4].parse::<u32>(),
+        date[5..7].parse::<u32>(),
+        date[8..10].parse::<u32>(),
+    ) else {
+        return false;
+    };
+    if year == 0 {
+        return false;
+    }
     let leap = year % 4 == 0 && (year % 100 != 0 || year % 400 == 0);
     let days = match month {
         1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
@@ -369,9 +379,15 @@ fn strict_iso_date(date: &str) -> bool {
 }
 fn parse_news_bundle(raw: &str) -> Result<(String, Vec<PublicNews>), String> {
     let bundle: NewsBundle = serde_json::from_str(raw).map_err(|_| "invalid news bundle")?;
-    let cutoff = bundle.cutoff_utc.get(..10).ok_or("missing news cutoff date")?;
-    if bundle.schema_version != 1 || bundle.label.is_empty() || bundle.items.len() > 12
-        || bundle.cutoff_utc.len() != 20 || !bundle.cutoff_utc.ends_with('Z')
+    let cutoff = bundle
+        .cutoff_utc
+        .get(..10)
+        .ok_or("missing news cutoff date")?;
+    if bundle.schema_version != 1
+        || bundle.label.is_empty()
+        || bundle.items.len() > 12
+        || bundle.cutoff_utc.len() != 20
+        || !bundle.cutoff_utc.ends_with('Z')
         || !strict_iso_date(cutoff)
     {
         return Err("news bundle/country cutoff mismatch".into());
@@ -379,10 +395,16 @@ fn parse_news_bundle(raw: &str) -> Result<(String, Vec<PublicNews>), String> {
     for item in &bundle.items {
         let real = item.kind == "real_source_update";
         let fiction = item.kind == "fictional_simulation_news";
-        if !(real || fiction) || !strict_iso_date(&item.date)
-            || item.title.is_empty() || item.summary.is_empty()
-            || (real && (item.date.as_str() > cutoff
-                || !item.url.as_deref().is_some_and(|url| url.starts_with("https://"))))
+        if !(real || fiction)
+            || !strict_iso_date(&item.date)
+            || item.title.is_empty()
+            || item.summary.is_empty()
+            || (real
+                && (item.date.as_str() > cutoff
+                    || !item
+                        .url
+                        .as_deref()
+                        .is_some_and(|url| url.starts_with("https://"))))
             || (fiction && item.url.is_some())
         {
             return Err("unsafe or unclassified archived news".into());
@@ -392,9 +414,13 @@ fn parse_news_bundle(raw: &str) -> Result<(String, Vec<PublicNews>), String> {
 }
 static VALIDATED_NEWS: OnceLock<Result<(String, Vec<PublicNews>), String>> = OnceLock::new();
 fn frozen_news(cutoff: &str) -> Result<Vec<PublicNews>, String> {
-    let (expected, news) = VALIDATED_NEWS.get_or_init(|| parse_news_bundle(FROZEN_NEWS))
-        .as_ref().map_err(Clone::clone)?;
-    if expected != cutoff { return Err("news cutoff differs from campaign pack".into()); }
+    let (expected, news) = VALIDATED_NEWS
+        .get_or_init(|| parse_news_bundle(FROZEN_NEWS))
+        .as_ref()
+        .map_err(Clone::clone)?;
+    if expected != cutoff {
+        return Err("news cutoff differs from campaign pack".into());
+    }
     Ok(news.clone())
 }
 
@@ -507,9 +533,13 @@ fn parse_source_indicators() -> Result<(String, Vec<PublicIndicator>), String> {
 static VALIDATED_INDICATORS: OnceLock<Result<(String, Vec<PublicIndicator>), String>> =
     OnceLock::new();
 fn source_indicators(cutoff: &str) -> Result<Vec<PublicIndicator>, String> {
-    let (expected, rows) = VALIDATED_INDICATORS.get_or_init(parse_source_indicators)
-        .as_ref().map_err(Clone::clone)?;
-    if expected != cutoff { return Err("evidence cutoff differs from campaign pack".into()); }
+    let (expected, rows) = VALIDATED_INDICATORS
+        .get_or_init(parse_source_indicators)
+        .as_ref()
+        .map_err(Clone::clone)?;
+    if expected != cutoff {
+        return Err("evidence cutoff differs from campaign pack".into());
+    }
     Ok(rows.clone())
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -1159,21 +1189,32 @@ async fn command(
     if engine.trial.store.world().is_closed() {
         return Err(status(StatusCode::CONFLICT, "campaign closed"));
     }
-    if matches!(request.kind, CommandKind::ContinueQuarter | CommandKind::FinishContinuation)
-        && engine.trial.store.world().phase != myth_contracts::checkpoint::Phase::QuarterOpen
+    if matches!(
+        request.kind,
+        CommandKind::ContinueQuarter | CommandKind::FinishContinuation
+    ) && engine.trial.store.world().phase != myth_contracts::checkpoint::Phase::QuarterOpen
     {
-        return Err(status(StatusCode::CONFLICT, "cannot continue an active cabinet meeting"));
+        return Err(status(
+            StatusCode::CONFLICT,
+            "cannot continue an active cabinet meeting",
+        ));
     }
     if request.kind == CommandKind::FinishContinuation
         && !engine.trial.store.world().continuation_pending()
     {
-        return Err(status(StatusCode::CONFLICT, "no journaled continuation choice"));
+        return Err(status(
+            StatusCode::CONFLICT,
+            "no journaled continuation choice",
+        ));
     }
     if request.kind == CommandKind::ContinueQuarter
         && (engine.trial.store.world().quarter < 2
             || engine.trial.store.world().continuation_pending())
     {
-        return Err(status(StatusCode::CONFLICT, "cannot repeat continuation choice"));
+        return Err(status(
+            StatusCode::CONFLICT,
+            "cannot repeat continuation choice",
+        ));
     }
     if let Some(body) = request
         .kind
@@ -2357,9 +2398,7 @@ mod tests {
             assert!(!strict_iso_date(bad), "accepted non-ISO date {bad}");
         }
         assert!(strict_iso_date("2024-02-29"));
-        assert!(
-            parse_news_bundle(&FROZEN_NEWS.replace("2026-08-17", "1 November 2026")).is_err()
-        );
+        assert!(parse_news_bundle(&FROZEN_NEWS.replace("2026-08-17", "1 November 2026")).is_err());
         assert!(parse_news_bundle(&FROZEN_NEWS.replace("2026-08-17", "2026-11-01")).is_err());
     }
     #[test]
@@ -2384,10 +2423,7 @@ mod tests {
             CommandKind::ContinueQuarter.body(&world).unwrap(),
             Some(json!({"kind":"defer"}))
         );
-        assert_eq!(
-            CommandKind::FinishContinuation.body(&world).unwrap(),
-            None
-        );
+        assert_eq!(CommandKind::FinishContinuation.body(&world).unwrap(), None);
     }
     #[tokio::test]
     async fn p7_two_fundable_resolutions_remain_distinct_when_programmes_continue() {
@@ -2471,10 +2507,17 @@ mod tests {
                 let engine = owner.engine.lock().await;
                 let world = engine.trial.store.world();
                 assert!(world.continuation_pending());
-                assert!(world.selected_player_command("sneaky", json!({
-                    "kind":"propose", "meeting_id": format!("q{}", world.quarter),
-                    "allocation":{"staff":0,"repairs":0,"access":0}
-                })).is_err());
+                assert!(
+                    world
+                        .selected_player_command(
+                            "sneaky",
+                            json!({
+                                "kind":"propose", "meeting_id": format!("q{}", world.quarter),
+                                "allocation":{"staff":0,"repairs":0,"access":0}
+                            })
+                        )
+                        .is_err()
+                );
                 inspect(&engine.trial.store.dir).unwrap();
                 drop(engine);
                 drop(owner);
