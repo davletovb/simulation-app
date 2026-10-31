@@ -63,3 +63,28 @@ cargo +1.99.1 test --workspace --locked
 ```
 
 The essential GitHub Actions workflow runs these offline, plus P2/P3 fixtures, API smoke, schema drift, frontend build and secret scans. Live calls are **never** a CI step.
+
+## Explicit retry and paid-completion reconciliation (review follow-up)
+
+Hiyal's pinned implementation needs **no core modification** for this path: a failed frozen round commits an immutable rejected event and its keyed failure receipt. The next separately authorized frozen round runs at a later event sequence and produces a fresh Hiyal effect key. The game now disallows any automatic continuation of an operationally failed minister seat until the owner explicitly authorizes the precise failed receipt.
+
+Operator-only commands (no calls in normal CI):
+
+```sh
+MYTH_P5_RETRY_AUTHORIZATION=AUTHORIZE_FAILED_SEAT \
+ cargo +1.99.1 run --locked -p myth-hiyal-adapter --bin p5-pilot -- \
+ authorize-retry <trial-dir> <ledger-dir> <installation-id> finance
+
+MYTH_P5_CERTIFY_SAVED=VERIFY_SAVED_COMPLETION \
+ OPENROUTER_API_KEY=<provided-privately> \
+ cargo +1.99.1 run --locked -p myth-hiyal-adapter --bin p5-pilot -- \
+ certify-saved <trial-dir> <ledger-dir> <installation-id> finance
+```
+
+The first writes a fsynced private authorization for the **particular failed receipt, event hash, frozen role observation, quarter, stage and request digest**, capped at two manual operational retries per quarter. Repeating the same approval does not authorize extra attempts. Continuing the bounded pilot *after authorization* creates a new Hiyal effect key and a new application-ledger reservation. The old receipt and unknown-charge liability remain in both journals. A failed attempt with no matching Hiyal operational-failure receipt is not eligible for this operation; malformed JSON repair is **separate work**.
+
+The optional second command performs **generation-metadata GET only**, verifying the saved paid completion's immutable model/provider and strict schema. It then persists a request/response/route-SHA bound certification. When that exact frozen request next executes, the OpenRouter transport prefers the certified saved response and makes **no additional paid completion POST**. If a paid response exists but is not certified or is ambiguous/corrupt, a new paid POST is refused until reconciliation; a missing paid response can be retried only after explicit authorization. The immutable original Hiyal failed receipt is never rewritten.
+
+Accounting caveat: a recovered paid completion is emitted under a new Hiyal effect key. For safety, the per-trial Hiyal budget conservatively counts the reconstructed model effect in addition to its original unknown-charge receipt; no second actual POST is sent. The game shared ledger also reserves the new effect conservatively, even though it is a verified no-POST reuse. This may reduce the effective spending headroom but can never silently increase it. Exact one-charge sharing across distinct Hiyal receipts would require an independently reviewed Hiyal billing-link extension; none is claimed here.
+
+No live OpenRouter credentials, paid experiment, real provider metadata certification or actual invoice verification were used in offline testing. Keep the real-model gates open pending those separately authorized tests.
