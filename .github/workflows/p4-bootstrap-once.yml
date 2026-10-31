@@ -1,4 +1,4 @@
-name: P4 one-shot corrected adapter lock and test
+name: P4 one-shot lock first and validate adapter
 on:
   push:
     branches: [feat/p4-hiyal-recovery]
@@ -16,12 +16,11 @@ jobs:
           ref: feat/p4-hiyal-recovery
       - uses: dtolnay/rust-toolchain@stable
         with: {toolchain: '1.99.1', components: 'rustfmt,clippy'}
-      - name: Lock approved Hiyal revision, format and test adapter
+      - name: Generate locked dependency graph and format source
         run: |
           set -euo pipefail
           cargo generate-lockfile
           cargo fmt --all
-          cargo test --locked -p myth-hiyal-adapter -- --nocapture
       - name: Commit exact lock and canonical format
         run: |
           set -euo pipefail
@@ -32,3 +31,8 @@ jobs:
             git commit -m "P4: freeze pinned Hiyal dependency and canonical adapter format"
             git push origin HEAD:refs/heads/feat/p4-hiyal-recovery
           fi
+      - name: Run P4 adapter tests from committed lock
+        run: |
+          set -euo pipefail
+          cargo test --locked -p myth-hiyal-adapter -- --nocapture
+          cargo clippy --locked -p myth-hiyal-adapter --all-targets -- -D warnings
