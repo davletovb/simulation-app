@@ -301,7 +301,7 @@ impl GameWorld {
         }
         Ok(campaign)
     }
-    fn digest_campaign(&self, campaign: &Campaign) -> Result<String, String> {
+    fn digest_campaign_with_actions(&self, campaign: &Campaign, actions:&[GameAction]) -> Result<String, String> {
         let snapshot = PrivateCheckpoint::capture(campaign.world(), self.pack_sha256.clone())
             .map_err(error)?;
         // Replaying all privately authenticated actions reconstitutes every
@@ -309,7 +309,7 @@ impl GameWorld {
         // These are not exposed via the P1 public DTO or web API.
         Ok(sha(&encoded(&(
             snapshot,
-            &self.actions,
+            actions,
             &self.scenario_sha256,
             &self.rules_identity,
             &self.weights_ppm,
@@ -317,6 +317,9 @@ impl GameWorld {
             self.synthetic_receipts,
             MODEL_KIND,
         ))?))
+    }
+    fn digest_campaign(&self,campaign:&Campaign)->Result<String,String> {
+        self.digest_campaign_with_actions(campaign,&self.actions)
     }
     fn phase_of(campaign:&Campaign)->Phase { campaign.phase().into() }
     fn refresh(&mut self, campaign: &Campaign) -> Result<(), String> {
@@ -328,46 +331,32 @@ impl GameWorld {
     }
     /// Full private fold check on a restored world, not trusting snapshot
     /// checksums alone. The complete Hiyal journal still must be verified.
-    pub fn verify(&self) -> Result<(), String> {
-        let campaign = self.fold()?;
-        let expected_anchor =
-            if matches!(self.phase,Phase::FirstPositionsFrozen|Phase::FinalPositionsFrozen) {
-                let entry_kind = if self.phase == Phase::FirstPositionsFrozen {
-                    "propose"
-                } else {
-                    "freeze_final"
-                };
-                let entry = self
-                    .actions
-                    .iter()
-                    .rposition(|a| {
-                        if entry_kind == "freeze_final" {
-                            a.kind == ActionKind::FreezeFinal
-                        } else {
-                            a.kind == ActionKind::PlayerCommand
-                                && a.payload["command"]["kind"] == "propose"
-                        }
-                    })
-                    .ok_or("frozen phase lacks boundary action")?;
-                let mut start = self.clone();
-                start.actions.truncate(entry + 1);
-                let begin = start.fold()?;
-                Some(start.digest_campaign(&begin)?)
-            } else {
-                None
-            };
-        if expected_anchor != self.frozen_role_anchor {
+    fn verified_campaign(&self)->Result<Campaign,String> {
+        let campaign=self.fold()?;
+        let anchor=if matches!(self.phase,Phase::FirstPositionsFrozen|Phase::FinalPositionsFrozen){
+            let entry=self.actions.iter().rposition(|a| if self.phase==Phase::FirstPositionsFrozen {
+                a.kind==ActionKind::PlayerCommand && a.payload["command"]["kind"]=="propose"
+            } else {a.kind==ActionKind::FreezeFinal})
+                .ok_or("frozen phase lacks boundary action")?;
+            // Replay only the immutable prefix and hash only its actions;
+            // never clone the entire 1,024-record world just to find the anchor.
+            let mut begin=Campaign::with_rules(&self.campaign_id,&self.pack_id,
+                d::CohortWeights::new(self.weights_ppm).map_err(error)?,
+                self.rules()).map_err(error)?;
+            for a in &self.actions[..=entry]{Self::apply_record(&mut begin,a)?;}
+            Some(self.digest_campaign_with_actions(&begin,&self.actions[..=entry])?)
+        }else{None};
+        if anchor!=self.frozen_role_anchor {
             return Err("frozen role observation boundary mismatch".into());
         }
-        if campaign.world().world_version().to_decimal() != self.world_version
-            || campaign.world().quarter().value() != self.quarter
-            || Self::phase_of(&campaign) != self.phase
-            || self.digest_campaign(&campaign)? != self.private_state_sha256
-        {
-            return Err("private campaign fold does not match checkpoint".into());
-        }
-        Ok(())
+        if campaign.world().world_version().to_decimal()!=self.world_version
+            || campaign.world().quarter().value()!=self.quarter
+            || Self::phase_of(&campaign)!=self.phase
+            || self.digest_campaign(&campaign)?!=self.private_state_sha256
+        {return Err("private campaign fold does not match checkpoint".into());}
+        Ok(campaign)
     }
+    pub fn verify(&self)->Result<(),String>{self.verified_campaign().map(|_|())}
     pub fn is_closed(&self) -> bool {
         self.phase == Phase::QuarterClosed
     }
@@ -391,8 +380,7 @@ impl GameWorld {
         self.current_meeting_actions()
             .filter(|r|r.payload["stage"]=="final").count()
     }
-    fn planned(&self, actor: AgentId) -> Result<GameAction, String> {
-        let campaign = self.fold()?;
+    fn planned(&self, actor: AgentId, campaign:&Campaign) -> Result<GameAction, String> {
         let meeting = self.meeting_id();
         let kind: ActionKind;
         let payload: Value;
@@ -516,8 +504,8 @@ impl World for GameWorld {
     type Action = GameAction;
     type Observation = GameObservation;
     fn observe(&self, actor: AgentId) -> Result<Self::Observation, String> {
-        self.verify()?;
-        let action = self.planned(actor)?;
+        let campaign=self.verified_campaign()?;
+        let action = self.planned(actor,&campaign)?;
         Ok(GameObservation {
             schema_version: 1,
             synthetic_receipts: self.synthetic_receipts,
@@ -529,47 +517,26 @@ impl World for GameWorld {
         })
     }
     fn apply(&mut self, actor: AgentId, action: GameAction) -> Result<(), String> {
-        self.verify()?;
-        if u64::from(action.actor) != actor.0 {
-            return Err("actor mismatch".into());
-        }
-        let expected_anchor = if actor_role(actor).is_some() {
-            self.frozen_role_anchor
-                .as_ref()
-                .ok_or("missing frozen role anchor")?
-        } else {
-            &self.private_state_sha256
-        };
-        if &action.observation_sha256 != expected_anchor {
-            return Err("stale or unbound observation".into());
-        }
-        // The Hiyal receipt resolves the *exact planned command* before the
-        // world transition. Never accept a substituted command at the same
-        // version: that would detach the committed effect from its action.
-        // P6 must freeze authenticated external input into the observation
-        // before issuing its effect, not bypass this equality check.
-        if action != self.planned(actor)? {
+        // Hiyal takes an undo image before applying to the world. The local
+        // path validates all rules against a temporary *Campaign*, not a
+        // second full private GameWorld clone.
+        let mut campaign=self.verified_campaign()?;
+        if u64::from(action.actor)!=actor.0{return Err("actor mismatch".into());}
+        if action!=self.planned(actor,&campaign)? {
             return Err("action differs from frozen typed observation".into());
         }
-        if self.actions.len() >= MAX_ACCEPTED_ACTIONS {
-            return Err("action cap exceeded".into());
+        if self.actions.len()>=MAX_ACCEPTED_ACTIONS {return Err("action cap exceeded".into());}
+        Self::apply_record(&mut campaign,&action)?;
+        let before=self.phase;
+        self.actions.push(action);
+        if let Err(e)=self.refresh(&campaign) {
+            self.actions.pop();
+            return Err(e);
         }
-        let mut candidate = self.clone();
-        candidate.actions.push(action);
-        let result = candidate.fold()?;
-        let was_phase = self.phase.clone();
-        candidate.refresh(&result)?;
-        candidate.frozen_role_anchor = if matches!(candidate.phase,Phase::FirstPositionsFrozen|Phase::FinalPositionsFrozen)
-        {
-            if candidate.phase != was_phase {
-                Some(candidate.private_state_sha256.clone())
-            } else {
-                self.frozen_role_anchor.clone()
-            }
-        } else {
-            None
-        };
-        *self = candidate;
+        self.frozen_role_anchor=if matches!(self.phase,Phase::FirstPositionsFrozen|Phase::FinalPositionsFrozen){
+            if self.phase!=before {Some(self.private_state_sha256.clone())}
+            else {self.frozen_role_anchor.clone()}
+        }else{None};
         Ok(())
     }
 }
