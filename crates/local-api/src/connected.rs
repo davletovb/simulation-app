@@ -2198,11 +2198,23 @@ mod tests {
                     });
                     let checked = accepted_step(&service, id, kind, n).await;
                     let owner = service.owner(id).unwrap();
-                    let audit_count = owner.engine.lock().await.trial.store.world()
-                        .fold().unwrap().player_audits().len();
+                    let audit_count = owner
+                        .engine
+                        .lock()
+                        .await
+                        .trial
+                        .store
+                        .world()
+                        .fold()
+                        .unwrap()
+                        .player_audits()
+                        .len();
                     assert_eq!(audit_count, 1);
-                    assert!(!serde_json::to_string(&checked).unwrap()
-                        .contains("inspected_cumulative"));
+                    assert!(
+                        !serde_json::to_string(&checked)
+                            .unwrap()
+                            .contains("inspected_cumulative")
+                    );
                     drop(owner);
                 }
                 let (kind, n) = step(CommandKind::ContinueQuarter);
