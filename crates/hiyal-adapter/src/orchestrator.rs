@@ -3,8 +3,9 @@
 //! A tool receipt precedes a player-command action; no user data or provider
 //! connection is used here.
 use crate::{
-    ACTORS, ActionKind, GameAction, GameObservation, GameWorld, PERIOD, PLAYER, WORLD_KIND,
+    ACTORS,ActionKind,GameAction,GameObservation,GameWorld,PERIOD,PLAYER,WORLD_KIND,
 };
+use myth_contracts::checkpoint::Phase;
 use hiyal::{
     core::AgentId,
     effects::{EffectResult, Message, ModelRequest, Role, Sampling, Usage},
@@ -15,12 +16,10 @@ use hiyal::{
 };
 use serde_json::json;
 use std::{
-    collections::{BTreeMap, BTreeSet},
-    path::{Path, PathBuf},
-    sync::{
-        Arc, Mutex, OnceLock,
-        atomic::{AtomicBool, Ordering},
-    },
+    collections::BTreeSet,
+    ops::{Deref,DerefMut},
+    path::Path,
+    sync::{Arc, atomic::{AtomicBool, Ordering}},
 };
 
 #[derive(Default, Clone)]
@@ -225,96 +224,53 @@ impl Backend for PlayerCommandTool {
         })
     }
 }
-pub type GameTrial = Trial<GameWorld, GamePolicy>;
-static PAUSE_CACHE: OnceLock<Mutex<BTreeMap<PathBuf, BTreeSet<AgentId>>>> = OnceLock::new();
-fn pause_cache() -> &'static Mutex<BTreeMap<PathBuf, BTreeSet<AgentId>>> {
-    PAUSE_CACHE.get_or_init(|| Mutex::new(BTreeMap::new()))
+/// The schedule mirror lives with its exclusive-writer trial, never in a
+/// process-global cache. Resume reconstructs it with one verified journal
+/// inspection outside any lock.
+pub struct GameTrial {
+    inner: Trial<GameWorld,GamePolicy>,
+    paused: BTreeSet<AgentId>,
 }
-fn invalidate_pauses(path: &Path) {
-    if let Ok(mut map) = pause_cache().lock() {
-        map.remove(path);
-    }
+impl Deref for GameTrial {
+    type Target=Trial<GameWorld,GamePolicy>;
+    fn deref(&self)->&Self::Target {&self.inner}
 }
-pub fn create(dir: &Path, name: &str, seed: u64) -> Result<GameTrial, String> {
-    invalidate_pauses(dir);
-    let mut trial = Trial::create(
-        dir,
-        name,
-        seed,
-        WORLD_KIND,
-        GameWorld::initial("p4-pilot")?,
-        GamePolicy::default(),
-        Arc::new(PlayerCommandTool),
-        ACTORS.to_vec(),
-        Scheduling::RoundRobin,
-    )?;
-    trial.store.set_durability(Durability::EveryEvent)?;
-    Ok(trial)
+impl DerefMut for GameTrial {
+    fn deref_mut(&mut self)->&mut Self::Target {&mut self.inner}
 }
-pub fn create_stress(dir: &Path, name: &str, seed: u64) -> Result<GameTrial, String> {
-    invalidate_pauses(dir);
-    let mut trial = Trial::create(
-        dir,
-        name,
-        seed,
-        WORLD_KIND,
-        GameWorld::stress("p4-pilot")?,
-        GamePolicy::default(),
-        Arc::new(PlayerCommandTool),
-        ACTORS.to_vec(),
-        Scheduling::RoundRobin,
-    )?;
-    trial.store.set_durability(Durability::EveryEvent)?;
-    Ok(trial)
+fn create_world(dir:&Path,name:&str,seed:u64,world:GameWorld)->Result<GameTrial,String>{
+    let mut inner=Trial::create(dir,name,seed,WORLD_KIND,world,GamePolicy::default(),
+        Arc::new(PlayerCommandTool),ACTORS.to_vec(),Scheduling::RoundRobin)?;
+    inner.store.set_durability(Durability::EveryEvent)?;
+    Ok(GameTrial{inner,paused:BTreeSet::new()})
 }
-pub fn resume(dir: &Path, replay_only: bool) -> Result<GameTrial, String> {
-    invalidate_pauses(dir);
-    let mut trial = Trial::resume(
-        dir,
-        WORLD_KIND,
-        GamePolicy::default(),
-        Arc::new(PlayerCommandTool),
-        replay_only,
-    )?;
-    trial.store.set_durability(Durability::EveryEvent)?;
-    trial.store.world().verify()?;
-    Ok(trial)
+pub fn create(dir:&Path,name:&str,seed:u64)->Result<GameTrial,String>{
+    create_world(dir,name,seed,GameWorld::initial("p4-pilot")?)
 }
-fn enable(trial: &mut GameTrial, allowed: &[AgentId]) -> Result<(), String> {
-    // Hiyal deliberately keeps its live scheduler private. Reconstruct the
-    // actual persisted pause set through its verified read-only API only once
-    // per process/dir, then cache updates after successful durable controls.
-    // Invalidate on create/resume so recovery never trusts an old local cache.
-    let dir = trial.store.dir.clone();
-    let mut cache = pause_cache().lock().map_err(|_| "pause cache poisoned")?;
-    if !cache.contains_key(&dir) {
-        let verified = hiyal::storage::Store::<GameWorld, GameAction>::inspect_read_only(&dir)?;
-        cache.insert(dir.clone(), verified.schedule.paused);
-    }
+pub fn create_stress(dir:&Path,name:&str,seed:u64)->Result<GameTrial,String>{
+    create_world(dir,name,seed,GameWorld::stress("p4-pilot")?)
+}
+pub fn resume(dir:&Path,replay_only:bool)->Result<GameTrial,String>{
+    let mut inner=Trial::resume(dir,WORLD_KIND,GamePolicy::default(),
+        Arc::new(PlayerCommandTool),replay_only)?;
+    inner.store.set_durability(Durability::EveryEvent)?;
+    inner.store.world().verify()?;
+    let persisted=hiyal::storage::Store::<GameWorld,GameAction>::inspect_read_only(dir)?;
+    Ok(GameTrial{inner,paused:persisted.schedule.paused})
+}
+fn enable(trial:&mut GameTrial,allowed:&[AgentId])->Result<(),String>{
     for actor in ACTORS {
-        let paused = cache.get(&dir).is_some_and(|x| x.contains(&actor));
-        let should_pause = !allowed.contains(&actor);
-        if paused != should_pause {
-            let outcome = if should_pause {
-                trial.pause_actor(actor)
-            } else {
-                trial.resume_actor(actor)
-            };
-            if let Err(error) = outcome {
-                cache.remove(&dir);
-                return Err(error);
-            }
-            let current = cache.get_mut(&dir).ok_or("missing cached schedule")?;
-            if should_pause {
-                current.insert(actor);
-            } else {
-                current.remove(&actor);
-            }
+        let currently_paused=trial.paused.contains(&actor);
+        let should_pause=!allowed.contains(&actor);
+        if currently_paused!=should_pause {
+            if should_pause {trial.inner.pause_actor(actor)?;}
+            else {trial.inner.resume_actor(actor)?;}
+            if should_pause {trial.paused.insert(actor);}
+            else {trial.paused.remove(&actor);}
         }
     }
     Ok(())
 }
-
 fn check_step(step: Step<GameWorld>) -> Result<(), String> {
     match step {
         Step::Accepted(_) => Ok(()),
@@ -324,38 +280,44 @@ fn check_step(step: Step<GameWorld>) -> Result<(), String> {
 }
 /// One explicitly chosen logical action or three frozen minister decisions.
 /// Scheduling changes are Hiyal durable control records, *not* calendar time.
-pub async fn advance_slice(trial: &mut GameTrial) -> Result<bool, String> {
-    if trial.store.world().is_closed() {
-        return Ok(false);
+pub async fn advance_slice(trial:&mut GameTrial)->Result<bool,String>{
+    // Hiyal persists a plan before dispatch and removes it *after* all
+    // committed entries. A crash after the final commit can leave the plan
+    // present even when the P3 phase has already advanced. Drain that plan
+    // before pause/resume (which Hiyal correctly forbids while pending).
+    if trial.store.dir.join("pending-round.json").exists() {
+        let steps=trial.run_round(3).await?;
+        for step in steps {check_step(step)?;}
+        trial.store.world().verify()?;
+        return Ok(true);
     }
-    let phase = trial.store.world().phase.clone();
-    match phase.as_str() {
-        "quarter_open" | "amendment_window" => {
-            enable(trial, &[PLAYER])?;
+    if trial.store.world().is_closed() {return Ok(false);}
+    let phase=trial.store.world().phase;
+    match phase {
+        Phase::QuarterOpen|Phase::AmendmentWindow=>{
+            enable(trial,&[PLAYER])?;
             check_step(trial.step().await?)?;
         }
-        "resolved" => {
-            enable(trial, &[PERIOD])?;
+        Phase::Resolved=>{
+            enable(trial,&[PERIOD])?;
             check_step(trial.step().await?)?;
             trial.checkpoint()?;
         }
-        "final_positions_frozen" if trial.store.world().final_votes_this_meeting() == 3 => {
-            enable(trial, &[PLAYER])?;
+        Phase::FinalPositionsFrozen if trial.store.world().final_votes_this_meeting()==3=>{
+            enable(trial,&[PLAYER])?;
             check_step(trial.step().await?)?;
         }
-        "first_positions_frozen" | "final_positions_frozen" => {
-            enable(trial, &crate::ACTORS[1..4])?;
-            let steps = trial.run_round(3).await?;
-            if steps.len() > 3 {
-                return Err("more than three frozen actions".into());
-            }
-            // On a recovered frozen plan, previously committed actors must
-            // not be replayed; Hiyal returns only the unfinished suffix.
-            for step in steps {
-                check_step(step)?;
-            }
+        Phase::FirstPositionsFrozen|Phase::FinalPositionsFrozen=>{
+            // After a completed round with a rejected seat, only permit
+            // unfinished seats. Otherwise already accepted ministers would
+            // produce spurious Rejected records on retry.
+            let remaining=trial.store.world().remaining_ministers();
+            if remaining.is_empty(){return Err("cabinet has no remaining actions".into());}
+            enable(trial,&remaining)?;
+            let steps=trial.run_round(remaining.len()).await?;
+            for step in steps {check_step(step)?;}
         }
-        _ => return Err("unsupported or missing cabinet phase".into()),
+        Phase::QuarterClosed=>return Ok(false),
     }
     trial.store.world().verify()?;
     Ok(true)
@@ -365,13 +327,14 @@ pub async fn advance_slice(trial: &mut GameTrial) -> Result<bool, String> {
 /// three-actor frozen batch by three. Recovery acceptance still separately
 /// verifies the production frozen run_round path, including crash suffixes.
 pub async fn benchmark_sequential_cabinet(trial: &mut GameTrial) -> Result<Vec<u128>, String> {
-    let phase = trial.store.world().phase.as_str();
-    if phase != "first_positions_frozen" && phase != "final_positions_frozen" {
+    let phase = trial.store.world().phase;
+    if !matches!(phase,Phase::FirstPositionsFrozen|Phase::FinalPositionsFrozen) {
         return Err("not inside a cabinet phase".into());
     }
-    enable(trial, &crate::ACTORS[1..4])?;
-    let mut times = vec![];
-    for _ in 0..3 {
+    let remaining=trial.store.world().remaining_ministers();
+    enable(trial,&remaining)?;
+    let mut times=vec![];
+    for _ in 0..remaining.len() {
         let begin = std::time::Instant::now();
         check_step(trial.step().await?)?;
         times.push(begin.elapsed().as_micros());
