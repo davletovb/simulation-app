@@ -44,7 +44,7 @@ impl GamePolicy {
                                 "q{} actor{} {} receipt{} v{}",
                                 obs.quarter,
                                 obs.actor,
-                                obs.phase,
+                                format!("{:?}",obs.phase),
                                 index,
                                 obs.expected_world_version
                             ),
@@ -391,7 +391,7 @@ mod tests {
             let mut trial = create(&path, "scripted-pilot", 43).unwrap();
             advance_slice(&mut trial).await.unwrap();
             advance_slice(&mut trial).await.unwrap(); // frozen first round
-            assert_eq!(trial.store.world().phase, "amendment_window");
+            assert_eq!(trial.store.world().phase, Phase::AmendmentWindow);
             trial.checkpoint().unwrap();
             let prior = inspect(&path).unwrap();
             assert!(!prior.0.is_empty());
@@ -427,7 +427,7 @@ mod tests {
         let mut trial = create(&path, "frozen-round", 47).unwrap();
         enable(&mut trial, &[PLAYER]).unwrap();
         check_step(trial.step().await.unwrap()).unwrap();
-        assert_eq!(trial.store.world().phase, "first_positions_frozen");
+        assert_eq!(trial.store.world().phase, Phase::FirstPositionsFrozen);
         enable(&mut trial, &crate::ACTORS[1..4]).unwrap();
         trial.policy.fail_role_once = Some((crate::EDUCATION, Arc::new(AtomicBool::new(true))));
         let task = tokio::spawn(async move { trial.run_round(3).await });
@@ -439,7 +439,7 @@ mod tests {
         for event in remaining {
             check_step(event).unwrap();
         }
-        assert_eq!(restored.store.world().phase, "amendment_window");
+        assert_eq!(restored.store.world().phase, Phase::AmendmentWindow);
         assert_eq!(
             restored
                 .store
@@ -457,6 +457,74 @@ mod tests {
         std::fs::remove_dir_all(path).unwrap();
     }
     #[tokio::test]
+    async fn recovered_finished_round_plan_is_unlinked_before_phase_transition() {
+        let path=temp("last-minister-crash");
+        let mut trial=create(&path,"last-minister",73).unwrap();
+        advance_slice(&mut trial).await.unwrap();
+        enable(&mut trial,&ACTORS[1..4]).unwrap();
+        trial.policy.fail_role_once=Some((crate::EDUCATION,Arc::new(AtomicBool::new(true))));
+        let task=tokio::spawn(async move {trial.run_round(3).await});
+        assert!(task.await.unwrap_err().is_panic());
+        let saved=std::fs::read(path.join("pending-round.json")).unwrap();
+        let mut first=resume(&path,false).unwrap();
+        for step in first.run_round(3).await.unwrap(){check_step(step).unwrap();}
+        assert_eq!(first.store.world().phase,Phase::AmendmentWindow);
+        drop(first);
+        // Recreate the exact valid plan after the last action fsync to model
+        // a crash immediately before the atomic cleanup of pending-round.
+        std::fs::write(path.join("pending-round.json"),saved).unwrap();
+        let mut resumed=resume(&path,false).unwrap();
+        advance_slice(&mut resumed).await.unwrap();
+        assert!(!path.join("pending-round.json").exists());
+        assert_eq!(resumed.store.world().phase,Phase::AmendmentWindow);
+        run_until_closed(&mut resumed).await.unwrap();
+        assert_eq!(resumed.store.world().actions.iter()
+            .filter(|a|a.kind==ActionKind::MinisterAction).count(),36);
+        drop(resumed);
+        std::fs::remove_dir_all(path).unwrap();
+    }
+    struct SelectiveFailure;
+    impl Backend for SelectiveFailure {
+        fn backend_id(&self)->&'static str {"p4-selective-failure-test"}
+        fn billing_disposition(&self,_:&EffectSpec,result:&EffectResult)->BillingDisposition{
+            if matches!(result,EffectResult::Failed{..}) {BillingDisposition::Unknown}
+            else {BillingDisposition::NotCharged}
+        }
+        fn resolve<'a>(&'a self,spec:&'a EffectSpec)->BoxResult<'a>{
+            Box::pin(async move {
+                if let EffectSpec::Model(m)=spec {
+                    if m.messages.iter().any(|x|x.content.contains("actor2")){
+                        return Ok(EffectResult::Failed{category:"synthetic".into(),
+                            message:"one seat failed".into()});
+                    }
+                }
+                PlayerCommandTool.resolve(spec).await
+            })
+        }
+    }
+    #[tokio::test]
+    async fn retry_partly_rejected_round_commits_only_missing_seat() {
+        let path=temp("partial-round");
+        let mut trial=create_stress(&path,"partial",75).unwrap();
+        advance_slice(&mut trial).await.unwrap();
+        enable(&mut trial,&ACTORS[1..4]).unwrap();
+        trial.backend=Arc::new(SelectiveFailure);
+        let steps=trial.run_round(3).await.unwrap();
+        assert_eq!(steps.len(),3);
+        assert_eq!(steps.iter().filter(|s|matches!(s,Step::Accepted(_))).count(),2);
+        assert_eq!(trial.store.world().remaining_ministers(),vec![crate::EDUCATION]);
+        let earlier=trial.store.world().actions.len();
+        trial.backend=Arc::new(PlayerCommandTool);
+        advance_slice(&mut trial).await.unwrap();
+        assert_eq!(trial.store.world().actions.len(),earlier+1);
+        assert_eq!(trial.store.world().phase,Phase::AmendmentWindow);
+        assert_eq!(trial.store.world().actions.iter()
+            .filter(|a|a.kind==ActionKind::MinisterAction).count(),3);
+        trial.store.world().verify().unwrap();
+        drop(trial);
+        std::fs::remove_dir_all(path).unwrap();
+    }
+    #[tokio::test]
     async fn sequential_cabinet_timing_preserves_frozen_round_private_state() {
         let frozen_dir = temp("frozen-baseline");
         let sequential_dir = temp("sequential-measure");
@@ -470,8 +538,8 @@ mod tests {
                 break;
             }
             let phase = measured.store.world().phase.clone();
-            if phase == "first_positions_frozen"
-                || (phase == "final_positions_frozen"
+            if phase == Phase::FirstPositionsFrozen
+                || (phase == Phase::FinalPositionsFrozen
                     && measured.store.world().final_votes_this_meeting() < 3)
             {
                 assert_eq!(
