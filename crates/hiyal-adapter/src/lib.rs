@@ -9,7 +9,7 @@
 pub mod orchestrator;
 use hiyal::core::{AgentId, World};
 use myth_contracts::{
-    PublicPosition, checkpoint::PrivateCheckpoint, parse_command, parse_minister_action,
+    PublicPosition, checkpoint::{PrivateCheckpoint,Phase}, parse_command, parse_minister_action,
 };
 use myth_domain as d;
 use myth_domain::{
@@ -19,6 +19,7 @@ use myth_domain::{
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
+use std::sync::OnceLock;
 
 pub const WORLD_KIND: &str = "myth.england-education-hiyal.v1";
 pub const MODEL_KIND: &str = "p0-profile-only-scripted.v1";
@@ -37,17 +38,28 @@ const MANIFEST: &str = include_str!("../../../data/england-school-pilot-v1/manif
 fn sha(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
 }
-fn rules_fingerprint() -> String {
-    // Content identity survives an OS change and fails closed on a rules
-    // implementation change, not just when an operator edits a version label.
-    sha(concat!(
-        include_str!("../../domain/src/reducer.rs"),
-        include_str!("../../domain/src/lib.rs"),
-        include_str!("../../domain/src/world.rs"),
-        include_str!("../../domain/src/audit.rs"),
-        include_str!("../../domain/src/scripted.rs"),
-    )
-    .as_bytes())
+/// A deliberate, migration-controlled behavior contract, not raw source text.
+/// Bump when P3 rules, parsing, adapters, scenario selection or model policy change.
+pub const RULES_VERSION: &str = "p4-england-education-rules-v1";
+static FROZEN: OnceLock<Result<(String,String,[u32;6]),String>> = OnceLock::new();
+fn frozen() -> Result<&'static (String,String,[u32;6]),String> {
+    FROZEN.get_or_init(||{
+        let meta:Value=serde_json::from_str(MANIFEST).map_err(error)?;
+        let pack=meta["country_pack_sha256"].as_str().ok_or("missing P2 pack digest")?;
+        let scenario_hash=meta["authored_sha256"].as_str().ok_or("missing P2 scenario digest")?;
+        if sha(PACK.as_bytes())!=pack || sha(SCENARIO.as_bytes())!=scenario_hash {
+            return Err("frozen P2 source hashes do not match manifest".into());
+        }
+        let scenario:Value=serde_json::from_str(SCENARIO).map_err(error)?;
+        let cells=scenario["population"]["variants"][0]["weights_ppm"].as_array()
+            .ok_or("missing authored population")?;
+        if cells.len()!=6{return Err("invalid cohort count".into());}
+        let mut weights=[0u32;6];
+        for (i,value) in cells.iter().enumerate(){
+            weights[i]=u32::try_from(value.as_u64().ok_or("invalid cohort weight")?).map_err(error)?;
+        }
+        Ok((pack.into(),scenario_hash.into(),weights))
+    }).as_ref().map_err(Clone::clone)
 }
 fn encoded<T: Serialize>(x: &T) -> Result<Vec<u8>, String> {
     serde_json::to_vec(x).map_err(|e| e.to_string())
@@ -108,7 +120,7 @@ pub struct GameObservation {
     pub schema_version: u16,
     pub synthetic_receipts: bool,
     pub actor: u8,
-    pub phase: String,
+    pub phase: Phase,
     pub quarter: u8,
     pub expected_world_version: String,
     pub action: GameAction,
@@ -147,41 +159,20 @@ pub struct GameWorld {
     pub frozen_role_anchor: Option<String>,
     pub world_version: String,
     pub quarter: u8,
-    pub phase: String,
+    pub phase: Phase,
 }
 
 impl GameWorld {
     pub fn initial(campaign_id: &str) -> Result<Self, String> {
-        let meta: Value = serde_json::from_str(MANIFEST).map_err(error)?;
-        let expected_pack = meta["country_pack_sha256"]
-            .as_str()
-            .ok_or("missing P2 pack digest")?;
-        let expected_scenario = meta["authored_sha256"]
-            .as_str()
-            .ok_or("missing P2 scenario digest")?;
-        if sha(PACK.as_bytes()) != expected_pack || sha(SCENARIO.as_bytes()) != expected_scenario {
-            return Err("frozen P2 source hashes do not match manifest".into());
-        }
-        let scenario: Value = serde_json::from_str(SCENARIO).map_err(error)?;
-        let arr = scenario["population"]["variants"][0]["weights_ppm"]
-            .as_array()
-            .ok_or("missing authored population")?;
-        if arr.len() != 6 {
-            return Err("invalid cohort count".into());
-        }
-        let mut weights = [0_u32; 6];
-        for (i, val) in arr.iter().enumerate() {
-            weights[i] =
-                u32::try_from(val.as_u64().ok_or("invalid cohort weight")?).map_err(error)?;
-        }
+        let (expected_pack,expected_scenario,weights)=frozen()?;
         let mut world = Self {
             schema_version: 1,
             campaign_id: campaign_id.into(),
             pack_id: "england-school-delivery-v1".into(),
-            pack_sha256: expected_pack.into(),
-            scenario_sha256: expected_scenario.into(),
-            rules_identity: rules_fingerprint(),
-            weights_ppm: weights,
+            pack_sha256: expected_pack.clone(),
+            scenario_sha256: expected_scenario.clone(),
+            rules_identity: RULES_VERSION.into(),
+            weights_ppm: *weights,
             source_cutoff_utc: "2026-10-29T23:59:59Z".into(),
             synthetic_receipts: false,
             stress_cohorts: vec![],
@@ -190,7 +181,7 @@ impl GameWorld {
             frozen_role_anchor: None,
             world_version: "0".into(),
             quarter: 1,
-            phase: "quarter_open".into(),
+            phase: Phase::QuarterOpen,
         };
         let campaign = world.fold()?;
         world.refresh(&campaign)?;
@@ -277,19 +268,16 @@ impl GameWorld {
         Ok(())
     }
     pub fn fold(&self) -> Result<Campaign, String> {
-        let manifest: Value = serde_json::from_str(MANIFEST).map_err(error)?;
-        if self.pack_sha256 != manifest["country_pack_sha256"].as_str().unwrap_or("")
-            || self.scenario_sha256 != manifest["authored_sha256"].as_str().unwrap_or("")
-            || sha(PACK.as_bytes()) != self.pack_sha256
-            || sha(SCENARIO.as_bytes()) != self.scenario_sha256
-        {
+        let (pack,scenario,weights)=frozen()?;
+        if &self.pack_sha256!=pack || &self.scenario_sha256!=scenario
+            || self.weights_ppm!=*weights {
             return Err("P2 source or authored scenario binding changed".into());
         }
         if self.schema_version != 1
             || self.actions.len() > MAX_ACCEPTED_ACTIONS
             || self.pack_sha256.len() != 64
             || self.scenario_sha256.len() != 64
-            || self.rules_identity != rules_fingerprint()
+            || self.rules_identity != RULES_VERSION
             || self.source_cutoff_utc != "2026-10-29T23:59:59Z"
             || (self.synthetic_receipts && self.stress_cohorts.len() != 1024)
             || (!self.synthetic_receipts && !self.stress_cohorts.is_empty())
@@ -330,22 +318,12 @@ impl GameWorld {
             MODEL_KIND,
         ))?))
     }
-    fn phase_of(campaign: &Campaign) -> &'static str {
-        use d::world::MeetingPhase;
-        match campaign.phase() {
-            MeetingPhase::QuarterOpen => "quarter_open",
-            MeetingPhase::FirstPositionsFrozen => "first_positions_frozen",
-            MeetingPhase::AmendmentWindow => "amendment_window",
-            MeetingPhase::FinalPositionsFrozen => "final_positions_frozen",
-            MeetingPhase::Resolved => "resolved",
-            MeetingPhase::QuarterClosed => "quarter_closed",
-        }
-    }
+    fn phase_of(campaign:&Campaign)->Phase { campaign.phase().into() }
     fn refresh(&mut self, campaign: &Campaign) -> Result<(), String> {
         self.private_state_sha256 = self.digest_campaign(campaign)?;
         self.world_version = campaign.world().world_version().to_decimal();
         self.quarter = campaign.world().quarter().value();
-        self.phase = Self::phase_of(campaign).into();
+        self.phase = Self::phase_of(campaign);
         Ok(())
     }
     /// Full private fold check on a restored world, not trusting snapshot
@@ -353,8 +331,8 @@ impl GameWorld {
     pub fn verify(&self) -> Result<(), String> {
         let campaign = self.fold()?;
         let expected_anchor =
-            if self.phase == "first_positions_frozen" || self.phase == "final_positions_frozen" {
-                let entry_kind = if self.phase == "first_positions_frozen" {
+            if matches!(self.phase,Phase::FirstPositionsFrozen|Phase::FinalPositionsFrozen) {
+                let entry_kind = if self.phase == Phase::FirstPositionsFrozen {
                     "propose"
                 } else {
                     "freeze_final"
@@ -391,24 +369,27 @@ impl GameWorld {
         Ok(())
     }
     pub fn is_closed(&self) -> bool {
-        self.phase == "quarter_closed"
+        self.phase == Phase::QuarterClosed
     }
     fn meeting_id(&self) -> String {
         format!("q{}", self.quarter)
     }
-    pub fn final_votes_this_meeting(&self) -> usize {
-        let mut count = 0;
-        for record in self.actions.iter().rev() {
-            if record.kind == ActionKind::PlayerCommand
-                && record.payload["command"]["kind"] == "propose"
-            {
-                break;
-            }
-            if record.kind == ActionKind::MinisterAction && record.payload["stage"] == "final" {
-                count += 1;
-            }
-        }
-        count
+    fn current_meeting_actions(&self)->impl Iterator<Item=&GameAction> {
+        let boundary=self.actions.iter().rposition(|a|a.kind==ActionKind::PlayerCommand
+            && a.payload["command"]["kind"]=="propose").map_or(0,|i|i+1);
+        self.actions[boundary..].iter().filter(|a|a.kind==ActionKind::MinisterAction)
+    }
+    pub fn minister_acted(&self,actor:AgentId)->bool {
+        let kind=if self.phase==Phase::FirstPositionsFrozen {"first"} else {"final"};
+        self.current_meeting_actions().any(|r|u64::from(r.actor)==actor.0 && r.payload["stage"]==kind)
+    }
+    pub fn remaining_ministers(&self)->Vec<AgentId>{
+        crate::ACTORS[1..4].iter().copied()
+            .filter(|a|!self.minister_acted(*a)).collect()
+    }
+    pub fn final_votes_this_meeting(&self)->usize {
+        self.current_meeting_actions()
+            .filter(|r|r.payload["stage"]=="final").count()
     }
     fn planned(&self, actor: AgentId) -> Result<GameAction, String> {
         let campaign = self.fold()?;
@@ -418,7 +399,7 @@ impl GameWorld {
         let mut role_observation = None;
         if actor == PLAYER {
             kind = ActionKind::PlayerCommand;
-            if self.phase == "amendment_window" {
+            if self.phase == Phase::AmendmentWindow {
                 return Ok(GameAction {
                     actor: actor.0 as u8,
                     kind: ActionKind::FreezeFinal,
@@ -427,31 +408,20 @@ impl GameWorld {
                     role_observation: None,
                 });
             }
-            let body = match self.phase.as_str() {
-                "quarter_open" => json!({"kind":"propose","meeting_id":meeting,
+            let body = match self.phase {
+                Phase::QuarterOpen => json!({"kind":"propose","meeting_id":meeting,
                 "allocation":if self.quarter==1 {
                     json!({"staff":50,"repairs":40,"access":10})
                 } else {
                     json!({"staff":0,"repairs":0,"access":0})
                 }}),
-                "final_positions_frozen" => {
+                Phase::FinalPositionsFrozen => {
                     if self.final_votes_this_meeting() != 3 {
                         return Err("must finish frozen final votes before player decision".into());
                     }
-                    let mut supporting = 0;
-                    for record in self.actions.iter().rev() {
-                        if record.kind == ActionKind::PlayerCommand
-                            && record.payload["command"]["kind"] == "propose"
-                        {
-                            break;
-                        }
-                        if record.kind == ActionKind::MinisterAction
-                            && record.payload["stage"] == "final"
-                            && record.payload["position"] == "support"
-                        {
-                            supporting += 1;
-                        }
-                    }
+                    let supporting=self.current_meeting_actions()
+                        .filter(|r|r.payload["stage"]=="final"
+                            && r.payload["position"]=="support").count();
                     if supporting >= 2 {
                         json!({"kind":"ratify","meeting_id":meeting,
                             "proposal_version":campaign.proposal_version()
@@ -466,7 +436,7 @@ impl GameWorld {
                 "command_id":format!("{meeting}-player-{}",self.world_version),
                 "expected_world_version":self.world_version,"command":body});
         } else if actor == PERIOD {
-            if self.phase != "resolved" {
+            if self.phase != Phase::Resolved {
                 return Err("period actor not eligible".into());
             }
             kind = ActionKind::PlayerCommand;
@@ -476,24 +446,12 @@ impl GameWorld {
                 "command":{"kind":"advance_quarter"}});
         } else {
             let role = actor_role(actor).ok_or("unknown cabinet actor")?;
-            if self.phase != "first_positions_frozen" && self.phase != "final_positions_frozen" {
+            if !matches!(self.phase,Phase::FirstPositionsFrozen|Phase::FinalPositionsFrozen) {
                 return Err("minister actor not eligible".into());
             }
-            let round = self.phase.as_str();
-            for record in self.actions.iter().rev() {
-                if record.kind == ActionKind::PlayerCommand
-                    && record.payload["command"]["kind"] == "propose"
-                {
-                    break;
-                }
-                if record.kind == ActionKind::MinisterAction
-                    && record.payload["ministry"] == role_name(role)
-                    && ((round == "first_positions_frozen" && record.payload["stage"] == "first")
-                        || (round == "final_positions_frozen"
-                            && record.payload["stage"] == "final"))
-                {
-                    return Err("minister already acted in frozen round".into());
-                }
+            let first=self.phase==Phase::FirstPositionsFrozen;
+            if self.minister_acted(actor) {
+                return Err("minister already acted in frozen round".into());
             }
             let view = campaign.role_observation(role).map_err(error)?;
             role_observation = Some(
@@ -503,7 +461,7 @@ impl GameWorld {
                 .map_err(error)?,
             );
             let decision = scripted::decide(&view).map_err(error)?;
-            let first = round == "first_positions_frozen";
+            // Frozen round identity is a typed Phase, not free-form strings.
             let preference = if first {
                 decision.first.preferred_allocation.allocation()
             } else {
@@ -601,8 +559,7 @@ impl World for GameWorld {
         let result = candidate.fold()?;
         let was_phase = self.phase.clone();
         candidate.refresh(&result)?;
-        candidate.frozen_role_anchor = if candidate.phase == "first_positions_frozen"
-            || candidate.phase == "final_positions_frozen"
+        candidate.frozen_role_anchor = if matches!(candidate.phase,Phase::FirstPositionsFrozen|Phase::FinalPositionsFrozen)
         {
             if candidate.phase != was_phase {
                 Some(candidate.private_state_sha256.clone())
