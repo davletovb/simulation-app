@@ -5,21 +5,21 @@
 use crate::{
     ACTORS, ActionKind, GameAction, GameObservation, GameWorld, PERIOD, PLAYER, WORLD_KIND,
 };
-use hiyal::{
-    core::AgentId,
-    effects::{EffectResult, Message, ModelRequest, Role, Sampling, Usage},
-    experiment::{EffectPolicy, Step, Trial},
-    runtime::{Backend, BillingDisposition, BoxResult, EffectSpec, Receipt},
-    guard::{ToolExecutor,ToolRule},
-    scheduler::Scheduling,
-    storage::Durability,
-};
-use myth_contracts::checkpoint::Phase;
 use crate::{
     p5_allowance::{Allowance, PinnedRoute, Purpose, Scope},
     p5_backend::{SharedAdmissionBackend, governed_trial},
     p5_cabinet,
 };
+use hiyal::{
+    core::AgentId,
+    effects::{EffectResult, Message, ModelRequest, Role, Sampling, Usage},
+    experiment::{EffectPolicy, Step, Trial},
+    guard::{ToolExecutor, ToolRule},
+    runtime::{Backend, BillingDisposition, BoxResult, EffectSpec, Receipt},
+    scheduler::Scheduling,
+    storage::Durability,
+};
+use myth_contracts::checkpoint::Phase;
 use serde_json::json;
 use std::{
     collections::BTreeSet,
@@ -116,17 +116,26 @@ impl EffectPolicy<GameWorld> for GamePolicy {
         }
         let expected = self.specification(obs)?;
         if self.live_route.is_some() && (1..=3).contains(&obs.actor) {
-            if expected.len() != 1 || receipts.len() != 1
+            if expected.len() != 1
+                || receipts.len() != 1
                 || receipts[0].spec != expected[0]
                 || receipts[0].billing == BillingDisposition::NotCharged
             {
                 return Err("minister inference receipt missing or mismatched".into());
             }
             let (content, effective_model) = match &receipts[0].result {
-                EffectResult::Model { content, effective_model, .. } => (content, effective_model),
+                EffectResult::Model {
+                    content,
+                    effective_model,
+                    ..
+                } => (content, effective_model),
                 _ => return Err("minister inference failed; explicit retry required".into()),
             };
-            if self.live_route.as_ref().is_none_or(|route| effective_model != &route.model) {
+            if self
+                .live_route
+                .as_ref()
+                .is_none_or(|route| effective_model != &route.model)
+            {
                 return Err("unapproved response model".into());
             }
             let mut action = obs.action.clone();
@@ -140,7 +149,7 @@ impl EffectPolicy<GameWorld> for GamePolicy {
         for (spec, receipt) in expected.iter().zip(receipts) {
             let allowed_billing = receipt.billing == BillingDisposition::NotCharged
                 || (self.live_route.is_some()
-                    && matches!(spec,EffectSpec::Tool{..})
+                    && matches!(spec, EffectSpec::Tool { .. })
                     && receipt.billing == BillingDisposition::Unknown);
             if receipt.spec != *spec || !allowed_billing {
                 return Err("incorrect request or billing disposition".into());
@@ -274,11 +283,19 @@ impl ToolExecutor for PlayerCommandTool {
             return Err("unapproved player tool".into());
         }
         myth_contracts::parse_command(&input["command_body"].to_string())
-            .map_err(|_| "invalid player command for tool".into()).map(|_| ())
+            .map_err(|_| "invalid player command for tool".into())
+            .map(|_| ())
     }
     fn call<'a>(&'a self, name: &'a str, input: &'a serde_json::Value) -> BoxResult<'a> {
         Box::pin(async move {
-            Backend::resolve(self, &EffectSpec::Tool { name: name.into(), input: input.clone() }).await
+            Backend::resolve(
+                self,
+                &EffectSpec::Tool {
+                    name: name.into(),
+                    input: input.clone(),
+                },
+            )
+            .await
         })
     }
 }
@@ -368,56 +385,90 @@ fn minister_scope(world: &GameWorld) -> Scope {
 }
 fn live_governor(backend: Arc<SharedAdmissionBackend>) -> Result<Arc<dyn Backend>, String> {
     let governed = governed_trial(backend)
-        .allow_tool("player_command", ToolRule {
-            max_input_bytes: 12_288,
-            requires_approval: false,
-            has_external_side_effects: false,
-        })?
+        .allow_tool(
+            "player_command",
+            ToolRule {
+                max_input_bytes: 12_288,
+                requires_approval: false,
+                has_external_side_effects: false,
+            },
+        )?
         .with_executor(Arc::new(PlayerCommandTool));
     Ok(Arc::new(governed))
 }
 /// The caller must open and recover the installation ledger first. Neither
 /// this function nor P1's ordinary loopback service enables live inference.
 pub fn create_live(
-    dir: &Path, name: &str, seed: u64, campaign_id: &str,
-    route: PinnedRoute, ledger: Arc<std::sync::Mutex<Allowance>>,
+    dir: &Path,
+    name: &str,
+    seed: u64,
+    campaign_id: &str,
+    route: PinnedRoute,
+    ledger: Arc<std::sync::Mutex<Allowance>>,
     provider: Arc<dyn Backend>,
-) -> Result<GameTrial,String> {
+) -> Result<GameTrial, String> {
     let world = GameWorld::initial(campaign_id)?;
     let admitted = Arc::new(SharedAdmissionBackend::new(
-        ledger, provider, route.clone(), minister_scope(&world),
+        ledger,
+        provider,
+        route.clone(),
+        minister_scope(&world),
     )?);
     let governor = live_governor(admitted.clone())?;
     let mut inner = Trial::create(
-        dir, name, seed, WORLD_KIND, world,
-        GamePolicy { live_route: Some(route), ..GamePolicy::default() },
-        governor, ACTORS.to_vec(), Scheduling::RoundRobin,
+        dir,
+        name,
+        seed,
+        WORLD_KIND,
+        world,
+        GamePolicy {
+            live_route: Some(route),
+            ..GamePolicy::default()
+        },
+        governor,
+        ACTORS.to_vec(),
+        Scheduling::RoundRobin,
     )?;
     inner.store.set_durability(Durability::EveryEvent)?;
-    Ok(GameTrial { inner, paused: BTreeSet::new(), live_admission: Some(admitted) })
+    Ok(GameTrial {
+        inner,
+        paused: BTreeSet::new(),
+        live_admission: Some(admitted),
+    })
 }
 /// Resume with the SAME immutable Hiyal budget and route, and an already
 /// recovered shared allowance. Saved model receipts are never re-dispatched.
 pub fn resume_live(
-    dir: &Path, replay_only: bool, route: PinnedRoute,
+    dir: &Path,
+    replay_only: bool,
+    route: PinnedRoute,
     ledger: Arc<std::sync::Mutex<Allowance>>,
     provider: Arc<dyn Backend>,
-) -> Result<GameTrial,String> {
-    let persisted = hiyal::storage::Store::<GameWorld,GameAction>::inspect_read_only(dir)?;
+) -> Result<GameTrial, String> {
+    let persisted = hiyal::storage::Store::<GameWorld, GameAction>::inspect_read_only(dir)?;
     persisted.world.verify()?;
     let admitted = Arc::new(SharedAdmissionBackend::new(
-        ledger, provider, route.clone(), minister_scope(&persisted.world),
+        ledger,
+        provider,
+        route.clone(),
+        minister_scope(&persisted.world),
     )?);
     let governor = live_governor(admitted.clone())?;
     let mut inner = Trial::resume(
-        dir, WORLD_KIND,
-        GamePolicy { live_route: Some(route), ..GamePolicy::default() },
-        governor, replay_only,
+        dir,
+        WORLD_KIND,
+        GamePolicy {
+            live_route: Some(route),
+            ..GamePolicy::default()
+        },
+        governor,
+        replay_only,
     )?;
     inner.store.set_durability(Durability::EveryEvent)?;
     inner.store.world().verify()?;
     Ok(GameTrial {
-        inner, paused: persisted.schedule.paused,
+        inner,
+        paused: persisted.schedule.paused,
         live_admission: Some(admitted),
     })
 }

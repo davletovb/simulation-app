@@ -46,7 +46,9 @@ pub struct Scope {
     pub batch_id: Option<String>,
 }
 impl Scope {
-    pub(crate) fn validate_for_backend(&self) -> Result<(), String> { self.validate() }
+    pub(crate) fn validate_for_backend(&self) -> Result<(), String> {
+        self.validate()
+    }
     fn validate(&self) -> Result<(), String> {
         if self.campaign_id.as_deref().is_some_and(|x| !valid_id(x))
             || self.batch_id.as_deref().is_some_and(|x| !valid_id(x))

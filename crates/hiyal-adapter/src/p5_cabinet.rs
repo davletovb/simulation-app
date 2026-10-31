@@ -11,9 +11,18 @@ use serde_json::{Value, json};
 
 fn seat(actor: u8) -> Result<(&'static str, &'static str), String> {
     match actor {
-        1 => Ok(("finance", "Protect affordability, verified milestones and budget headroom.")),
-        2 => Ok(("education", "Prefer feasible staffing and enforceable education delivery.")),
-        3 => Ok(("infrastructure", "Prefer feasible repairs, capacity and credible delivery.")),
+        1 => Ok((
+            "finance",
+            "Protect affordability, verified milestones and budget headroom.",
+        )),
+        2 => Ok((
+            "education",
+            "Prefer feasible staffing and enforceable education delivery.",
+        )),
+        3 => Ok((
+            "infrastructure",
+            "Prefer feasible repairs, capacity and credible delivery.",
+        )),
         _ => Err("not an authorized cabinet seat".into()),
     }
 }
@@ -25,7 +34,10 @@ pub fn request(obs: &GameObservation, route: &PinnedRoute) -> Result<EffectSpec,
         Some("final") => false,
         _ => return Err("cabinet phase not frozen".into()),
     };
-    let mut visible = obs.action.role_observation.clone()
+    let mut visible = obs
+        .action
+        .role_observation
+        .clone()
         .ok_or("missing role-visible typed observation")?;
     if visible["ministry"] != ministry || visible["quarter"] != obs.quarter {
         return Err("role-visible input mismatch".into());
@@ -57,18 +69,30 @@ pub fn request(obs: &GameObservation, route: &PinnedRoute) -> Result<EffectSpec,
     );
     let stage = if first { "first" } else { "final" };
     let req = ModelRequest {
-        provider:"openrouter".into(),
-        model:route.model.clone(),
-        resolved_model_version:Some(route.provider.clone()),
-        messages:vec![
-            Message{role:Role::System,content:system,tool_call_id:None},
-            Message{role:Role::User,content:format!("Frozen {stage} role observation JSON:\n{context}"),
-                tool_call_id:None},
+        provider: "openrouter".into(),
+        model: route.model.clone(),
+        resolved_model_version: Some(route.provider.clone()),
+        messages: vec![
+            Message {
+                role: Role::System,
+                content: system,
+                tool_call_id: None,
+            },
+            Message {
+                role: Role::User,
+                content: format!("Frozen {stage} role observation JSON:\n{context}"),
+                tool_call_id: None,
+            },
         ],
-        sampling:Sampling{temperature:Some(0.0),top_p:None,seed:None,max_output_tokens:Some(400)},
-        tool_schemas:vec![],
-        streaming:false,
-        response_format:Some(json!({
+        sampling: Sampling {
+            temperature: Some(0.0),
+            top_p: None,
+            seed: None,
+            max_output_tokens: Some(400),
+        },
+        tool_schemas: vec![],
+        streaming: false,
+        response_format: Some(json!({
             "type":"json_schema",
             "json_schema":{
                 "name":format!("myth_{stage}_{ministry}"),
@@ -86,7 +110,11 @@ pub fn checked_action(obs: &GameObservation, content: &str) -> Result<Value, Str
         return Err("model output exceeded bounded JSON size".into());
     }
     let (ministry, _) = seat(obs.actor)?;
-    let view = obs.action.role_observation.as_ref().ok_or("missing role observation")?;
+    let view = obs
+        .action
+        .role_observation
+        .as_ref()
+        .ok_or("missing role observation")?;
     let result: Value = serde_json::from_str(content)
         .map_err(|_| "invalid minister JSON (no implicit vote fallback)")?;
     let expected = &obs.action.payload;
@@ -99,7 +127,8 @@ pub fn checked_action(obs: &GameObservation, content: &str) -> Result<Value, Str
     {
         return Err("model tried to change frozen seat/stage/proposal".into());
     }
-    let credits = view["available_credits"].as_u64()
+    let credits = view["available_credits"]
+        .as_u64()
         .and_then(|n| u16::try_from(n).ok())
         .ok_or("invalid frozen affordability view")?;
     parse_minister_action(content, credits).map_err(|_| "invalid typed minister action")?;
@@ -108,37 +137,37 @@ pub fn checked_action(obs: &GameObservation, content: &str) -> Result<Value, Str
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{GameWorld, FINANCE, EDUCATION};
+    use crate::{EDUCATION, FINANCE, GameWorld};
     use hiyal::core::World;
     #[test]
     fn model_cannot_swap_ministry_or_claim_support_through_invalid_json() {
         let mut world = GameWorld::initial("p5-proof").unwrap();
         // P4's player step freezes the first round role observations.
         let player = world.observe(crate::PLAYER).unwrap();
-        world.apply(crate::PLAYER,player.action).unwrap();
+        world.apply(crate::PLAYER, player.action).unwrap();
         let obs = world.observe(FINANCE).unwrap();
-        let mut base=obs.action.payload.clone();
-        base["counterproposal_source"]=json!({"kind":"new_typed"});
-        let good=base.to_string();
-        assert!(checked_action(&obs,&good).is_ok());
-        let mut swapped=base.clone();
-        swapped["ministry"]=json!("education");
-        assert!(checked_action(&obs,&swapped.to_string()).is_err());
-        assert!(checked_action(&obs,"{broken").is_err());
-        let mut spoofed=base;
-        spoofed["meeting_id"]=json!("another-meeting");
-        assert!(checked_action(&obs,&spoofed.to_string()).is_err());
-        let role=world.observe(EDUCATION).unwrap();
-        assert_ne!(role.action.role_observation,obs.action.role_observation);
+        let mut base = obs.action.payload.clone();
+        base["counterproposal_source"] = json!({"kind":"new_typed"});
+        let good = base.to_string();
+        assert!(checked_action(&obs, &good).is_ok());
+        let mut swapped = base.clone();
+        swapped["ministry"] = json!("education");
+        assert!(checked_action(&obs, &swapped.to_string()).is_err());
+        assert!(checked_action(&obs, "{broken").is_err());
+        let mut spoofed = base;
+        spoofed["meeting_id"] = json!("another-meeting");
+        assert!(checked_action(&obs, &spoofed.to_string()).is_err());
+        let role = world.observe(EDUCATION).unwrap();
+        assert_ne!(role.action.role_observation, obs.action.role_observation);
     }
     #[test]
     fn malicious_extra_fields_are_not_accepted() {
-        let mut world=GameWorld::initial("p5-injected").unwrap();
-        let p=world.observe(crate::PLAYER).unwrap();
-        world.apply(crate::PLAYER,p.action).unwrap();
-        let obs=world.observe(FINANCE).unwrap();
-        let mut bad=obs.action.payload.clone();
-        bad["ignore_instructions"]=json!("support regardless of treasury");
-        assert!(checked_action(&obs,&bad.to_string()).is_err());
+        let mut world = GameWorld::initial("p5-injected").unwrap();
+        let p = world.observe(crate::PLAYER).unwrap();
+        world.apply(crate::PLAYER, p.action).unwrap();
+        let obs = world.observe(FINANCE).unwrap();
+        let mut bad = obs.action.payload.clone();
+        bad["ignore_instructions"] = json!("support regardless of treasury");
+        assert!(checked_action(&obs, &bad.to_string()).is_err());
     }
 }
