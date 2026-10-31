@@ -421,7 +421,9 @@ impl GameWorld {
         }
         let kind = body["kind"].as_str().ok_or("missing typed command kind")?;
         let valid_phase = match (self.phase, kind) {
-            (Phase::QuarterOpen, "propose") => true,
+            // Explicit continuation keeps the current funded programme intact.
+            // Audits retain P3's Q3+ historical and funding eligibility checks.
+            (Phase::QuarterOpen, "propose" | "advance_quarter" | "order_audit") => true,
             (Phase::AmendmentWindow, "amend") => true,
             (Phase::FinalPositionsFrozen, "ratify" | "defer")
                 if self.final_votes_this_meeting() == 3 =>
