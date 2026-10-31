@@ -12,6 +12,7 @@ use axum::{
     routing::{get, post},
 };
 use futures_util::stream;
+use myth_contracts::Allocation as WireAllocation;
 use myth_hiyal_adapter::{
     ActionKind, GameWorld,
     orchestrator::{GameTrial, advance_slice, create_campaign, inspect, resume},
@@ -56,9 +57,37 @@ pub struct Command {
     pub kind: CommandKind,
 }
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum CommandKind {
     AdvanceSlice,
+    Propose { allocation: WireAllocation },
+    Amend { allocation: WireAllocation },
+    Decide { ratify: bool },
+}
+impl CommandKind {
+    fn body(&self,world:&GameWorld)->Result<Option<Value>,String>{
+        let meeting=format!("q{}",world.quarter);
+        let proposal_version=||->Result<String,String>{
+            Ok(world.fold()?.proposal_version()
+                .ok_or("no frozen proposal version")?.to_decimal())
+        };
+        Ok(match self {
+            Self::AdvanceSlice=>None,
+            Self::Propose{allocation}=>Some(json!({
+                "kind":"propose","meeting_id":meeting,"allocation":allocation,
+            })),
+            Self::Amend{allocation}=>Some(json!({
+                "kind":"amend","meeting_id":meeting,
+                "proposal_version":proposal_version()?,
+                "allocation":allocation,
+            })),
+            Self::Decide{ratify:true}=>Some(json!({
+                "kind":"ratify","meeting_id":meeting,
+                "proposal_version":proposal_version()?,
+            })),
+            Self::Decide{ratify:false}=>Some(json!({"kind":"defer"})),
+        })
+    }
 }
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -339,10 +368,23 @@ fn schedule(owner: Arc<Owner>) {
             let current = engine.trial.store.world().world_version.clone();
             // Accepted before dispatch; recovering after the Hiyal journal
             // committed but before command-log completion must not step twice.
-            let result = if current != expected {
+            let pending_round=engine.trial.store.dir.join("pending-round.json").exists();
+            let result = if current != expected && !pending_round {
                 Ok(())
             } else {
-                advance_slice(&mut engine.trial).await.map(|_| ())
+                let body=engine.log.records[pos].kind.body(engine.trial.store.world());
+                let prepared=match body {
+                    Ok(Some(payload))=>engine.trial.select_player_command(
+                        &engine.log.records[pos].command_id,payload),
+                    Ok(None)=>Ok(()),
+                    Err(error)=>Err(error),
+                };
+                let applied=match prepared {
+                    Ok(())=>advance_slice(&mut engine.trial).await.map(|_|()),
+                    Err(error)=>Err(error),
+                };
+                engine.trial.clear_player_command();
+                applied
             };
             let snap = capture(&engine.trial);
             let (completion, cursor) = match (result, snap) {
@@ -393,6 +435,12 @@ fn schedule(owner: Arc<Owner>) {
             }
         }
         owner.inflight.store(false, Ordering::Release);
+        // Close the acceptance/worker-exit race: a command may have been
+        // fsynced while the previous worker still held inflight=true.
+        if owner.engine.lock().await.log.records.iter()
+            .any(|r|r.status==OperationStatus::Accepted) {
+            schedule(owner);
+        }
     });
 }
 async fn snapshot(
@@ -482,6 +530,11 @@ async fn command(
     }
     if engine.trial.store.world().is_closed() {
         return Err(status(StatusCode::CONFLICT, "campaign closed"));
+    }
+    if let Some(body)=request.kind.body(engine.trial.store.world())
+        .map_err(|_|status(StatusCode::CONFLICT,"command lacks a frozen proposal"))? {
+        engine.trial.store.world().selected_player_command(&request.command_id,body)
+            .map_err(|_|status(StatusCode::CONFLICT,"typed player action invalid at this phase"))?;
     }
     let record = Operation {
         campaign_id: id,
