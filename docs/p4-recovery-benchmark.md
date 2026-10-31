@@ -1,8 +1,8 @@
 # P4-B′ — measured Linux/macOS replay and resource gate
 
-**Execution:** [GitHub Actions run 41157622619](https://github.com/davletovb/simulation-app/actions/runs/41157622619), **passed** in all three jobs (Linux x86_64, macOS arm64, independent comparison) on branch source commit `9e85207e311c2444a6995faeb60080fba7f6dccf`. Subsequent P4 formatting and test-only changes do not alter P3 model equations or reviewed Hiyal revision; see the separately required final essential CI result before merge.
+**Execution:** [GitHub Actions review-correction run #41160460004](https://github.com/davletovb/simulation-app/actions/runs/41160460004) **passed**, including Linux x86_64, macOS arm64 and independent comparison, on commit `a0e68d79c751c7542980403a4d09fe45f217875b`. This supersedes the initial [pre-review P4-B′ run #41157622619](https://github.com/davletovb/simulation-app/actions/runs/41157622619). Subsequent type-safe serialization and wrapper cleanups must be validated by final essential CI; see that check before merge.
 
-**Test type:** deterministic offline synthetic verification, not empirical or live-model validation. P4 is a single game-owned world with Hiyal **`050d1de094f5d0813817e2020ec5c5da97d5c42e`**; Rust **1.99.1**; Hiyal durability **`EveryEvent`**, fsync enabled; `default-features = false`, no network/provider/LLM billing. Run the *same* P2 frozen country pack, P3 rule-source fingerprint, case commands, zero-billed stress receipts and trial seed on both operating systems.
+**Test type:** deterministic offline synthetic verification, not empirical or live-model validation. P4 is a single game-owned world with Hiyal **`050d1de094f5d0813817e2020ec5c5da97d5c42e`**; Rust **1.99.1**; Hiyal durability **`EveryEvent`**, fsync enabled; `default-features = false`, no network/provider/LLM billing. Run the *same* P2 frozen country pack, declared P4 rules-behavior version, case commands, zero-billed stress receipts and trial seed on both operating systems.
 
 ## Executed prototype and small stress metrics
 
@@ -10,13 +10,13 @@ All time entries are **milliseconds**, shown **median / p95**, not just a best-c
 
 | Metric | Linux x86_64 prototype | macOS arm64 prototype | Linux x86_64 stress | macOS arm64 stress |
 |---|---:|---:|---:|---:|
-| Cabinet action commit (median / p95, ms) | 3.882 / 5.933 | 8.516 / 13.000 | 5.426 / 7.712 | 12.829 / 17.551 |
-| Quarter advance commit (median / p95, ms) | 5.318 / 12.229 | 13.862 / 18.802 | 6.009 / 7.833 | 13.022 / 20.530 |
-| Resume with full validation (median / p95, ms) | 111.049 / 113.279 | 261.571 / 264.079 | 143.157 / 145.214 | 317.480 / 318.770 |
-| Independent full verification (median / p95, ms) | 109.976 / 115.312 | 250.026 / 294.530 | 141.977 / 143.656 | 293.941 / 301.647 |
-| Maximum checkpoint size (bytes) | 34,197 | 34,197 | 82,237 | 82,237 |
-| Maximum full trial directory size (bytes) | 206,526 | 206,522 | 399,592 | 399,588 |
-| Process high-water RSS (bytes) | 6,627,328 | 28,246,016 | 6,881,280 | 28,229,632 |
+| Cabinet action commit (median / p95, ms) | 1.550 / 2.610 | 2.477 / 7.282 | 2.724 / 3.906 | 6.518 / 9.517 |
+| Quarter advance commit (median / p95, ms) | 2.665 / 3.970 | 6.468 / 23.401 | 3.355 / 4.409 | 8.125 / 20.169 |
+| Resume with full validation (median / p95, ms) | 74.460 / 75.348 | 82.248 / 108.247 | 129.069 / 131.030 | 211.261 / 265.469 |
+| Independent full verification (median / p95, ms) | 37.344 / 37.574 | 44.271 / 45.772 | 65.071 / 65.079 | 103.782 / 150.275 |
+| Maximum checkpoint size (bytes) | 34,162 | 34,162 | 82,202 | 82,202 |
+| Maximum full trial directory size (bytes) | 206,456 | 206,452 | 399,330 | 399,326 |
+| Process high-water RSS (bytes) | 6,594,560 | 28,213,248 | 7,290,880 | 28,229,632 |
 | Model receipts (offline simulated, cost $0) | 0 | 0 | 96 | 96 |
 | Total Hiyal effect receipts (model + player tool) | 12 | 12 | 108 | 108 |
 | Accepted logical game actions | 60 | 60 | 60 | 60 |
@@ -29,15 +29,15 @@ The `compare` job independently checked the two platforms' saved report JSONs (t
 
 | Scenario | Linux x86_64 authoritative SHA-256 | macOS arm64 authoritative SHA-256 | Result |
 |---|---|---|---|
-| Prototype | `cba6fce0972ce1b3944d9816d5fbb234b99b8bef9fb14e9f78abe188faa7a131` | same | **Identical** |
-| 1,024-record stress | `fd121a8cb2f6c3c4320fddbaa972e319835f61261ee39699be8ca99b6a65df92` | same | **Identical** |
+| Prototype | `ddea8f2657a172dc6ba5e71905053750863c8532f81811d084108a4c532a36f4` | same | **Identical** |
+| 1,024-record stress | `c7890b9d1bb0cce6856f024845ea6f6a015389f6291494ffe99730d396fb206d` | same | **Identical** |
 
-Hiyal's entire journal-chain head was *not* compared cross-OS because genesis provenance can carry build/host metadata. The source-fingerprinted **authoritative game-state digest** is the declared cross-OS acceptance quantity. Restore and independent read-only replay were checked for **each** sample. The GitHub Actions artifacts preserve the raw prototype/stress JSON and runtime stderr for seven days; this committed report preserves the key measurements thereafter.
+Hiyal's entire journal-chain head was *not* compared cross-OS because genesis provenance can carry build/host metadata. The explicitly versioned **authoritative game-state digest** is the declared cross-OS acceptance quantity. Restore and independent read-only replay were checked for **each** sample. The GitHub Actions artifacts preserve the raw prototype/stress JSON and runtime stderr for seven days; this committed report preserves the key measurements thereafter.
 
 ### Resource and hardware provenance
 
 - **Linux:** `ubuntu-24.04` GitHub-hosted x86_64; **4 logical CPUs reported by the program**, Rust 1.99.1, process memory peak read from Linux `/proc/self/status:VmHWM`.
-- **macOS:** `macos-15` GitHub-hosted **Apple Silicon arm64**, **3 logical CPUs reported by the program**, Rust 1.99.1. The CLI deliberately reports `peak_rss_bytes: null` on non-Linux platforms rather than mislabel current memory as peak. The **28,246,016-byte prototype and 28,229,632-byte stress high-water marks** were measured separately by `/usr/bin/time -l`; the stress result was checked by the executed compare job, and the prototype result was subsequently read directly from the retained [macOS workflow artifact](https://github.com/davletovb/simulation-app/actions/runs/41157622619) without another runner or an estimate.
+- **macOS:** `macos-15` GitHub-hosted **Apple Silicon arm64**, **3 logical CPUs reported by the program**, Rust 1.99.1. The CLI deliberately reports `peak_rss_bytes: null` on non-Linux platforms rather than mislabel current memory as peak. The **28,213,248-byte prototype and 28,229,632-byte stress high-water marks** were measured separately by `/usr/bin/time -l`; both observations were checked in the executed [review-correction compare job](https://github.com/davletovb/simulation-app/actions/runs/41160460004).
 - Nominal runner memory/disk capacity is controlled by GitHub images and is **not independently benchmarked** here; refer to [GitHub's hosted-runner hardware specifications](https://docs.github.com/en/actions/how-tos/write-workflows/choose-where-workflows-run/choose-the-runner-for-a-job) (the cited public hosted runners list Linux 4 CPU / 16 GB and macOS M1 3 CPU / 7 GB, with 14 GB SSD). The **actual trial storage** and peak memory above are independently measured, not those host capacities.
 - No absolute performance generalization is implied from n=3 or GitHub's ephemeral shared runner load. For the **declared first-case P0-04 targets**, the observed cabinet p95 was below 150 ms, quarter p95 below 250 ms, prototype restore below 2 s, independent verification below 5 s, prototype storage below 10 MiB, stress storage below 64 MiB, stress restore below 10 s, stress verification below 30 s, and the measured prototype/stress Linux/macOS memory below their applicable 256/512 MiB thresholds. macOS prototype high-water memory was reconstructed from the saved `prototype-stderr.txt` in the executed artifact. Both memory measurements are direct `/usr/bin/time -l` observations, not an inferred ordering between prototype and stress.
 
@@ -49,4 +49,4 @@ Hiyal's entire journal-chain head was *not* compared cross-OS because genesis pr
 
 ## Repeatability and cost controls
 
-The strict, private source boundary is tested by `cargo test --workspace --locked` in the **essential offline CI**. The expensive two-OS measurement is retained as a **manually dispatched** GitHub Actions workflow, not a recurring push/PR requirement. It builds one optimized binary per OS and executes three sample runs of each workload. An independent comparator rejects cross-OS private-hash drift, missing data, an incorrect architecture, loss of `EveryEvent`/fsync or breached prototype/stress targets. Do not automatically consume additional CI budget repeating these macOS runs for routine documentation changes.
+The strict, private source boundary is tested by `cargo test --workspace --locked` in the **essential offline CI**. The expensive two-OS measurement is retained as a **manually dispatched** GitHub Actions workflow, not a recurring push/PR requirement. It builds one optimized binary per OS and executes three sample runs of each workload. An independent comparator rejects cross-OS private-hash drift, missing data, an incorrect architecture, loss of Hiyal's *actual configured* `EveryEvent` durability or a failed explicit fsync probe or breached prototype/stress targets. Do not automatically consume additional CI budget repeating these macOS runs for routine documentation changes.
