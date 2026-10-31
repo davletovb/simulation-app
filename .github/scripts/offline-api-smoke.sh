@@ -56,7 +56,7 @@ grep -q '"institutional_ratification":false' "$TMP/votes"
 status=$(curl -sS -o /dev/null -w '%{http_code}' "$BASE/api/campaigns/typo-campaign/snapshot")
 test "$status" = 404
 test ! -e "$TMP/saves/hiyal-campaigns/typo-campaign"
-status=$(curl -sS -o "$TMP/created" -w '%{http_code}' -X POST "$BASE/api/campaigns/demo-england")
+status=$(curl -sS -o "$TMP/created" -w '%{http_code}' -H 'Content-Type: application/json' -d '{}' "$BASE/api/campaigns/demo-england")
 test "$status" = 201
 curl -fsS "$BASE/api/campaigns/demo-england/snapshot" >"$TMP/connected-first"
 grep -q '"cursor":"0"' "$TMP/connected-first"
@@ -84,7 +84,7 @@ status=$(curl -sS -o "$TMP/conflict" -w '%{http_code}' \
   "$BASE/api/campaigns/demo-england/commands" -H 'Content-Type: application/json' \
   -d '{"command_id":"smoke-proposal","expected_world_version":"0","kind":{"kind":"advance_slice"}}')
 test "$status" = 409
-curl -fsS -X POST "$BASE/api/campaigns/another-campaign" >"$TMP/another-created"
+curl -fsS -H 'Content-Type: application/json' -d '{}' "$BASE/api/campaigns/another-campaign" >"$TMP/another-created"
 curl -fsS "$BASE/api/campaigns/another-campaign/snapshot" >"$TMP/isolated"
 grep -q '"cursor":"0"' "$TMP/isolated"
 status=$(curl -sS -o /dev/null -w '%{http_code}' \
