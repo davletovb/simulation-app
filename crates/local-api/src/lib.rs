@@ -320,7 +320,7 @@ async fn local_request_guard(req: axum::extract::Request, next: Next) -> Respons
 /// Routes deliberately never accept Ratify/AdvanceQuarter as a state
 /// transition: no world reducer or Hiyal journal exists in P1.
 pub fn router(state: AppState) -> Router {
-    let connected=state.connected.clone();
+    let connected = state.connected.clone();
     Router::new()
         .merge(connected::routes().with_state(connected))
         .route("/api/health", get(health))

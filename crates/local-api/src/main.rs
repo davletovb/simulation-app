@@ -21,7 +21,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     if assets_path.exists() && assets_path.canonicalize()?.starts_with(state.save_root()) {
         return Err("private saved data cannot be a web asset root".into());
     }
-    let site = router(state).fallback_service(ServeDir::new(assets).append_index_html_on_directories(true));
+    let site = router(state)
+        .fallback_service(ServeDir::new(assets).append_index_html_on_directories(true));
     axum::serve(listener, site).await?;
     Ok(())
 }

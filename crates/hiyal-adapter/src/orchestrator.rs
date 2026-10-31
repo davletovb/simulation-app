@@ -357,14 +357,20 @@ pub fn create(dir: &Path, name: &str, seed: u64) -> Result<GameTrial, String> {
 /// P6 offline authoritatively scoped campaign. Unlike the fixed P4 test
 /// fixture, this binds each trial genesis to the caller's validated ID.
 pub fn create_campaign(
-    dir: &Path, name: &str, seed: u64, campaign_id: &str,
-) -> Result<GameTrial,String> {
-    if campaign_id.is_empty() || campaign_id.len()>64
-        || !campaign_id.bytes().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit()
-            || c==b'-' || c==b'_') {
+    dir: &Path,
+    name: &str,
+    seed: u64,
+    campaign_id: &str,
+) -> Result<GameTrial, String> {
+    if campaign_id.is_empty()
+        || campaign_id.len() > 64
+        || !campaign_id
+            .bytes()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == b'-' || c == b'_')
+    {
         return Err("invalid P6 campaign id".into());
     }
-    create_world(dir,name,seed,GameWorld::initial(campaign_id)?)
+    create_world(dir, name, seed, GameWorld::initial(campaign_id)?)
 }
 
 pub fn create_stress(dir: &Path, name: &str, seed: u64) -> Result<GameTrial, String> {
