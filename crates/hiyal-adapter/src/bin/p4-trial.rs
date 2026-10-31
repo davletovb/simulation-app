@@ -36,7 +36,7 @@ fn peak_rss_bytes() -> Option<u64> {
         let status = fs::read_to_string("/proc/self/status").ok()?;
         let line = status.lines().find(|line| line.starts_with("VmHWM:"))?;
         let kb = line.split_whitespace().nth(1)?.parse::<u64>().ok()?;
-        return Some(kb * 1024);
+        Some(kb * 1024)
     }
     #[cfg(not(target_os = "linux"))]
     {
@@ -50,7 +50,7 @@ fn sorted_median_p95_us(samples: &[u128]) -> serde_json::Value {
     }
     let mut x = samples.to_vec();
     x.sort_unstable();
-    let p95 = ((95 * x.len() + 99) / 100)
+    let p95 = (95 * x.len()).div_ceil(100)
         .saturating_sub(1)
         .min(x.len() - 1);
     json!({"samples":x.len(),"median_us":x[x.len()/2].to_string(),
