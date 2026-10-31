@@ -8,6 +8,7 @@
 //! reconstituted from its private action fold and checked against the digest.
 pub mod orchestrator;
 pub mod p5_allowance;
+pub mod p5_backend;
 use hiyal::core::{AgentId, World};
 use myth_contracts::{
     PublicPosition,
