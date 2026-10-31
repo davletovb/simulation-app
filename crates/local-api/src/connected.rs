@@ -354,7 +354,7 @@ fn capture(trial: &GameTrial) -> Result<PublicView, String> {
 fn capture_for(trial: &GameTrial, id: &str) -> Result<PublicView, String> {
     let mut view = capture(trial)?;
     view.campaign_id = id.into();
-    view.trial_id = trial.store.genesis.trial_id.clone();
+    view.trial_id = trial.store.genesis().trial_id.clone();
     Ok(view)
 }
 #[derive(Clone, Serialize)]
@@ -1141,7 +1141,7 @@ mod tests {
                     .await
                     .trial
                     .store
-                    .genesis
+                    .genesis()
                     .initial_streams
             )
             .unwrap(),
@@ -1152,7 +1152,7 @@ mod tests {
                     .await
                     .trial
                     .store
-                    .genesis
+                    .genesis()
                     .initial_streams
             )
             .unwrap()
