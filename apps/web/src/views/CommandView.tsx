@@ -196,7 +196,7 @@ export function CommandView({ allocation, onChange }: {
             </button>
           </div>
           <p id="cta-why" className="cta-why">
-            Real cabinet votes require the full simulation. The local service supplies scripted baseline snapshots only, without ratification.
+            Submit the chosen allocation using the connected decision controls above. The Rust service checks the actual treasury, records scripted minister positions and can ratify or defer a proposal. This panel is an illustrative drafting preview.
           </p>
         </section>
 

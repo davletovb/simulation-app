@@ -64,8 +64,7 @@ export function App() {
         <Hud allocation={allocation} onHelp={() => setBriefingOpen(true)} />
         <p className="notice" role="note">
           <Icon name="eye" size={16} />
-          <span><strong>Fictional data twin.</strong> Illustrative mechanics, not government forecasts. Offline
-            preview: nothing here is simulated, saved or sent to a model.</span>
+          <span><strong>Fictional data twin.</strong> Illustrative mechanics, not government forecasts. The connected decision room runs a local, durable scripted simulation. Other panels are design previews; no model calls are made.</span>
         </p>
       </header>
 

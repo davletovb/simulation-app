@@ -39,9 +39,11 @@ interface Operation {
 }
 interface Committed { snapshot: Snapshot; operation: Operation | null }
 type Transport = 'connecting' | 'connected' | 'reconnecting' | 'unavailable'
-const CAMPAIGN = 'demo-england'
+const requestedCampaign = new URLSearchParams(window.location.search).get('campaign')
+const CAMPAIGN = requestedCampaign && /^[a-z0-9_-]{1,64}$/.test(requestedCampaign)
+  ? requestedCampaign : 'demo-england'
 const root = '/api/campaigns/' + CAMPAIGN
-const PENDING_KEY = 'myth-p6.pending-demo-england'
+const PENDING_KEY = 'myth-p6.pending-' + CAMPAIGN
 const CACHE_KEY = ['committed-campaign',CAMPAIGN] as const
 
 function validSnapshot(raw: unknown): raw is Committed {
@@ -70,6 +72,11 @@ function newer(old: Committed | null, next: Committed): Committed {
     return { snapshot: old.snapshot, operation: next.operation ?? old.operation }
   }
   return next
+}
+function exactAllocation(a:Allocation,available:number):boolean{
+  return (['staff','repairs','access'] as const).every(k=>
+    Number.isSafeInteger(a[k]) && a[k]>=0 && a[k]<=100
+  ) && a.staff+a.repairs+a.access<=available
 }
 function makeCommandId(): string {
   // Locally generated idempotency key. A lost acknowledgment can be retried
@@ -110,6 +117,7 @@ export function ConnectedView({allocation}:{allocation:Allocation}) {
   const [transport, setTransport] = useState<Transport>('connecting')
   const [pending, setPending] = useState<Pending | null>(readPending)
   const [error, setError] = useState<string | null>(null)
+  const [forkId, setForkId] = useState<string|null>(null)
   const accept = useCallback((raw: unknown) => {
     if (!validSnapshot(raw)) throw new Error('Incorrect versioned server view')
     cache.setQueryData<Committed>(CACHE_KEY,old=>newer(old??null,raw))
@@ -211,6 +219,27 @@ export function ConnectedView({allocation}:{allocation:Allocation}) {
     return () => {stopped=true;window.clearInterval(timer)}
   },[pending,load])
 
+  const createFork = async () => {
+    if (!current || current.snapshot.phase !== 'Resolved') return
+    setError(null)
+    const branchId='fork-'+crypto.randomUUID().replaceAll('-','').slice(0,16)
+    try {
+      const response=await fetch(root+'/forks',{
+        method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({
+          branch_id:branchId,
+          expected_cursor:current.snapshot.cursor,
+          expected_world_version:current.snapshot.view_version,
+        }),
+      })
+      if (!response.ok) throw new Error('Could not create a verified decision-boundary fork')
+      const record=await response.json() as {branch_id:string;source_cursor:string}
+      if (record.branch_id!==branchId || record.source_cursor!==current.snapshot.cursor)
+        throw new Error('Fork boundary confirmation mismatch')
+      setForkId(record.branch_id)
+    }catch(reason){setError(reason instanceof Error?reason.message:'Cannot create fork')}
+  }
+
   const refresh = () => {
     setError(null)
     void load().catch(() => setError('Verified campaign snapshot unavailable'))
@@ -234,6 +263,7 @@ export function ConnectedView({allocation}:{allocation:Allocation}) {
       ) : (
         <>
           <div className="connected-grid">
+            <div><small>Local campaign</small><strong>{CAMPAIGN}</strong></div>
             <div><small>Quarter</small><strong>{snapshot.quarter} / 6</strong></div>
             <div><small>Current phase</small><strong>{snapshot.phase}</strong></div>
             <div><small>Committed cursor</small><strong>{snapshot.cursor}</strong></div>
@@ -276,7 +306,7 @@ export function ConnectedView({allocation}:{allocation:Allocation}) {
             ) : (
               <>
                 {snapshot.phase === 'QuarterOpen' && <button type="button"
-                  disabled={draftStatus(allocation)!=='valid'}
+                  disabled={draftStatus(allocation)!=='valid' || !exactAllocation(allocation,snapshot.treasury.available_credits)}
                   onClick={() => void advance({kind:'propose',allocation})}>Submit draft proposal</button>}
                 {snapshot.phase === 'AmendmentWindow' && <button type="button"
                   disabled={draftStatus(allocation)!=='valid'}
@@ -291,8 +321,14 @@ export function ConnectedView({allocation}:{allocation:Allocation}) {
                   Continue scripted phase</button>}
               </>
             )}
+            {snapshot.phase==='Resolved' && !pending && <button type="button"
+              onClick={() => void createFork()}>Fork this verified decision</button>}
             <button type="button" onClick={refresh}>Refresh committed view</button>
           </div>
+          {forkId && <p role="status">Branch created at the committed decision boundary.
+            <a href={'?campaign='+encodeURIComponent(forkId)}>Open independent branch {forkId}</a>.
+            Its journal retains the source shock schedule, and new decisions cannot alter the source campaign.
+          </p>}
           {pending && <p role="status">Operation {pending.id}: submitted or awaiting acknowledgment. Keep this ID for retries.</p>}
           {current?.operation && <p className="connected-assumptions">
             Last operation: {current.operation.command_id} · {current.operation.status}
