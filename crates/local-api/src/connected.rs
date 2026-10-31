@@ -266,6 +266,26 @@ pub struct PublicTreasury {
     pub service_spent: u16,
     pub audit_spent: u16,
 }
+/// Only public, explicitly recorded player decisions are projected. The
+/// complete private P3 world, latent support, actor beliefs and efforts are
+/// not serialized into this browser-facing report.
+#[derive(Clone,Debug,Serialize,Deserialize)]
+pub struct PublicDecision {
+    pub quarter:u8,
+    pub outcome:String,
+    pub allocation:Option<Value>,
+    pub final_support:u8,
+    pub final_votes:u8,
+}
+#[derive(Clone,Debug,Serialize,Deserialize)]
+pub struct PublicEvidence {
+    pub case_pack:String,
+    pub source_cutoff_utc:String,
+    pub evidence_pack_sha256:String,
+    pub scenario_sha256:String,
+    pub attribution:String,
+    pub scope:String,
+}
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct PublicView {
     pub schema_version: u16,
@@ -279,6 +299,8 @@ pub struct PublicView {
     pub proposal: Option<Value>,
     pub votes: Vec<PublicVote>,
     pub treasury: PublicTreasury,
+    pub decisions: Vec<PublicDecision>,
+    pub evidence: PublicEvidence,
     pub outcome: Option<String>,
     pub assumption: String,
     pub mode: &'static str,
@@ -293,35 +315,70 @@ fn capture(trial: &GameTrial) -> Result<PublicView, String> {
     if world.private_state_sha256 != hash {
         return Err("replay/world boundary mismatch".into());
     }
-    let mut proposal = None;
-    let mut outcome = None;
-    let mut votes = Vec::new();
+    let mut proposal=None;
+    let mut outcome=None;
+    let mut votes=Vec::new();
+    let mut decisions=Vec::new();
+    let mut last_quarter=1u8;
     for action in &world.actions {
-        if action.kind == ActionKind::PlayerCommand {
-            match action.payload["command"]["kind"].as_str() {
-                Some("propose") => {
-                    proposal = Some(action.payload["command"]["allocation"].clone());
-                    outcome = None;
+        if action.kind==ActionKind::PlayerCommand {
+            let body=&action.payload["command"];
+            match body["kind"].as_str() {
+                Some("propose")=>{
+                    if let Some(q)=body["meeting_id"].as_str()
+                        .and_then(|s|s.strip_prefix('q'))
+                        .and_then(|s|s.parse::<u8>().ok()) {
+                        last_quarter=q;
+                    }
+                    proposal=Some(body["allocation"].clone());
+                    outcome=None;
                     votes.clear();
                 }
-                Some("ratify") => outcome = Some("ratified".into()),
-                Some("defer") => outcome = Some("deferred".into()),
-                _ => {}
+                Some("amend")=>proposal=Some(body["allocation"].clone()),
+                Some("ratify"|"defer")=>{
+                    let kind=body["kind"].as_str().unwrap_or("defer");
+                    outcome=Some(if kind=="ratify"{"ratified"}else{"deferred"}.into());
+                    let relevant:Vec<_>=votes.iter()
+                        .filter(|v|v.stage=="final").collect();
+                    decisions.push(PublicDecision {
+                        quarter:last_quarter,
+                        outcome:outcome.clone().unwrap_or_default(),
+                        allocation:proposal.clone(),
+                        final_support:relevant.iter().filter(|v|v.position=="support").count()
+                            .try_into().map_err(|_|"too many public final votes")?,
+                        final_votes:relevant.len().try_into()
+                            .map_err(|_|"too many final votes")?,
+                    });
+                }
+                _=>{}
             }
-        } else if action.kind == ActionKind::MinisterAction
-            && let (Some(ministry), Some(stage), Some(position)) = (
+        } else if action.kind==ActionKind::MinisterAction
+            && let (Some(ministry),Some(stage),Some(position))=(
                 action.payload["ministry"].as_str(),
                 action.payload["stage"].as_str(),
-                action.payload["position"].as_str(),
-            )
-        {
-            votes.push(PublicVote {
-                ministry: ministry.into(),
-                stage: stage.into(),
-                position: position.into(),
-            });
-        }
+                action.payload["position"].as_str()
+            ) {
+                votes.push(PublicVote{
+                    ministry:ministry.into(),stage:stage.into(),position:position.into()
+                });
+            }
     }
+    // The new quarter has no active proposal or current cabinet votes.
+    // Do not display last quarter's ratified proposal as an active draft.
+    if world.phase==myth_contracts::checkpoint::Phase::QuarterOpen {
+        proposal=None;
+        votes.clear();
+        outcome=None;
+    }
+    if decisions.len()>6{return Err("unexpected number of public decisions".into());}
+    let evidence=PublicEvidence {
+        case_pack:world.pack_id.clone(),
+        source_cutoff_utc:world.source_cutoff_utc.clone(),
+        evidence_pack_sha256:world.pack_sha256.clone(),
+        scenario_sha256:world.scenario_sha256.clone(),
+        attribution:"Versioned synthetic case data and deterministic game rules, not current news".into(),
+        scope:"Fictional England school-delivery case; not a forecast of actual policy outcomes".into(),
+    };
     let campaign = world.fold()?;
     let treasury = campaign.world().treasury();
     let fiscal = PublicTreasury {
@@ -543,6 +600,15 @@ fn schedule(owner: Arc<Owner>) {
                             encumbered_access: 0,
                             service_spent: 0,
                             audit_spent: 0,
+                        },
+                        decisions:vec![],
+                        evidence:PublicEvidence {
+                            case_pack:"unavailable".into(),
+                            source_cutoff_utc:"unavailable".into(),
+                            evidence_pack_sha256:"unavailable".into(),
+                            scenario_sha256:"unavailable".into(),
+                            attribution:"Verification failed".into(),
+                            scope:"No authenticated case evidence available".into(),
                         },
                         outcome: None,
                         assumption: "Offline verification failed".into(),
@@ -1584,6 +1650,38 @@ mod tests {
             OperationStatus::Completed
         );
         capture(&owner.engine.lock().await.trial).unwrap()
+    }
+    #[tokio::test]
+    async fn public_evidence_and_late_report_exclude_private_role_fields(){
+        let dir=root();
+        let service=Connected::new(dir.clone()).unwrap();
+        let opening=service.owner("report").unwrap();
+        let initial=capture(&opening.engine.lock().await.trial).unwrap();
+        assert!(initial.decisions.is_empty());
+        assert!(!initial.evidence.evidence_pack_sha256.is_empty());
+        assert_eq!(initial.evidence.source_cutoff_utc,"2026-10-29T23:59:59Z");
+        drop(opening);
+        accepted_step(&service,"report",CommandKind::Propose{
+            allocation:WireAllocation{staff:50,repairs:40,access:10}},1).await;
+        accepted_step(&service,"report",CommandKind::AdvanceSlice,2).await;
+        accepted_step(&service,"report",CommandKind::AdvanceSlice,3).await;
+        let final_view=accepted_step(&service,"report",CommandKind::AdvanceSlice,4).await;
+        assert_eq!(final_view.votes.len(),6);
+        let result=accepted_step(&service,"report",CommandKind::Decide{ratify:true},5).await;
+        assert_eq!(result.decisions.len(),1);
+        assert_eq!(result.decisions[0].final_votes,3);
+        assert_eq!(result.decisions[0].outcome,"ratified");
+        let later=accepted_step(&service,"report",CommandKind::AdvanceSlice,6).await;
+        assert_eq!(later.phase,"QuarterOpen");
+        assert_eq!(later.decisions.len(),1);
+        assert!(later.proposal.is_none());
+        assert!(later.votes.is_empty());
+        let payload=serde_json::to_string(&later).unwrap();
+        for secret in ["private_state_sha256","implementation_effort_permille",
+            "role_observation","belief_ppm","weights_ppm","OPENROUTER_API_KEY"] {
+            assert!(!payload.contains(secret),"private field escaped: {secret}");
+        }
+        drop(service);fs::remove_dir_all(dir).unwrap();
     }
     #[tokio::test]
     async fn one_connected_typed_decision_survives_strict_journal_restore() {
