@@ -50,7 +50,8 @@ fn sorted_median_p95_us(samples: &[u128]) -> serde_json::Value {
     }
     let mut x = samples.to_vec();
     x.sort_unstable();
-    let p95 = (95 * x.len()).div_ceil(100)
+    let p95 = (95 * x.len())
+        .div_ceil(100)
         .saturating_sub(1)
         .min(x.len() - 1);
     json!({"samples":x.len(),"median_us":x[x.len()/2].to_string(),
