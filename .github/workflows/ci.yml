@@ -128,6 +128,14 @@ jobs:
           node-version-file: apps/web/.nvmrc
           cache: npm
           cache-dependency-path: apps/web/package-lock.json
+      - name: Temporary P6 TanStack Query lockfile capture
+        if: ${{ github.head_ref == 'feat/p6-connected-offline-service' }}
+        shell: bash
+        run: |
+          npm --prefix apps/web install --package-lock-only --ignore-scripts --no-audit --no-fund
+          echo P6_NPM_LOCK_BEGIN
+          cat apps/web/package-lock.json
+          echo P6_NPM_LOCK_END
       - name: Install pinned frontend dependencies
         if: steps.web.outputs.present == 'true'
         run: npm --prefix apps/web ci --ignore-scripts --no-audit --no-fund

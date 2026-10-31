@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import {useQuery,useQueryClient} from '@tanstack/react-query'
 import { draftStatus, type Allocation } from '../game'
 import { readStored, writeStored } from '../storage'
 
@@ -41,6 +42,7 @@ type Transport = 'connecting' | 'connected' | 'reconnecting' | 'unavailable'
 const CAMPAIGN = 'demo-england'
 const root = '/api/campaigns/' + CAMPAIGN
 const PENDING_KEY = 'myth-p6.pending-demo-england'
+const CACHE_KEY = ['committed-campaign',CAMPAIGN] as const
 
 function validSnapshot(raw: unknown): raw is Committed {
   if (typeof raw !== 'object' || raw === null) return false
@@ -58,6 +60,10 @@ function newer(old: Committed | null, next: Committed): Committed {
   // Backend SSE ID and view version are a single committed snapshot boundary.
   // Compare integers as BigInt, never float: journal cursors are unbounded u64.
   if (old && BigInt(next.snapshot.cursor) < BigInt(old.snapshot.cursor)) return old
+  if (old && old.snapshot.cursor === next.snapshot.cursor &&
+    old.snapshot.view_version !== next.snapshot.view_version) {
+    throw new Error('Conflicting view version at one committed cursor')
+  }
   if (old && old.snapshot.cursor === next.snapshot.cursor &&
     old.snapshot.view_version === next.snapshot.view_version) {
     // Same-boundary status refresh can still update command operation.
@@ -86,14 +92,27 @@ function readPending():Pending|null {
     return value as Pending
   }catch{return null}
 }
+async function loadSnapshot():Promise<Committed> {
+  const response=await fetch(root+'/snapshot',{cache:'no-store'})
+  if (!response.ok) throw new Error('Local Hiyal campaign unavailable')
+  const raw=await response.json() as unknown
+  if (!validSnapshot(raw)) throw new Error('Invalid server snapshot')
+  return raw
+}
 export function ConnectedView({allocation}:{allocation:Allocation}) {
-  const [current, setCurrent] = useState<Committed | null>(null)
+  const cache=useQueryClient()
+  const query=useQuery<Committed>({
+    queryKey:CACHE_KEY,
+    queryFn:async()=>newer(cache.getQueryData<Committed>(CACHE_KEY)??null,await loadSnapshot()),
+    staleTime:2000,
+  })
+  const current=query.data??null
   const [transport, setTransport] = useState<Transport>('connecting')
   const [pending, setPending] = useState<Pending | null>(readPending)
   const [error, setError] = useState<string | null>(null)
   const accept = useCallback((raw: unknown) => {
     if (!validSnapshot(raw)) throw new Error('Incorrect versioned server view')
-    setCurrent(old => newer(old, raw))
+    cache.setQueryData<Committed>(CACHE_KEY,old=>newer(old??null,raw))
     if (raw.operation && raw.operation.status !== 'accepted') {
       setPending(old => {
         if (old && old.id === raw.operation?.command_id) {
@@ -103,20 +122,23 @@ export function ConnectedView({allocation}:{allocation:Allocation}) {
         return old
       })
     }
-  }, [])
+  }, [cache])
 
   const load = useCallback(async () => {
-    const response = await fetch(root + '/snapshot', { cache: 'no-store' })
-    if (!response.ok) throw new Error('Local Hiyal campaign unavailable')
-    accept(await response.json() as unknown)
+    const updated=await loadSnapshot()
+    accept(updated)
   }, [accept])
 
   useEffect(() => {
     let alive = true
-    void load().catch(() => { if (alive) setTransport('unavailable') })
     const source = new EventSource(root + '/events')
     source.onopen = () => { if (alive) setTransport('connected') }
-    source.onerror = () => { if (alive) setTransport('reconnecting') }
+    source.onerror = () => {
+      if (alive) {
+        setTransport('reconnecting')
+        void cache.invalidateQueries({queryKey:CACHE_KEY})
+      }
+    }
     for (const kind of ['snapshot', 'snapshot_fallback', 'committed']) {
       source.addEventListener(kind, (event: MessageEvent) => {
         if (!alive) return
@@ -125,7 +147,7 @@ export function ConnectedView({allocation}:{allocation:Allocation}) {
       })
     }
     return () => { alive = false; source.close() }
-  }, [load, accept])
+  }, [accept,cache])
 
   const advance = async (requested:PlayerCommand) => {
     if (!current || current.snapshot.closed) return
@@ -205,6 +227,7 @@ export function ConnectedView({allocation}:{allocation:Allocation}) {
         <span role="status" className="connected-status">{transport}</span>
       </div>
       {error && <p role="alert" className="connected-error">{error}</p>}
+      {query.isError && !snapshot && <p role="alert">The local campaign could not be loaded.</p>}
       {!snapshot ? (
         <div className="connected-grid"><p>Loading a verified committed boundary…</p>
           <button type="button" onClick={refresh}>Retry</button></div>
