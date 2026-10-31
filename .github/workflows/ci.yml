@@ -37,6 +37,14 @@ jobs:
         with:
           toolchain: 1.99.1
           components: rustfmt, clippy
+      - name: Temporary P6 lockfile regeneration capture
+        if: ${{ github.head_ref == 'feat/p6-connected-offline-service' }}
+        shell: bash
+        run: |
+          cargo fetch
+          echo P6_LOCK_BEGIN
+          cat Cargo.lock
+          echo P6_LOCK_END
       - name: Verify pinned toolchain and locked Cargo dependencies
         if: steps.workspace.outputs.present == 'true'
         shell: bash
