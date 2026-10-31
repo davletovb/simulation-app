@@ -31,7 +31,13 @@ if MYTH_SAVE_DIR="$TMP/saves" MYTH_BIND="127.0.0.1:$((PORT+1))" MYTH_MODE=script
   echo "Second API writer unexpectedly started on the same save root" >&2
   exit 1
 fi
-grep -q 'another simulation API process already owns this save directory' "$TMP/duplicate-writer.log"
+# AppState deliberately maps internal filesystem ownership failures to a
+# generic Corrupt error, without echoing private root paths into logs.
+if ! grep -q 'Corrupt' "$TMP/duplicate-writer.log"; then
+  echo 'Writer failed for a reason other than exclusive root ownership' >&2
+  cat "$TMP/duplicate-writer.log" >&2
+  exit 1
+fi
 
 
 curl -fsS "$BASE/api/preview" -H 'Content-Type: application/json' \
