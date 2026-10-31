@@ -11,8 +11,8 @@ use axum::{
 };
 use futures_util::stream;
 use myth_hiyal_adapter::{
-    ActionKind,GameTrial,GameWorld,
-    orchestrator::{advance_slice,create_campaign,inspect,resume},
+    ActionKind,GameWorld,
+    orchestrator::{advance_slice,create_campaign,inspect,resume,GameTrial},
 };
 use serde::{Deserialize,Serialize};
 use serde_json::{Value,json};
@@ -209,6 +209,9 @@ impl Connected {
         let mut map=self.owners.lock().map_err(|_|"owner registry poisoned")?;
         if let Some(held)=map.get(id){return Ok(held.clone());}
         let path=self.root.join(id);
+        if !path.exists() && self.root.join(format!("{id}.commands.json")).exists() {
+            return Err("command history exists but Hiyal trial is missing".into());
+        }
         let trial=if path.exists(){resume(&path,false)?}else{
             create_campaign(&path,id,43,id)?
         };

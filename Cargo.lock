@@ -735,6 +735,8 @@ dependencies = [
  "axum",
  "myth-contracts",
  "myth-domain",
+ "myth-hiyal-adapter",
+ "futures-util",
  "serde",
  "serde_json",
  "sha2",

@@ -2,8 +2,8 @@ use myth_local_api::{AppState, Config, router};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Credential environment variables are never read, logged or passed into
-    // the UI. Live mode is rejected at configuration load until P5 exists.
+    // Credentials are never read or forwarded by the connected offline API.
+    // Live model calls remain explicitly disabled until P6 C' is authorized.
     let config = Config::from_env()?;
     let state = AppState::new(config.mode, config.save_dir)?;
     let listener = tokio::net::TcpListener::bind(config.bind).await?;

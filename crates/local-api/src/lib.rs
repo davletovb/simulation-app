@@ -2,6 +2,7 @@
 //! checksum-verified local *choice* recordings. No policy mutations or LLM.
 #![forbid(unsafe_code)]
 pub mod checkpoint_store;
+pub mod connected;
 pub mod store;
 use axum::{
     Json, Router,
@@ -69,11 +70,14 @@ impl Config {
 pub struct AppState {
     mode: Mode,
     store: Arc<SaveStore>,
+    connected: Arc<connected::Connected>,
 }
 impl AppState {
     pub fn new(mode: Mode, save_dir: PathBuf) -> Result<Self, StoreError> {
         Ok(Self {
             mode,
+            connected: connected::Connected::new(save_dir.join("hiyal-campaigns"))
+                .map_err(|_| StoreError::Corrupt)?,
             store: Arc::new(SaveStore::new(save_dir)?),
         })
     }
@@ -316,7 +320,9 @@ async fn local_request_guard(req: axum::extract::Request, next: Next) -> Respons
 /// Routes deliberately never accept Ratify/AdvanceQuarter as a state
 /// transition: no world reducer or Hiyal journal exists in P1.
 pub fn router(state: AppState) -> Router {
+    let connected=state.connected.clone();
     Router::new()
+        .merge(connected::routes().with_state(connected))
         .route("/api/health", get(health))
         .route("/api/preview", post(preview))
         .route("/api/scripted/meeting", post(cabinet))
