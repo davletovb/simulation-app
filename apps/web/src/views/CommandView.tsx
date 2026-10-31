@@ -1,4 +1,5 @@
-import { useRef, useState, type CSSProperties, type KeyboardEvent } from 'react'
+import {useCommittedCampaign} from './ConnectedView'
+import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent } from 'react'
 import { OFFLINE_PILOT } from '../contracts'
 import {
   DEFAULT_CARD, FACTIONS, FAMILIES, POLICY_CARDS, QUARTERS, committed, draftStatus,
@@ -9,11 +10,13 @@ import { DeliveryForecast } from '../components/DeliveryForecast'
 import { usePreview, type PreviewResult } from '../usePreview'
 import { Icon } from '../components/Icon'
 import { Mechanics } from '../components/Mechanics'
+import {parseExactBudget} from '../exactBudget.mjs'
 
 type CardChoice = PolicyCard | 'custom'
 
-function PolicyHand({ allocation, onPick }: {
+function PolicyHand({ allocation, budget, onPick }: {
   allocation: Allocation
+  budget: number
   onPick: (card: PolicyCard) => void
 }) {
   const refs = useRef<(HTMLButtonElement | null)[]>([])
@@ -45,7 +48,7 @@ function PolicyHand({ allocation, onPick }: {
         const isCustom = choice === 'custom'
         // The custom card mirrors the draft only while it is the active choice.
         const cardAllocation = !isCustom ? choice.allocation : checked ? allocation : null
-        const over = cardAllocation !== null && committed(cardAllocation) > OFFLINE_PILOT.credits
+        const over = cardAllocation !== null && committed(cardAllocation) > budget
         return (
           <button key={isCustom ? 'custom' : choice.id} ref={el => { refs.current[index] = el }}
             type="button" role="radio" aria-checked={checked} tabIndex={checked ? 0 : -1}
@@ -78,13 +81,26 @@ function PolicyHand({ allocation, onPick }: {
   )
 }
 
-function FamilyControl({ family, value, onChange }: {
+function FamilyControl({ family, value, budget, onChange }: {
   family: FamilyInfo
   value: number
+  budget: number
   onChange: (next: number) => void
 }) {
-  const max = OFFLINE_PILOT.credits
-  const set = (next: number) => onChange(Math.min(max, Math.max(0, next)))
+  const max = budget
+  const [draft, setDraft] = useState(() => String(value))
+  const [invalid, setInvalid] = useState(false)
+  useEffect(() => { setDraft(String(value)); setInvalid(false) }, [value])
+  const set = (next: number) => {
+    if (!Number.isSafeInteger(next)) return
+    onChange(Math.min(max, Math.max(0, next)))
+  }
+  const acceptExact = () => {
+    const parsed = parseExactBudget(draft,max)
+    if (parsed === null) {setInvalid(true);return}
+    setInvalid(false)
+    set(parsed)
+  }
   const firstQuarter = QUARTERS[family.lag]?.label ?? 'later'
   return (
     <div className={`family family-${family.id}`}>
@@ -93,6 +109,14 @@ function FamilyControl({ family, value, onChange }: {
         <output htmlFor={`range-${family.id}`} className="family-value">{value}</output>
       </div>
       <div className="family-control">
+        <input type="text" inputMode="numeric" pattern="[0-9]{1,3}"
+          aria-label={`${family.label} exact whole-credit amount`}
+          aria-invalid={invalid} aria-describedby={`meta-${family.id}`}
+          className="p6-exact-credit" value={draft}
+          onChange={event => {setDraft(event.target.value);setInvalid(false)}}
+          onBlur={acceptExact}
+          onKeyDown={event => {if(event.key==='Enter') {event.preventDefault();acceptExact()}}}
+        />
         <button type="button" className="step" onClick={() => set(value - 1)} disabled={value === 0}
           aria-label={`One less ${family.label.toLowerCase()} credit`}><Icon name="minus" size={16} /></button>
         <input id={`range-${family.id}`} type="range" min={0} max={max} step={1} value={value}
@@ -101,6 +125,7 @@ function FamilyControl({ family, value, onChange }: {
         <button type="button" className="step" onClick={() => set(value + 1)} disabled={value === max}
           aria-label={`One more ${family.label.toLowerCase()} credit`}><Icon name="plus" size={16} /></button>
       </div>
+      {invalid && <p role="alert" className="connected-error">Use a whole credit amount from 0 to {max}; no decimals or symbols.</p>}
       <p id={`meta-${family.id}`} className="family-meta">
         1 credit = 1 {family.unit} · up to {family.quarterCap} per quarter · first delivery {firstQuarter}
       </p>
@@ -155,13 +180,16 @@ export function CommandView({ allocation, onChange }: {
 }) {
   const setFamily = (family: Family, value: number) => onChange({ ...allocation, [family]: value })
   const preview = usePreview(allocation)
+  const {data:committedView}=useCommittedCampaign()
+  const snapshot=committedView?.snapshot
+  const budget=snapshot?.treasury.available_credits??OFFLINE_PILOT.credits
 
   return (
     <>
       <header className="view-head">
-        <p className="kicker">{QUARTERS[0]?.label} · Opening move</p>
-        <h1>Choose your opening package</h1>
-        <p>Play a policy card or build your own split of the {OFFLINE_PILOT.credits} pilot credits. They must last
+        <p className="kicker">{snapshot ? `Quarter ${snapshot.quarter} · ${snapshot.phase}` : QUARTERS[0]?.label} · Local campaign</p>
+        <h1>Choose your policy package</h1>
+        <p>Play a policy card or build your own split of the {budget} currently available credits. The campaign began with {OFFLINE_PILOT.credits} credits; they must last
           all {OFFLINE_PILOT.total_quarters} quarters, so anything you hold back can fund later packages or audits.</p>
       </header>
 
@@ -171,24 +199,26 @@ export function CommandView({ allocation, onChange }: {
             <h2 id="hand-title">Policy cards</h2>
             <span className="hint">Arrow keys to browse</span>
           </div>
-          <PolicyHand allocation={allocation} onPick={card => onChange(card.allocation)} />
+          <PolicyHand allocation={allocation} budget={budget} onPick={card => onChange(card.allocation)} />
         </section>
 
         <section className="panel draft" aria-labelledby="draft-title">
           <div className="panel-head">
             <h2 id="draft-title">Draft package</h2>
-            <span className="tag">Not submitted</span>
+            <span className="tag">{snapshot?.phase === 'AmendmentWindow' ? 'Amendment draft' : 'Not submitted'}</span>
           </div>
-          <CreditMeter allocation={allocation} />
+          <CreditMeter allocation={allocation} budget={budget} />
           <div className="families">
             {FAMILIES.map(f => (
-              <FamilyControl key={f.id} family={f} value={allocation[f.id]} onChange={v => setFamily(f.id, v)} />
+              <FamilyControl key={f.id} family={f} value={allocation[f.id]} budget={budget} onChange={v => setFamily(f.id, v)} />
             ))}
           </div>
           <Pressures allocation={allocation} preview={preview} />
           <div className="cta-row">
-            <button type="button" className="btn btn-primary" disabled aria-describedby="cta-why">
-              <Icon name="lock" size={18} />Convene the board
+            <button type="button" className="btn btn-primary"
+              onClick={() => document.getElementById('connected-p6-title')?.scrollIntoView({behavior:'smooth'})}
+              aria-describedby="cta-why">
+              <Icon name="command" size={18} />Review and submit in the decision room
             </button>
             <button type="button" className="btn btn-ghost" onClick={() => onChange(DEFAULT_CARD.allocation)}
               disabled={sameAllocation(allocation, DEFAULT_CARD.allocation)}>
@@ -196,7 +226,7 @@ export function CommandView({ allocation, onChange }: {
             </button>
           </div>
           <p id="cta-why" className="cta-why">
-            Real cabinet votes require the full simulation. The local service supplies scripted baseline snapshots only, without ratification.
+            Submit the chosen allocation using the connected decision controls above. If this budget exceeds the saved treasury balance, adjust your split first. The Rust service checks the actual treasury, records scripted minister positions and can ratify or defer a proposal. This panel is an illustrative drafting preview.
           </p>
         </section>
 
@@ -207,7 +237,7 @@ export function CommandView({ allocation, onChange }: {
           </div>
           <p className="panel-lede">The most each family could deliver if this package were ratified before the first
             advance, with full effort and no slowdowns or shocks. For access funding of 10 or more, the optimistic ceiling includes the Community Access Network’s attainable +1 capacity from Q2 onward, which requires its volunteer action. It is not guaranteed; real delivery may be lower.
-            The local Rust service calculates this conditional optimistic ceiling. Actual outcomes still require the P3 simulation engine.</p>
+            The local Rust service calculates this conditional optimistic ceiling. The connected command panel above uses the authoritative P3 simulation engine; this forecast is only an optimistic upper bound.</p>
           <DeliveryForecast allocation={allocation} preview={preview} />
         </section>
       </div>

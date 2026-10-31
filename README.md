@@ -51,6 +51,20 @@ See [the P1-03 contracts note](docs/p1-03-contracts.md) for accepted shapes, pri
 
 The experimental P5 Hiyal/OpenRouter integration is being reviewed in [draft PR #12](https://github.com/davletovb/simulation-app/pull/12). The default loopback API and React UI **still do not enable live inference**, and the new manual pilot command is **not called in CI**. The private Hiyal adapter now has a strict typed minister-output path, three cabinet profiles, a shared durable allowance, and independent trial budgets. Fake-provider tests demonstrate role-specific decisions and keyless replay; they are not evidence that any OpenRouter route actually supports the requested strict schema or that a live cabinet behaves acceptably. See the [P5 review packet](docs/p5-admission-foundation.md) and the acceptance gates before authorizing paid Experiment A.
 
+## P6 connected offline decision room
+
+The local Rust service in [PR #14](https://github.com/davletovb/simulation-app/pull/14) owns Hiyal campaigns, durable typed commands, verified snapshot/SSE updates, and a replayable offline decision sequence. The React view caches only committed public snapshots with TanStack Query; provider keys and private simulation journals stay server-side. Player proposals, amendments, final decisions, treasury consequences and verified offline comparison forks are available through the connected interface.
+
+```sh
+npm --prefix apps/web ci --ignore-scripts --no-audit --no-fund
+npm --prefix apps/web run build
+cargo +1.99.1 run --locked -p myth-local-api
+```
+
+Open `http://127.0.0.1:8787`. The default is `MYTH_MODE=scripted`, and **live model inference remains disabled**. No hosted or paid services are needed for the offline pilot. The private Hiyal campaign directory defaults to `local-data/saves/hiyal-campaigns`; do not expose it as a public asset path.
+
+Read the [P6 implementation and verification record](docs/p6-connected-evidence.md) before interpreting a preview or an outcome. The connected Cabinet/Campaign/Intel tabs now show public-only evidence and recorded decisions, with a tested independent-process restart. The local interface uses Base UI focus-managed controls/dialogs, exact whole-credit entry, explicit en-GB locale, and the saved treasury. The offline P6-01–05 engineering checks are complete, including a file-locked single OS writer and interrupted-command/SSE recovery tests. The **full P6 gate remains open** for independent review and the separately authorized, measured paid Experiment C′.
+
 ## Legacy prototype
 
 All pre-framework repository files are preserved on the [archive branch](https://github.com/davletovb/simulation-app/tree/archive), pointing to [79a1bd7](https://github.com/davletovb/simulation-app/commit/79a1bd734c8e04535e1957d267df52e868402863). That snapshot includes the old application, data, images, databases, tests, and frontend submodule reference.

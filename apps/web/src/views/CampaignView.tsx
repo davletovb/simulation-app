@@ -1,3 +1,4 @@
+import { ConnectedCampaignReport } from './ConnectedReports'
 import { OFFLINE_PILOT } from '../contracts'
 import {
   COHORT_AREAS, COHORT_CELLS, COHORT_INCOMES, COHORT_START_SUPPORT, FACTIONS, FAMILIES, FIRST_FREE_AUDIT_QUARTER,
@@ -121,11 +122,11 @@ export function CampaignView() {
         </section>
       </div>
 
+      <ConnectedCampaignReport />
       <section className="panel empty" aria-labelledby="results-title">
         <Icon name="people" size={30} />
-        <h2 id="results-title">No results yet</h2>
-        <p>Delivery, audited truth and group reactions appear here once the simulation runs. Nothing on this screen
-          is a result.</p>
+        <h2 id="results-title">Illustrative reference panel</h2>
+        <p>The connected report above shows committed game decisions and treasury state. This illustrative panel is not a live result.</p>
         <button type="button" className="btn btn-primary" disabled aria-describedby="advance-why">
           <Icon name="lock" size={18} />Advance quarter
         </button>

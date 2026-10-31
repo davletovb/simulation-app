@@ -7,6 +7,7 @@ import { Hud } from './components/Hud'
 import { Icon } from './components/Icon'
 import { VIEWS, ViewNav, isView, type View } from './components/ViewNav'
 import { CabinetView } from './views/CabinetView'
+import { ConnectedView } from './views/ConnectedView'
 import { CampaignView } from './views/CampaignView'
 import { CommandView } from './views/CommandView'
 import { IntelView } from './views/IntelView'
@@ -38,9 +39,13 @@ export function App() {
   }
 
   useEffect(() => {
+    document.documentElement.lang = OFFLINE_PILOT.locale
+  }, [])
+
+  useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey) return
-      if (typingIn(event.target) || document.querySelector('dialog[open]')) return
+      if (typingIn(event.target) || document.querySelector('dialog[open], [role="dialog"]')) return
       if (event.key === '?') {
         event.preventDefault()
         setBriefingOpen(true)
@@ -63,8 +68,7 @@ export function App() {
         <Hud allocation={allocation} onHelp={() => setBriefingOpen(true)} />
         <p className="notice" role="note">
           <Icon name="eye" size={16} />
-          <span><strong>Fictional data twin.</strong> Illustrative mechanics, not government forecasts. Offline
-            preview: nothing here is simulated, saved or sent to a model.</span>
+          <span><strong>Fictional data twin.</strong> Illustrative mechanics, not government forecasts. The connected decision room runs a local, durable scripted simulation. Other panels are design previews; no model calls are made.</span>
         </p>
       </header>
 
@@ -72,13 +76,16 @@ export function App() {
         <ViewNav view={view} onChange={changeView} />
         <main className="view">
           <div id="view-panel" role="tabpanel" aria-labelledby={`tab-${view}`} tabIndex={-1} className="view-inner">
-            {view === 'command' && <CommandView allocation={allocation} onChange={setAllocation} />}
+            {view === 'command' && <>
+              <ConnectedView allocation={allocation} />
+              <CommandView allocation={allocation} onChange={setAllocation} />
+            </>}
             {view === 'cabinet' && <CabinetView />}
             {view === 'campaign' && <CampaignView />}
             {view === 'intel' && <IntelView />}
           </div>
           <footer className="foot">
-            <span>Myth Maker · framework v0.8.1 · P1 offline preview</span>
+            <span>Myth Maker · framework v0.8.1 · P6 connected offline prototype</span>
             <span>{OFFLINE_PILOT.jurisdiction} is the education jurisdiction, not the whole {COUNTRY_NAME} · {OFFLINE_PILOT.locale}</span>
           </footer>
         </main>

@@ -13,8 +13,11 @@ workspace = true
 [dependencies]
 myth-domain = { path = "../domain" }
 myth-contracts = { path = "../contracts" }
+myth-hiyal-adapter = { path = "../hiyal-adapter" }
 axum = "=0.8.6"
-tokio = { version = "=1.47.1", features = ["macros", "rt-multi-thread", "net"] }
+tokio = { version = "=1.47.1", features = ["macros", "rt-multi-thread", "net", "sync", "time"] }
 serde = { version = "=1.0.228", features = ["derive"] }
 serde_json = "=1.0.145"
 sha2 = "=0.10.9"
+futures-util = "=0.3.34"
+tower-http = { version = "=0.6.11", features = ["fs"] }

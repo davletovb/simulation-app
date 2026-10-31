@@ -403,6 +403,48 @@ impl GameWorld {
     pub fn verify(&self) -> Result<(), String> {
         self.verified_campaign().map(|_| ())
     }
+    /// P6 typed player intent, derived from the authoritative frozen world.
+    /// This is validated again by the world reducer and the existing P3
+    /// CommandEnvelope parser. It does not authorize minister actions.
+    pub fn selected_player_command(
+        &self,
+        command_id: &str,
+        body: Value,
+    ) -> Result<GameAction, String> {
+        if !myth_contracts::valid_public_id(command_id) {
+            return Err("invalid connected command ID".into());
+        }
+        let kind = body["kind"].as_str().ok_or("missing typed command kind")?;
+        let valid_phase = match (self.phase, kind) {
+            (Phase::QuarterOpen, "propose") => true,
+            (Phase::AmendmentWindow, "amend") => true,
+            (Phase::FinalPositionsFrozen, "ratify" | "defer")
+                if self.final_votes_this_meeting() == 3 =>
+            {
+                true
+            }
+            _ => false,
+        };
+        if !valid_phase {
+            return Err("player command not eligible at current phase".into());
+        }
+        if let Some(meeting) = body["meeting_id"].as_str()
+            && meeting != self.meeting_id()
+        {
+            return Err("command meeting differs from active meeting".into());
+        }
+        let mut selected = self.planned(PLAYER, &self.verified_campaign()?)?;
+        selected.kind = ActionKind::PlayerCommand;
+        selected.payload = json!({
+            "schema_version":1,
+            "campaign_id":self.campaign_id,
+            "command_id":command_id,
+            "expected_world_version":self.world_version,
+            "command":body,
+        });
+        parse_command(&selected.payload.to_string()).map_err(error)?;
+        Ok(selected)
+    }
     pub fn is_closed(&self) -> bool {
         self.phase == Phase::QuarterClosed
     }
@@ -597,7 +639,27 @@ impl World for GameWorld {
         let planned = self.planned(actor, &campaign)?;
         if action.model_receipt_digest.is_none() {
             if action != planned {
-                return Err("action differs from frozen typed observation".into());
+                if actor != PLAYER
+                    || action.kind != ActionKind::PlayerCommand
+                    || action.actor != planned.actor
+                    || action.observation_sha256 != planned.observation_sha256
+                    || action.role_observation.is_some()
+                    || action.payload["schema_version"] != 1
+                    || action.payload["campaign_id"] != self.campaign_id
+                    || action.payload["expected_world_version"] != self.world_version
+                {
+                    return Err("action differs from frozen typed observation".into());
+                }
+                // The game issues only a typed, phase-eligible player command;
+                // P3 will enforce budget, proposal version and funding rules.
+                let id = action.payload["command_id"]
+                    .as_str()
+                    .ok_or("missing connected command id")?;
+                let candidate =
+                    self.selected_player_command(id, action.payload["command"].clone())?;
+                if candidate != action {
+                    return Err("changed connected player command".into());
+                }
             }
         } else {
             let digest = action.model_receipt_digest.as_deref().unwrap_or_default();

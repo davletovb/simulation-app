@@ -37,8 +37,26 @@ pub struct GamePolicy {
     pub fail_once_after_receipt: Option<Arc<AtomicBool>>,
     pub fail_role_once: Option<(AgentId, Arc<AtomicBool>)>,
     pub live_route: Option<PinnedRoute>,
+    /// P6 one-step player intent. Never persisted as model instruction; the
+    /// committed typed action and Hiyal tool receipt carry the replay truth.
+    pub player_override: Option<GameAction>,
 }
 impl GamePolicy {
+    fn selected(&self, obs: &GameObservation) -> Result<GameAction, String> {
+        if obs.actor == PLAYER.0 as u8
+            && let Some(chosen) = &self.player_override
+        {
+            if chosen.actor != obs.actor
+                || chosen.observation_sha256 != obs.action.observation_sha256
+                || chosen.role_observation != obs.action.role_observation
+                || chosen.model_receipt_digest.is_some()
+            {
+                return Err("player command does not match frozen observation".into());
+            }
+            return Ok(chosen.clone());
+        }
+        Ok(obs.action.clone())
+    }
     fn specification(&self, obs: &GameObservation) -> Result<Vec<EffectSpec>, String> {
         if let Some(route) = &self.live_route
             && (1..=3).contains(&obs.actor)
@@ -78,10 +96,11 @@ impl GamePolicy {
                 })
                 .collect());
         }
-        if obs.action.kind != ActionKind::PlayerCommand || obs.actor != PLAYER.0 as u8 {
+        let selected = self.selected(obs)?;
+        if selected.kind != ActionKind::PlayerCommand || obs.actor != PLAYER.0 as u8 {
             return Ok(vec![]);
         }
-        let body = &obs.action.payload;
+        let body = &selected.payload;
         let id = body["command_id"]
             .as_str()
             .ok_or("player command id missing")?;
@@ -190,7 +209,7 @@ impl EffectPolicy<GameWorld> for GamePolicy {
         {
             panic!("P4 TEST FAILPOINT inside durable frozen minister round");
         }
-        Ok(obs.action.clone())
+        self.selected(obs)
     }
 }
 
@@ -308,6 +327,24 @@ pub struct GameTrial {
     live_admission: Option<Arc<SharedAdmissionBackend>>,
 }
 impl GameTrial {
+    pub fn select_player_command(
+        &mut self,
+        command_id: &str,
+        body: serde_json::Value,
+    ) -> Result<(), String> {
+        if self.live_admission.is_some() {
+            return Err("P6 typed commands disabled on paid trials until C' authorization".into());
+        }
+        let selected = self
+            .store
+            .world()
+            .selected_player_command(command_id, body)?;
+        self.policy.player_override = Some(selected);
+        Ok(())
+    }
+    pub fn clear_player_command(&mut self) {
+        self.policy.player_override = None;
+    }
     /// Keep the private scheduler mirror synchronized even when a caller
     /// invokes the public pause/resume methods outside `enable`.
     pub fn pause_actor(&mut self, actor: AgentId) -> Result<(), String> {
@@ -354,6 +391,20 @@ fn create_world(dir: &Path, name: &str, seed: u64, world: GameWorld) -> Result<G
 pub fn create(dir: &Path, name: &str, seed: u64) -> Result<GameTrial, String> {
     create_world(dir, name, seed, GameWorld::initial("p4-pilot")?)
 }
+/// P6 offline authoritatively scoped campaign. Unlike the fixed P4 test
+/// fixture, this binds each trial genesis to the caller's validated ID.
+pub fn create_campaign(
+    dir: &Path,
+    name: &str,
+    seed: u64,
+    campaign_id: &str,
+) -> Result<GameTrial, String> {
+    if !myth_contracts::valid_public_id(campaign_id) {
+        return Err("invalid P6 campaign id".into());
+    }
+    create_world(dir, name, seed, GameWorld::initial(campaign_id)?)
+}
+
 pub fn create_stress(dir: &Path, name: &str, seed: u64) -> Result<GameTrial, String> {
     create_world(dir, name, seed, GameWorld::stress("p4-pilot")?)
 }

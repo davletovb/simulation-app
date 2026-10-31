@@ -48,8 +48,7 @@ export function Briefing({ open, onClose }: { open: boolean; onClose: () => void
             </li>
           ))}
         </ol>
-        <p className="briefing-note"><Icon name="eye" size={16} />This build is an offline preview. You can explore the
-          rules and draft packages, but nothing is simulated, saved or sent to a model yet.</p>
+        <p className="briefing-note"><Icon name="eye" size={16} />This build contains a local, durable scripted simulation. You can submit typed proposals, negotiate with scripted ministers, inspect saved outcomes and fork verified decisions. No paid model calls are made.</p>
         <div className="briefing-foot">
           <span className="shortcuts"><kbd>1</kbd>–<kbd>4</kbd> views · <kbd>?</kbd> briefing · <kbd>Esc</kbd> close</span>
           <form method="dialog">

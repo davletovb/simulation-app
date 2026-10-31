@@ -692,3 +692,55 @@ input[type="range"]:focus-visible::-moz-range-thumb { box-shadow: 0 0 0 3px var(
   *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; scroll-behavior: auto !important; }
   .policy-card:hover, .policy-card.is-selected, .btn-primary:hover:not(:disabled) { transform: none; }
 }
+
+/* P6 connected service is opt-in, visually separate from the P1 static cards. */
+.connected-p6 { margin: 1rem 1.5rem 1.8rem; padding: 1.3rem; border: 1px solid var(--line, #656c76);
+  border-radius: 1.2rem; background: color-mix(in srgb, var(--surface, #172027) 92%, #65819e 8%); }
+.connected-head { display:flex; justify-content:space-between; align-items:flex-start; gap:1rem; }
+.connected-head h2 { margin: .25rem 0 .5rem; }
+.connected-status { padding:.35rem .7rem; font-size:.8rem; border:1px solid currentColor;
+  border-radius:1rem; }
+.connected-grid { display:grid; gap:.7rem; grid-template-columns:repeat(auto-fit,minmax(130px,1fr)); margin:1rem 0; }
+.connected-grid > div { display:flex; flex-direction:column; gap:.35rem; padding:.8rem;
+  border:1px solid #7775; border-radius:.6rem; overflow-wrap:anywhere; }
+.connected-grid small { opacity:.75; }
+.connected-summary { display:grid; gap:1rem; grid-template-columns:repeat(auto-fit,minmax(195px,1fr)); }
+.connected-summary h3 { margin:0 0 .5rem; }
+.connected-summary ul { padding-left:1.25rem; }
+.connected-summary li { margin-bottom:.35rem; text-transform:capitalize; }
+.connected-actions { display:flex; gap:.6rem; flex-wrap:wrap; margin-top:1rem; }
+.connected-actions button { cursor:pointer; border-radius:.6rem; padding:.65rem .9rem; }
+.connected-actions button:disabled { cursor:not-allowed; opacity:.6; }
+.connected-assumptions { opacity:.75; font-size:.85rem; margin:.8rem 0 0; overflow-wrap:anywhere; }
+.connected-error { color: #e59b9b; }
+@media(max-width:600px) { .connected-p6 {margin:.65rem 0 1rem;padding:.85rem} }
+
+/* P6 public-only reports. Existing visual tokens remain authoritative. */
+.connected-public {margin:1rem 0; padding:1.25rem; border:1px solid #8793a344; border-radius:1rem;}
+.connected-public-list {padding-left:1.5rem; line-height:1.7;}
+.connected-public-fiscal {display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:1rem;}
+.connected-public-fiscal div {min-width:0; overflow-wrap:anywhere;}
+.connected-public-fiscal dt {font-size:.8rem;opacity:.8;}
+.connected-public-fiscal dd {font-weight:600;margin:.25rem 0 0;}
+.connected-hash {font-family:ui-monospace,SFMono-Regular,monospace;font-size:.76rem;word-break:break-all;}
+
+/* P6-03: selective re-themed Base UI controls/dialog; local CSS only. */
+.p6-control {font:inherit;border:1px solid currentColor;border-radius:.65rem;
+  color:inherit;background:transparent;padding:.7rem 1rem;cursor:pointer;min-height:44px}
+.p6-control:hover {background:color-mix(in srgb,currentColor 8%,transparent)}
+.p6-control:focus-visible,.p6-exact-credit:focus-visible {outline:3px solid #8bc1ff;outline-offset:3px}
+.p6-control[data-disabled] {opacity:.55;cursor:not-allowed}
+.p6-control-primary {background:color-mix(in srgb, #3f89b4 55%, transparent);font-weight:650}
+.p6-dialog-backdrop {position:fixed;inset:0;background:#080e17c8;z-index:1100}
+.p6-dialog-popup {position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);
+  width:min(92vw,36rem);max-height:85vh;overflow:auto;padding:1.5rem;z-index:1101;
+  border:1px solid #8da5bd;border-radius:1rem;background:#1c2735;color:#f6f8fb;
+  box-shadow:0 1rem 3rem #0008}
+.p6-dialog-title {font-size:1.3rem;margin:.2rem 0 1rem}
+.p6-assumptions {display:grid;gap:.8rem;overflow-wrap:anywhere}
+.p6-assumptions dt {font-size:.83rem;color:#bbcedb}
+.p6-assumptions dd {margin:.2rem 0;font-weight:550}
+.p6-exact-credit {font:inherit;text-align:right;min-width:3.8rem;width:4.6rem;
+  border:1px solid #8095a7;border-radius:.4rem;color:inherit;background:transparent;padding:.25rem}
+.p6-exact-credit[aria-invalid="true"] {outline:2px solid #e58c8c}
+@media(prefers-reduced-motion:reduce){.p6-dialog-popup {scroll-behavior:auto}}
