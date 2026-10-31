@@ -399,11 +399,7 @@ pub fn create_campaign(
     seed: u64,
     campaign_id: &str,
 ) -> Result<GameTrial, String> {
-    if campaign_id.is_empty()
-        || campaign_id.len() > 64
-        || !campaign_id
-            .bytes()
-            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == b'-' || c == b'_')
+    if !myth_contracts::valid_public_id(campaign_id)
     {
         return Err("invalid P6 campaign id".into());
     }
