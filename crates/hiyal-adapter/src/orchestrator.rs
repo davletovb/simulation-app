@@ -237,12 +237,12 @@ pub struct GameTrial {
 impl GameTrial {
     /// Keep the private scheduler mirror synchronized even when a caller
     /// invokes the public pause/resume methods outside `enable`.
-    pub fn pause_actor(&mut self,actor:AgentId)->Result<(),String>{
+    pub fn pause_actor(&mut self, actor: AgentId) -> Result<(), String> {
         self.inner.pause_actor(actor)?;
         self.paused.insert(actor);
         Ok(())
     }
-    pub fn resume_actor(&mut self,actor:AgentId)->Result<(),String>{
+    pub fn resume_actor(&mut self, actor: AgentId) -> Result<(), String> {
         self.inner.resume_actor(actor)?;
         self.paused.remove(&actor);
         Ok(())
@@ -304,8 +304,11 @@ fn enable(trial: &mut GameTrial, allowed: &[AgentId]) -> Result<(), String> {
         let currently_paused = trial.paused.contains(&actor);
         let should_pause = !allowed.contains(&actor);
         if currently_paused != should_pause {
-            if should_pause {trial.pause_actor(actor)?;}
-            else {trial.resume_actor(actor)?;}
+            if should_pause {
+                trial.pause_actor(actor)?;
+            } else {
+                trial.resume_actor(actor)?;
+            }
         }
     }
     Ok(())
