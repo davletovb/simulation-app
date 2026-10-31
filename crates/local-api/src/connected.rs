@@ -2021,6 +2021,54 @@ mod tests {
         );
     }
     #[tokio::test]
+    async fn p7_two_fundable_resolutions_remain_distinct_when_programmes_continue() {
+        let dir = root();
+        let service = Connected::new(dir.clone()).unwrap();
+        let mut outcomes = Vec::new();
+        for (id, allocation) in [
+            ("balanced-campaign", WireAllocation { staff: 50, repairs: 40, access: 10 }),
+            ("staff-campaign", WireAllocation { staff: 60, repairs: 30, access: 10 }),
+        ] {
+            let mut serial = 0usize;
+            let mut step = |kind| {
+                serial += 1;
+                (kind, serial)
+            };
+            let (kind, n) = step(CommandKind::Propose { allocation });
+            accepted_step(&service, id, kind, n).await;
+            for _ in 0..3 {
+                let (kind, n) = step(CommandKind::AdvanceSlice);
+                accepted_step(&service, id, kind, n).await;
+            }
+            let view = service.owner(id).unwrap();
+            assert_eq!(
+                capture_for(&view.engine.lock().await.trial, id).unwrap().phase,
+                "FinalPositionsFrozen"
+            );
+            drop(view);
+            let (kind, n) = step(CommandKind::Decide { ratify: true });
+            let passed = accepted_step(&service, id, kind, n).await;
+            assert_eq!(passed.outcome.as_deref(), Some("ratified"));
+            let (kind, n) = step(CommandKind::AdvanceSlice);
+            assert_eq!(accepted_step(&service, id, kind, n).await.quarter, 2);
+            for quarter in 2..=6 {
+                let (kind, n) = step(CommandKind::ContinueQuarter);
+                let next = accepted_step(&service, id, kind, n).await;
+                assert_eq!(next.delivery_history.len(), quarter as usize);
+            }
+            let owner = service.owner(id).unwrap();
+            let snapshot = capture_for(&owner.engine.lock().await.trial, id).unwrap();
+            assert!(snapshot.closed);
+            assert_eq!(snapshot.delivery_history.len(), 6);
+            outcomes.push(snapshot.delivery_history[5].reported_cumulative);
+            drop(owner);
+        }
+        assert_ne!(outcomes[0], outcomes[1],
+            "distinct authorised policy allocations must give distinguishable public histories");
+        drop(service);
+        fs::remove_dir_all(dir).unwrap();
+    }
+    #[tokio::test]
     async fn p7_complete_scripted_campaign_reports_exactly_six_quarters_and_replays() {
         let dir = root();
         let service = Connected::new(dir.clone()).unwrap();
