@@ -2,7 +2,7 @@
 //! Read a stopped campaign from its exact Hiyal journal; no live backend or API key.
 use myth_hiyal_adapter::orchestrator::{inspect, resume};
 use serde_json::json;
-use std::path::Path;
+use std::{fs::OpenOptions, path::Path};
 
 fn run() -> Result<(), String> {
     let args: Vec<String> = std::env::args().collect();
@@ -10,6 +10,12 @@ fn run() -> Result<(), String> {
         return Err("usage: myth-report <private-hiyal-campaign-directory>".into());
     }
     let dir = Path::new(&args[1]);
+    let root = dir.parent().ok_or("campaign needs a containing private save root")?;
+    let lock = OpenOptions::new().read(true).write(true)
+        .open(root.join(".p6-writer.lock"))
+        .map_err(|_| "missing P6 writer lock: stop the API and inspect a managed save root")?;
+    lock.try_lock().map_err(|_| "local API holds the save writer lock; stop it before running myth-report")?;
+    // The OS lock remains held through inspection, replay and report output.
     // Complete read-only integrity verification occurs before any values
     // are printed. Replays use recorded actions/receipts without a provider.
     let (authoritative_hash, _journal_head, cursor) = inspect(dir)?;
@@ -69,7 +75,7 @@ fn run() -> Result<(), String> {
         .collect();
     let output = json!({
         "schema_version": 1,
-        "report_kind": "private_chair_offline_verified",
+        "report_kind": "privileged_operator_debug_verified",
         "campaign_id": world.campaign_id,
         "private_authoritative_sha256": authoritative_hash,
         "cursor": cursor.to_string(),
@@ -86,7 +92,7 @@ fn run() -> Result<(), String> {
         "audits": audits,
         "commitments": commitments,
         "public_quarterly_reports": reports,
-        "warning": "Private game report: do not publish in browser, SSE or public artefacts; simulated mechanisms are not evidence of real human behaviour.",
+        "warning": "PRIVILEGED OPERATOR DEBUG OUTPUT, NOT A CHAIR ROLE VIEW: includes private minister-to-minister commitments. Never publish in browser, SSE or public artefacts. Not evidence of real human behaviour.",
     });
     println!(
         "{}",
