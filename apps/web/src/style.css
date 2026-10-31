@@ -692,3 +692,25 @@ input[type="range"]:focus-visible::-moz-range-thumb { box-shadow: 0 0 0 3px var(
   *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; scroll-behavior: auto !important; }
   .policy-card:hover, .policy-card.is-selected, .btn-primary:hover:not(:disabled) { transform: none; }
 }
+
+/* P6 connected service is opt-in, visually separate from the P1 static cards. */
+.connected-p6 { margin: 1rem 1.5rem 1.8rem; padding: 1.3rem; border: 1px solid var(--line, #656c76);
+  border-radius: 1.2rem; background: color-mix(in srgb, var(--surface, #172027) 92%, #65819e 8%); }
+.connected-head { display:flex; justify-content:space-between; align-items:flex-start; gap:1rem; }
+.connected-head h2 { margin: .25rem 0 .5rem; }
+.connected-status { padding:.35rem .7rem; font-size:.8rem; border:1px solid currentColor;
+  border-radius:1rem; }
+.connected-grid { display:grid; gap:.7rem; grid-template-columns:repeat(auto-fit,minmax(130px,1fr)); margin:1rem 0; }
+.connected-grid > div { display:flex; flex-direction:column; gap:.35rem; padding:.8rem;
+  border:1px solid #7775; border-radius:.6rem; overflow-wrap:anywhere; }
+.connected-grid small { opacity:.75; }
+.connected-summary { display:grid; gap:1rem; grid-template-columns:repeat(auto-fit,minmax(195px,1fr)); }
+.connected-summary h3 { margin:0 0 .5rem; }
+.connected-summary ul { padding-left:1.25rem; }
+.connected-summary li { margin-bottom:.35rem; text-transform:capitalize; }
+.connected-actions { display:flex; gap:.6rem; flex-wrap:wrap; margin-top:1rem; }
+.connected-actions button { cursor:pointer; border-radius:.6rem; padding:.65rem .9rem; }
+.connected-actions button:disabled { cursor:not-allowed; opacity:.6; }
+.connected-assumptions { opacity:.75; font-size:.85rem; margin:.8rem 0 0; overflow-wrap:anywhere; }
+.connected-error { color: #e59b9b; }
+@media(max-width:600px) { .connected-p6 {margin:.65rem 0 1rem;padding:.85rem} }
