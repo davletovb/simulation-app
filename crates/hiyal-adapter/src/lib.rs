@@ -411,8 +411,7 @@ impl GameWorld {
         command_id: &str,
         body: Value,
     ) -> Result<GameAction, String> {
-        if !myth_contracts::valid_public_id(command_id)
-        {
+        if !myth_contracts::valid_public_id(command_id) {
             return Err("invalid connected command ID".into());
         }
         let kind = body["kind"].as_str().ok_or("missing typed command kind")?;
