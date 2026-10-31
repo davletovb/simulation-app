@@ -577,142 +577,216 @@ fn retry_file(dir: &Path) -> std::path::PathBuf {
     dir.join("p5-retry-authorizations.json")
 }
 fn read_retry_authorizations(dir: &Path) -> Result<RetryAuthorizations, String> {
-    let path=retry_file(dir);
+    let path = retry_file(dir);
     if !path.exists() {
-        return Ok(RetryAuthorizations{schema:1,entries:Vec::new()});
+        return Ok(RetryAuthorizations {
+            schema: 1,
+            entries: Vec::new(),
+        });
     }
-    let bytes=std::fs::read(path).map_err(|_| "cannot read private retry approvals")?;
-    if bytes.len()>65_536 {return Err("retry approvals exceed bound".into());}
-    let state:RetryAuthorizations=serde_json::from_slice(&bytes)
-        .map_err(|_| "invalid private retry approvals")?;
-    if state.schema!=1 || state.entries.len()>12 {
+    let bytes = std::fs::read(path).map_err(|_| "cannot read private retry approvals")?;
+    if bytes.len() > 65_536 {
+        return Err("retry approvals exceed bound".into());
+    }
+    let state: RetryAuthorizations =
+        serde_json::from_slice(&bytes).map_err(|_| "invalid private retry approvals")?;
+    if state.schema != 1 || state.entries.len() > 12 {
         return Err("invalid retry approval schema or count".into());
     }
     Ok(state)
 }
-fn retry_source(trial:&GameTrial, actor:AgentId) -> Result<Option<RetryAuthorization>,String> {
-    use hiyal::{core::World,storage::Outcome};
-    use sha2::{Digest,Sha256};
-    let world=trial.store.world();
-    if !matches!(world.phase,Phase::FirstPositionsFrozen|Phase::FinalPositionsFrozen)
-        || !world.remaining_ministers().contains(&actor) {
+fn retry_source(trial: &GameTrial, actor: AgentId) -> Result<Option<RetryAuthorization>, String> {
+    use hiyal::{core::World, storage::Outcome};
+    use sha2::{Digest, Sha256};
+    let world = trial.store.world();
+    if !matches!(
+        world.phase,
+        Phase::FirstPositionsFrozen | Phase::FinalPositionsFrozen
+    ) || !world.remaining_ministers().contains(&actor)
+    {
         return Ok(None);
     }
-    let observation=world.observe(actor)?;
-    let events=trial.store.read_events()?;
-    let freeze_sequence=events.iter().rev().find(|e|
-        e.actor==PLAYER && matches!(e.outcome,Outcome::Accepted{..}))
-        .map(|e|e.sequence()).ok_or("missing durable frozen player action")?;
-    let failed=events.iter().rev().find(|e|
-        e.actor==actor && e.sequence()>freeze_sequence
-            && matches!(e.outcome,Outcome::Rejected{..}));
-    let Some(failure)=failed else {return Ok(None)};
-    let prior=trial.effects.receipts().iter().find(|(key,receipt)|
-        key.agent_id==actor && key.logical_step==failure.sequence()
-            && matches!(receipt.result,EffectResult::Failed{..}|EffectResult::UnsupportedCapability{..}));
-    let Some((key,receipt))=prior else {
+    let observation = world.observe(actor)?;
+    let events = trial.store.read_events()?;
+    let freeze_sequence = events
+        .iter()
+        .rev()
+        .find(|e| e.actor == PLAYER && matches!(e.outcome, Outcome::Accepted { .. }))
+        .map(|e| e.sequence())
+        .ok_or("missing durable frozen player action")?;
+    let failed = events.iter().rev().find(|e| {
+        e.actor == actor
+            && e.sequence() > freeze_sequence
+            && matches!(e.outcome, Outcome::Rejected { .. })
+    });
+    let Some(failure) = failed else {
+        return Ok(None);
+    };
+    let prior = trial.effects.receipts().iter().find(|(key, receipt)| {
+        key.agent_id == actor
+            && key.logical_step == failure.sequence()
+            && matches!(
+                receipt.result,
+                EffectResult::Failed { .. } | EffectResult::UnsupportedCapability { .. }
+            )
+    });
+    let Some((key, receipt)) = prior else {
         // Invalid *typed* outputs require a separate per-action JSON repair
         // protocol, not an operational retry.
         return Err("rejected minister has no operationally failed keyed receipt");
     };
-    if *key != receipt.spec.key(&key.trial_id,key.logical_step,key.agent_id,key.call_index)? {
+    if *key
+        != receipt.spec.key(
+            &key.trial_id,
+            key.logical_step,
+            key.agent_id,
+            key.call_index,
+        )?
+    {
         return Err("prior retry receipt key mismatch");
     }
-    let EffectSpec::Model(model)=&receipt.spec else {
+    let EffectSpec::Model(model) = &receipt.spec else {
         return Err("failed minister receipt was not a model request");
     };
-    let source_request_sha256=format!("{:x}",Sha256::digest(
-        serde_json::to_vec(model).map_err(|_|"cannot hash failed model request")?));
-    Ok(Some(RetryAuthorization{
-        actor:actor.0,quarter:world.quarter,phase:world.phase,
-        frozen_observation_sha256:observation.action.observation_sha256.clone(),
-        source_event_hash:failure.hash.clone(),
-        source_receipt_hash:receipt.content_hash.clone(),
+    let source_request_sha256 = format!(
+        "{:x}",
+        Sha256::digest(serde_json::to_vec(model).map_err(|_| "cannot hash failed model request")?)
+    );
+    Ok(Some(RetryAuthorization {
+        actor: actor.0,
+        quarter: world.quarter,
+        phase: world.phase,
+        frozen_observation_sha256: observation.action.observation_sha256.clone(),
+        source_event_hash: failure.hash.clone(),
+        source_receipt_hash: receipt.content_hash.clone(),
         source_request_sha256,
     }))
 }
-fn persist_retry_authorizations(dir:&Path, state:&RetryAuthorizations)->Result<(),String> {
+fn persist_retry_authorizations(dir: &Path, state: &RetryAuthorizations) -> Result<(), String> {
     use std::io::Write;
-    let bytes=serde_json::to_vec(state).map_err(|_|"cannot encode retry approvals")?;
-    if bytes.len()>65_536 {return Err("retry approval history full");}
-    let tmp=dir.join("p5-retry-authorizations.new");
-    let mut file=std::fs::OpenOptions::new().write(true).create(true).truncate(true)
-        .open(&tmp).map_err(|_|"cannot stage retry authorization")?;
-    file.write_all(&bytes).map_err(|_|"cannot write retry authorization")?;
-    file.sync_all().map_err(|_|"cannot sync retry authorization")?;
-    std::fs::rename(&tmp,retry_file(dir)).map_err(|_|"cannot commit retry authorization")?;
+    let bytes = serde_json::to_vec(state).map_err(|_| "cannot encode retry approvals")?;
+    if bytes.len() > 65_536 {
+        return Err("retry approval history full");
+    }
+    let tmp = dir.join("p5-retry-authorizations.new");
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open(&tmp)
+        .map_err(|_| "cannot stage retry authorization")?;
+    file.write_all(&bytes)
+        .map_err(|_| "cannot write retry authorization")?;
+    file.sync_all()
+        .map_err(|_| "cannot sync retry authorization")?;
+    std::fs::rename(&tmp, retry_file(dir)).map_err(|_| "cannot commit retry authorization")?;
     #[cfg(unix)]
-    std::fs::File::open(dir).and_then(|f|f.sync_all())
-        .map_err(|_|"cannot sync retry directory")?;
+    std::fs::File::open(dir)
+        .and_then(|f| f.sync_all())
+        .map_err(|_| "cannot sync retry directory")?;
     Ok(())
 }
 /// A retry is player/operator-initiated, never scheduled automatically.
-pub fn authorize_failed_minister_retry(trial:&GameTrial,actor:AgentId)->Result<(),String>{
-    if trial.live_admission.is_none() {return Err("not a live governed trial".into());}
+pub fn authorize_failed_minister_retry(trial: &GameTrial, actor: AgentId) -> Result<(), String> {
+    if trial.live_admission.is_none() {
+        return Err("not a live governed trial".into());
+    }
     if trial.store.dir.join("pending-round.json").exists() {
         return Err("cannot authorize while frozen round is unfinished".into());
     }
     if !trial.store.world().remaining_ministers().contains(&actor) {
         return Err("actor has no failed, unfinished minister action".into());
     }
-    let source=retry_source(trial,actor)?.ok_or("no failed operational effect to retry")?;
-    let mut state=read_retry_authorizations(&trial.store.dir)?;
-    if state.entries.iter().any(|e|e.actor==source.actor
-        && e.source_event_hash==source.source_event_hash){
+    let source = retry_source(trial, actor)?.ok_or("no failed operational effect to retry")?;
+    let mut state = read_retry_authorizations(&trial.store.dir)?;
+    if state
+        .entries
+        .iter()
+        .any(|e| e.actor == source.actor && e.source_event_hash == source.source_event_hash)
+    {
         return Err("retry for this failed receipt already authorized");
     }
-    if state.entries.iter().filter(|e|e.quarter==source.quarter).count()>=2 {
+    if state
+        .entries
+        .iter()
+        .filter(|e| e.quarter == source.quarter)
+        .count()
+        >= 2
+    {
         return Err("quarterly manual operational retry cap reached");
     }
     state.entries.push(source);
-    persist_retry_authorizations(&trial.store.dir,&state)
+    persist_retry_authorizations(&trial.store.dir, &state)
 }
 /// Re-verify a saved paid response using ONLY the OpenRouter generation
 /// metadata GET. A successful certification is separately persisted by the
 /// transport. This call cannot send a new paid completion request.
 pub async fn certify_failed_minister_saved_completion(
-    trial:&GameTrial,actor:AgentId,
-    backend:&crate::p5_openrouter::OpenRouterBackend,
-)->Result<(),String>{
+    trial: &GameTrial,
+    actor: AgentId,
+    backend: &crate::p5_openrouter::OpenRouterBackend,
+) -> Result<(), String> {
     use hiyal::core::World;
-    let source=retry_source(trial,actor)?.ok_or("missing failed model source")?;
-    let state=read_retry_authorizations(&trial.store.dir)?;
-    if !state.entries.iter().any(|e|e.actor==source.actor
-        && e.quarter==source.quarter && e.phase==source.phase
-        && e.source_event_hash==source.source_event_hash
-        && e.source_receipt_hash==source.source_receipt_hash
-        && e.source_request_sha256==source.source_request_sha256
-        && e.frozen_observation_sha256==source.frozen_observation_sha256){
-        return Err("explicit durable retry authorization required before custody certification".into());
+    let source = retry_source(trial, actor)?.ok_or("missing failed model source")?;
+    let state = read_retry_authorizations(&trial.store.dir)?;
+    if !state.entries.iter().any(|e| {
+        e.actor == source.actor
+            && e.quarter == source.quarter
+            && e.phase == source.phase
+            && e.source_event_hash == source.source_event_hash
+            && e.source_receipt_hash == source.source_receipt_hash
+            && e.source_request_sha256 == source.source_request_sha256
+            && e.frozen_observation_sha256 == source.frozen_observation_sha256
+    }) {
+        return Err(
+            "explicit durable retry authorization required before custody certification".into(),
+        );
     }
-    let observation=trial.store.world().observe(actor)?;
-    let route=trial.policy.live_route.as_ref().ok_or("missing pinned live route")?;
-    let EffectSpec::Model(request)=p5_cabinet::request(&observation,route)? else {
+    let observation = trial.store.world().observe(actor)?;
+    let route = trial
+        .policy
+        .live_route
+        .as_ref()
+        .ok_or("missing pinned live route")?;
+    let EffectSpec::Model(request) = p5_cabinet::request(&observation, route)? else {
         return Err("minister reconstruction not a model request".into());
     };
-    use sha2::{Digest,Sha256};
-    let hash=format!("{:x}",Sha256::digest(
-        serde_json::to_vec(&request).map_err(|_|"cannot hash frozen retry request")?));
-    if hash!=source.source_request_sha256 {
+    use sha2::{Digest, Sha256};
+    let hash = format!(
+        "{:x}",
+        Sha256::digest(
+            serde_json::to_vec(&request).map_err(|_| "cannot hash frozen retry request")?
+        )
+    );
+    if hash != source.source_request_sha256 {
         return Err("frozen retry request differs from original paid response".into());
     }
     backend.certify_saved(&request).await
 }
-fn ensure_authorized_failed_ministers(trial:&GameTrial,actors:&[AgentId])->Result<(),String>{
-    if trial.live_admission.is_none(){return Ok(());}
-    let state=read_retry_authorizations(&trial.store.dir)?;
+fn ensure_authorized_failed_ministers(trial: &GameTrial, actors: &[AgentId]) -> Result<(), String> {
+    if trial.live_admission.is_none() {
+        return Ok(());
+    }
+    let state = read_retry_authorizations(&trial.store.dir)?;
     for &actor in actors {
-        if let Some(source)=retry_source(trial,actor)? {
-            let matching=state.entries.iter().filter(|auth|
-                auth.actor==source.actor
-                    && auth.quarter==source.quarter
-                    && auth.phase==source.phase
-                    && auth.frozen_observation_sha256==source.frozen_observation_sha256
-                    && auth.source_event_hash==source.source_event_hash
-                    && auth.source_receipt_hash==source.source_receipt_hash
-                    && auth.source_request_sha256==source.source_request_sha256).count();
-            if matching!=1 {
-                return Err("failed minister requires one explicit durable retry authorization".into());
+        if let Some(source) = retry_source(trial, actor)? {
+            let matching = state
+                .entries
+                .iter()
+                .filter(|auth| {
+                    auth.actor == source.actor
+                        && auth.quarter == source.quarter
+                        && auth.phase == source.phase
+                        && auth.frozen_observation_sha256 == source.frozen_observation_sha256
+                        && auth.source_event_hash == source.source_event_hash
+                        && auth.source_receipt_hash == source.source_receipt_hash
+                        && auth.source_request_sha256 == source.source_request_sha256
+                })
+                .count();
+            if matching != 1 {
+                return Err(
+                    "failed minister requires one explicit durable retry authorization".into(),
+                );
             }
         }
     }
@@ -783,7 +857,7 @@ pub async fn advance_slice(trial: &mut GameTrial) -> Result<bool, String> {
             if remaining.is_empty() {
                 return Err("cabinet has no remaining actions".into());
             }
-            ensure_authorized_failed_ministers(trial,&remaining)?;
+            ensure_authorized_failed_ministers(trial, &remaining)?;
             enable(trial, &remaining)?;
             let steps = trial.run_round(remaining.len()).await?;
             for step in steps {
@@ -1368,12 +1442,17 @@ mod tests {
     }
     struct FailFinanceOnce(std::sync::atomic::AtomicBool);
     impl Backend for FailFinanceOnce {
-        fn resolve<'a>(&'a self,spec:&'a EffectSpec)->BoxResult<'a>{
+        fn resolve<'a>(&'a self, spec: &'a EffectSpec) -> BoxResult<'a> {
             Box::pin(async move {
-                if let EffectSpec::Model(model)=spec {
-                    let content=model.messages.last().map(|x|x.content.as_str()).unwrap_or("");
+                if let EffectSpec::Model(model) = spec {
+                    let content = model
+                        .messages
+                        .last()
+                        .map(|x| x.content.as_str())
+                        .unwrap_or("");
                     if content.contains(r#""ministry":"finance""#)
-                        && self.0.swap(false,Ordering::SeqCst) {
+                        && self.0.swap(false, Ordering::SeqCst)
+                    {
                         return Err("fixture network timeout after potential billing".into());
                     }
                 }
@@ -1383,42 +1462,62 @@ mod tests {
     }
     #[tokio::test]
     async fn failed_seat_requires_manual_durable_authorization_and_new_key() {
-        let path=temp("p5-manual-retry");
-        let allowance_path=temp("p5-retry-allowance");
-        let ledger=Arc::new(std::sync::Mutex::new(
-            Allowance::open(&allowance_path,"retry-owner").unwrap()));
-        let provider:Arc<dyn Backend>=Arc::new(FailFinanceOnce(
-            std::sync::atomic::AtomicBool::new(true)));
-        let route=PinnedRoute{
-            model:"test/model".into(),provider:"test-provider".into(),
-            input_micro_usd_per_million:1_000_000,
-            output_micro_usd_per_million:5_000_000,
-            reasoning_disabled:true,reasoning_parameter_supported:false,response_model:None,
+        let path = temp("p5-manual-retry");
+        let allowance_path = temp("p5-retry-allowance");
+        let ledger = Arc::new(std::sync::Mutex::new(
+            Allowance::open(&allowance_path, "retry-owner").unwrap(),
+        ));
+        let provider: Arc<dyn Backend> =
+            Arc::new(FailFinanceOnce(std::sync::atomic::AtomicBool::new(true)));
+        let route = PinnedRoute {
+            model: "test/model".into(),
+            provider: "test-provider".into(),
+            input_micro_usd_per_million: 1_000_000,
+            output_micro_usd_per_million: 5_000_000,
+            reasoning_disabled: true,
+            reasoning_parameter_supported: false,
+            response_model: None,
         };
-        let mut trial=create_live(&path,"retry",31,"retry-campaign",route.clone(),
-            ledger.clone(),provider.clone()).unwrap();
+        let mut trial = create_live(
+            &path,
+            "retry",
+            31,
+            "retry-campaign",
+            route.clone(),
+            ledger.clone(),
+            provider.clone(),
+        )
+        .unwrap();
         advance_slice(&mut trial).await.unwrap(); // first frozen observation
         assert!(advance_slice(&mut trial).await.is_err()); // three minister effects; one fails
-        let old_receipts=trial.effects.receipts().len();
-        let old_reservations=ledger.lock().unwrap().calls().len();
-        assert_eq!(old_reservations,3);
+        let old_receipts = trial.effects.receipts().len();
+        let old_reservations = ledger.lock().unwrap().calls().len();
+        assert_eq!(old_reservations, 3);
         assert!(advance_slice(&mut trial).await.is_err()); // no operator authorization; no dispatch
-        assert_eq!(old_receipts,trial.effects.receipts().len());
-        assert_eq!(old_reservations,ledger.lock().unwrap().calls().len());
-        assert!(authorize_failed_minister_retry(&trial,crate::EDUCATION).is_err());
-        authorize_failed_minister_retry(&trial,crate::FINANCE).unwrap();
-        assert!(authorize_failed_minister_retry(&trial,crate::FINANCE).is_err());
+        assert_eq!(old_receipts, trial.effects.receipts().len());
+        assert_eq!(old_reservations, ledger.lock().unwrap().calls().len());
+        assert!(authorize_failed_minister_retry(&trial, crate::EDUCATION).is_err());
+        authorize_failed_minister_retry(&trial, crate::FINANCE).unwrap();
+        assert!(authorize_failed_minister_retry(&trial, crate::FINANCE).is_err());
         drop(trial);
-        let mut reopened=resume_live(&path,false,route,ledger.clone(),provider).unwrap();
-        assert_eq!(old_reservations,ledger.lock().unwrap().calls().len());
+        let mut reopened = resume_live(&path, false, route, ledger.clone(), provider).unwrap();
+        assert_eq!(old_reservations, ledger.lock().unwrap().calls().len());
         advance_slice(&mut reopened).await.unwrap();
-        assert_eq!(reopened.store.world().phase,Phase::AmendmentWindow);
-        assert_eq!(ledger.lock().unwrap().calls().len(),old_reservations+1);
-        let finance_receipts:Vec<_>=reopened.effects.receipts().keys()
-            .filter(|k|k.agent_id==crate::FINANCE).collect();
-        assert_eq!(finance_receipts.len(),2);
-        assert_ne!(finance_receipts[0].logical_step,finance_receipts[1].logical_step);
-        drop(reopened);drop(ledger);
+        assert_eq!(reopened.store.world().phase, Phase::AmendmentWindow);
+        assert_eq!(ledger.lock().unwrap().calls().len(), old_reservations + 1);
+        let finance_receipts: Vec<_> = reopened
+            .effects
+            .receipts()
+            .keys()
+            .filter(|k| k.agent_id == crate::FINANCE)
+            .collect();
+        assert_eq!(finance_receipts.len(), 2);
+        assert_ne!(
+            finance_receipts[0].logical_step,
+            finance_receipts[1].logical_step
+        );
+        drop(reopened);
+        drop(ledger);
         assert!(inspect(&path).is_ok());
         std::fs::remove_dir_all(path).unwrap();
         std::fs::remove_dir_all(allowance_path).unwrap();

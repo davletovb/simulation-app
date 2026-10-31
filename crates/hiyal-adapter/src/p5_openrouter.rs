@@ -66,135 +66,178 @@ impl OpenRouterBackend {
         self.custody_dir = Some(trial_dir.join("p5-completion-custody"));
         self
     }
-    fn request_digest(request: &ModelRequest) -> Result<String,String> {
-        let bytes=serde_json::to_vec(request).map_err(|_|"cannot hash model request")?;
-        Ok(format!("{:x}",Sha256::digest(bytes)))
+    fn request_digest(request: &ModelRequest) -> Result<String, String> {
+        let bytes = serde_json::to_vec(request).map_err(|_| "cannot hash model request")?;
+        Ok(format!("{:x}", Sha256::digest(bytes)))
     }
-    fn custody(&self) -> Result<&Path,String> {
-        self.custody_dir.as_deref().ok_or("private completion custody not configured".into())
+    fn custody(&self) -> Result<&Path, String> {
+        self.custody_dir
+            .as_deref()
+            .ok_or("private completion custody not configured".into())
     }
-    fn raw_path(&self,request_hash:&str,raw_hash:&str) -> Result<PathBuf,String> {
-        Ok(self.custody()?.join(format!("{request_hash}-{raw_hash}.json")))
+    fn raw_path(&self, request_hash: &str, raw_hash: &str) -> Result<PathBuf, String> {
+        Ok(self
+            .custody()?
+            .join(format!("{request_hash}-{raw_hash}.json")))
     }
-    fn candidate_raw(&self,request:&ModelRequest)->Result<Option<(String,Vec<u8>)>,String>{
-        let dir=self.custody()?;
-        if !dir.exists(){return Ok(None);}
-        let request_hash=Self::request_digest(request)?;
-        let mut found=None;
-        for entry in fs::read_dir(dir).map_err(|_|"cannot list completion custody")? {
-            let entry=entry.map_err(|_|"cannot inspect completion custody")?;
-            let name=entry.file_name().to_string_lossy().into_owned();
-            if name.len()==69 && name.ends_with(".json")
-                && name[..64].bytes().all(|b|b.is_ascii_hexdigit()) {
-                return Err("legacy unbound paid completion exists; manual custody migration required".into());
+    fn candidate_raw(&self, request: &ModelRequest) -> Result<Option<(String, Vec<u8>)>, String> {
+        let dir = self.custody()?;
+        if !dir.exists() {
+            return Ok(None);
+        }
+        let request_hash = Self::request_digest(request)?;
+        let mut found = None;
+        for entry in fs::read_dir(dir).map_err(|_| "cannot list completion custody")? {
+            let entry = entry.map_err(|_| "cannot inspect completion custody")?;
+            let name = entry.file_name().to_string_lossy().into_owned();
+            if name.len() == 69
+                && name.ends_with(".json")
+                && name[..64].bytes().all(|b| b.is_ascii_hexdigit())
+            {
+                return Err(
+                    "legacy unbound paid completion exists; manual custody migration required"
+                        .into(),
+                );
             }
-            if !name.starts_with(&format!("{request_hash}-")) || !name.ends_with(".json"){
+            if !name.starts_with(&format!("{request_hash}-")) || !name.ends_with(".json") {
                 continue;
             }
-            let raw_hash=name.strip_prefix(&format!("{request_hash}-"))
-                .and_then(|s|s.strip_suffix(".json")).ok_or("invalid custody filename")?;
-            if raw_hash.len()!=64 || !raw_hash.bytes().all(|b|b.is_ascii_hexdigit()){
+            let raw_hash = name
+                .strip_prefix(&format!("{request_hash}-"))
+                .and_then(|s| s.strip_suffix(".json"))
+                .ok_or("invalid custody filename")?;
+            if raw_hash.len() != 64 || !raw_hash.bytes().all(|b| b.is_ascii_hexdigit()) {
                 return Err("invalid paid completion custody filename".into());
             }
-            if found.is_some(){return Err("multiple paid completions for one request; fail closed".into());}
-            let bytes=fs::read(entry.path()).map_err(|_|"cannot recover paid completion")?;
-            if bytes.len()>RESPONSE_LIMIT || format!("{:x}",Sha256::digest(&bytes))!=raw_hash {
+            if found.is_some() {
+                return Err("multiple paid completions for one request; fail closed".into());
+            }
+            let bytes = fs::read(entry.path()).map_err(|_| "cannot recover paid completion")?;
+            if bytes.len() > RESPONSE_LIMIT || format!("{:x}", Sha256::digest(&bytes)) != raw_hash {
                 return Err("paid completion custody checksum mismatch".into());
             }
-            found=Some((raw_hash.to_owned(),bytes));
+            found = Some((raw_hash.to_owned(), bytes));
         }
         Ok(found)
     }
-    fn approved_saved(&self,request:&ModelRequest)->Result<Option<EffectResult>,String>{
-        let Some((raw_hash,bytes))=self.candidate_raw(request)? else {return Ok(None);};
-        let digest=Self::request_digest(request)?;
-        let approved=self.custody()?.join(format!("{digest}.approved"));
+    fn approved_saved(&self, request: &ModelRequest) -> Result<Option<EffectResult>, String> {
+        let Some((raw_hash, bytes)) = self.candidate_raw(request)? else {
+            return Ok(None);
+        };
+        let digest = Self::request_digest(request)?;
+        let approved = self.custody()?.join(format!("{digest}.approved"));
         if !approved.exists() {
             return Err("already-paid completion requires manual metadata certification; refusing another POST".into());
         }
-        let approved_bytes=fs::read(approved).map_err(|_|"cannot read approved completion")?;
-        let value:Value=serde_json::from_slice(&approved_bytes)
-            .map_err(|_|"invalid approved completion record")?;
-        let route_hash=format!("{:x}",Sha256::digest(
-            serde_json::to_vec(&self.route).map_err(|_|"cannot hash route")?));
-        if value["schema"]!=1 || value["request_sha256"]!=digest
-            || value["raw_sha256"]!=raw_hash || value["route_sha256"]!=route_hash {
+        let approved_bytes = fs::read(approved).map_err(|_| "cannot read approved completion")?;
+        let value: Value = serde_json::from_slice(&approved_bytes)
+            .map_err(|_| "invalid approved completion record")?;
+        let route_hash = format!(
+            "{:x}",
+            Sha256::digest(serde_json::to_vec(&self.route).map_err(|_| "cannot hash route")?)
+        );
+        if value["schema"] != 1
+            || value["request_sha256"] != digest
+            || value["raw_sha256"] != raw_hash
+            || value["route_sha256"] != route_hash
+        {
             return Err("approved completion route or hash mismatch".into());
         }
-        let response:Value=serde_json::from_slice(&bytes).map_err(|_|"malformed saved completion")?;
-        let (result,_)=parse_completion(&response,self.route.echoed_model())?;
+        let response: Value =
+            serde_json::from_slice(&bytes).map_err(|_| "malformed saved completion")?;
+        let (result, _) = parse_completion(&response, self.route.echoed_model())?;
         match result {
-            EffectResult::Model{content,usage,..}=>Ok(Some(EffectResult::Model{
-                content,usage,effective_model:self.route.model.clone()
+            EffectResult::Model { content, usage, .. } => Ok(Some(EffectResult::Model {
+                content,
+                usage,
+                effective_model: self.route.model.clone(),
             })),
-            _=>Err("approved completion not a model result".into())
+            _ => Err("approved completion not a model result".into()),
         }
     }
     /// Manual, non-billable generation-metadata GET and durable certification
     /// of the exact saved POST response; never calls the paid POST endpoint.
-    pub async fn certify_saved(&self,request:&ModelRequest)->Result<(),String>{
+    pub async fn certify_saved(&self, request: &ModelRequest) -> Result<(), String> {
         self.request_body(request)?;
-        let Some((raw_hash,bytes))=self.candidate_raw(request)? else {
+        let Some((raw_hash, bytes)) = self.candidate_raw(request)? else {
             return Err("no saved paid completion matches frozen request".into());
         };
-        let value:Value=serde_json::from_slice(&bytes).map_err(|_|"malformed saved completion")?;
-        let (_,generation)=parse_completion(&value,self.route.echoed_model())?;
+        let value: Value =
+            serde_json::from_slice(&bytes).map_err(|_| "malformed saved completion")?;
+        let (_, generation) = parse_completion(&value, self.route.echoed_model())?;
         self.verify_generation(&generation).await?;
-        let digest=Self::request_digest(request)?;
-        let route_hash=format!("{:x}",Sha256::digest(
-            serde_json::to_vec(&self.route).map_err(|_|"cannot hash route")?));
-        let approval=json!({"schema":1,"request_sha256":digest,
+        let digest = Self::request_digest(request)?;
+        let route_hash = format!(
+            "{:x}",
+            Sha256::digest(serde_json::to_vec(&self.route).map_err(|_| "cannot hash route")?)
+        );
+        let approval = json!({"schema":1,"request_sha256":digest,
             "raw_sha256":raw_hash,"route_sha256":route_hash});
-        let bytes=serde_json::to_vec(&approval).map_err(|_|"cannot encode saved approval")?;
-        let dir=self.custody()?;
-        let dst=dir.join(format!("{digest}.approved"));
-        if dst.exists(){
-            if fs::read(dst).map_err(|_|"cannot check existing approval")?!=bytes{
+        let bytes = serde_json::to_vec(&approval).map_err(|_| "cannot encode saved approval")?;
+        let dir = self.custody()?;
+        let dst = dir.join(format!("{digest}.approved"));
+        if dst.exists() {
+            if fs::read(dst).map_err(|_| "cannot check existing approval")? != bytes {
                 return Err("existing saved approval differs; refusing overwrite".into());
             }
             return Ok(());
         }
-        let temp=dir.join(format!("{digest}.approval-new"));
-        let mut file=OpenOptions::new().write(true).create_new(true).open(&temp)
-            .map_err(|_|"cannot stage paid completion approval")?;
-        file.write_all(&bytes).map_err(|_|"cannot write paid completion approval")?;
-        file.sync_all().map_err(|_|"cannot sync paid completion approval")?;
-        fs::rename(&temp,&dst).map_err(|_|"cannot commit paid completion approval")?;
+        let temp = dir.join(format!("{digest}.approval-new"));
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&temp)
+            .map_err(|_| "cannot stage paid completion approval")?;
+        file.write_all(&bytes)
+            .map_err(|_| "cannot write paid completion approval")?;
+        file.sync_all()
+            .map_err(|_| "cannot sync paid completion approval")?;
+        fs::rename(&temp, &dst).map_err(|_| "cannot commit paid completion approval")?;
         #[cfg(unix)]
-        fs::File::open(dir).and_then(|f|f.sync_all())
-            .map_err(|_|"cannot sync approval directory")?;
+        fs::File::open(dir)
+            .and_then(|f| f.sync_all())
+            .map_err(|_| "cannot sync approval directory")?;
         Ok(())
     }
-    fn preserve_completion(&self,request:&ModelRequest,bytes:&[u8])->Result<(),String>{
-        let dir=self.custody()?;
-        if !dir.parent().is_some_and(|p|p.join("manifest.json").is_file()){
+    fn preserve_completion(&self, request: &ModelRequest, bytes: &[u8]) -> Result<(), String> {
+        let dir = self.custody()?;
+        if !dir
+            .parent()
+            .is_some_and(|p| p.join("manifest.json").is_file())
+        {
             return Err("trial not initialized for provider completion custody".into());
         }
-        fs::create_dir_all(dir).map_err(|_|"cannot initialize private completion custody")?;
+        fs::create_dir_all(dir).map_err(|_| "cannot initialize private completion custody")?;
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            fs::set_permissions(dir,fs::Permissions::from_mode(0o700))
-                .map_err(|_|"cannot protect completion custody")?;
+            fs::set_permissions(dir, fs::Permissions::from_mode(0o700))
+                .map_err(|_| "cannot protect completion custody")?;
         }
-        let raw_hash=format!("{:x}",Sha256::digest(bytes));
-        let request_hash=Self::request_digest(request)?;
-        let target=self.raw_path(&request_hash,&raw_hash)?;
-        if target.exists(){
-            if fs::read(&target).map_err(|_|"cannot recheck saved completion")?!=bytes {
+        let raw_hash = format!("{:x}", Sha256::digest(bytes));
+        let request_hash = Self::request_digest(request)?;
+        let target = self.raw_path(&request_hash, &raw_hash)?;
+        if target.exists() {
+            if fs::read(&target).map_err(|_| "cannot recheck saved completion")? != bytes {
                 return Err("saved completion hash collision or corruption".into());
             }
             return Ok(());
         }
-        let temp=dir.join(format!("{request_hash}-{raw_hash}.tmp"));
-        let mut file=OpenOptions::new().write(true).create_new(true).open(&temp)
-            .map_err(|_|"cannot create durable completion custody")?;
-        file.write_all(bytes).map_err(|_|"cannot write durable completion")?;
-        file.sync_all().map_err(|_|"cannot sync durable completion")?;
-        fs::rename(temp,target).map_err(|_|"cannot publish durable completion")?;
+        let temp = dir.join(format!("{request_hash}-{raw_hash}.tmp"));
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&temp)
+            .map_err(|_| "cannot create durable completion custody")?;
+        file.write_all(bytes)
+            .map_err(|_| "cannot write durable completion")?;
+        file.sync_all()
+            .map_err(|_| "cannot sync durable completion")?;
+        fs::rename(temp, target).map_err(|_| "cannot publish durable completion")?;
         #[cfg(unix)]
-        fs::File::open(dir).and_then(|f|f.sync_all())
-            .map_err(|_|"cannot sync completion directory")?;
+        fs::File::open(dir)
+            .and_then(|f| f.sync_all())
+            .map_err(|_| "cannot sync completion directory")?;
         Ok(())
     }
     fn request_body(&self, request: &ModelRequest) -> Result<Value, String> {
@@ -430,7 +473,7 @@ impl Backend for OpenRouterBackend {
             if self.custody_dir.is_none() {
                 return Err("private completion custody must be configured before POST".into());
             }
-            if let Some(saved)=self.approved_saved(request)? {
+            if let Some(saved) = self.approved_saved(request)? {
                 // No paid request. Hiyal continues to conservatively meter
                 // this reconstructed effect; the original charge is retained.
                 return Ok(saved);
@@ -450,7 +493,7 @@ impl Backend for OpenRouterBackend {
             let bytes = bounded_bytes(response).await?;
             // This fsync precedes all schema/identity/generation checks.
             // Never put raw model output in error text or a public log.
-            self.preserve_completion(request,&bytes)?;
+            self.preserve_completion(request, &bytes)?;
             let value: Value = serde_json::from_slice(&bytes)
                 .map_err(|_| "malformed provider response; charge unknown")?;
             let (output, generation) = parse_completion(&value, self.route.echoed_model())?;
@@ -475,44 +518,69 @@ impl Backend for OpenRouterBackend {
 mod tests {
     use super::*;
 
-    fn dummy_request()->ModelRequest {
-        use hiyal::effects::{Message,Sampling};
+    fn dummy_request() -> ModelRequest {
+        use hiyal::effects::{Message, Sampling};
         ModelRequest {
-            provider:"openrouter".into(),model:"test/model".into(),
-            resolved_model_version:Some("test-provider".into()),
-            messages:vec![Message{role:Role::User,content:"frozen test observation".into(),tool_call_id:None}],
-            sampling:Sampling{temperature:Some(0.0),top_p:None,seed:None,max_output_tokens:Some(400)},
-            tool_schemas:vec![],streaming:false,
-            response_format:Some(json!({"type":"json_schema",
+            provider: "openrouter".into(),
+            model: "test/model".into(),
+            resolved_model_version: Some("test-provider".into()),
+            messages: vec![Message {
+                role: Role::User,
+                content: "frozen test observation".into(),
+                tool_call_id: None,
+            }],
+            sampling: Sampling {
+                temperature: Some(0.0),
+                top_p: None,
+                seed: None,
+                max_output_tokens: Some(400),
+            },
+            tool_schemas: vec![],
+            streaming: false,
+            response_format: Some(json!({"type":"json_schema",
                 "json_schema":{"strict":true,"name":"test","schema":{"type":"object"}}})),
         }
     }
     #[test]
     fn old_or_unverified_paid_custody_never_triggers_a_second_post() {
-        let dir=std::env::temp_dir().join(format!("p5-failclosed-custody-{}",std::process::id()));
-        let _=fs::remove_dir_all(&dir);fs::create_dir_all(&dir).unwrap();
-        fs::write(dir.join("manifest.json"),b"fixture").unwrap();
-        let backend=OpenRouterBackend{
-            client:Client::new(),secret:"fake".into(),
-            route:PinnedRoute{
-                model:"test/model".into(),provider:"test-provider".into(),
-                input_micro_usd_per_million:1_000_000,
-                output_micro_usd_per_million:5_000_000,
-                reasoning_disabled:true,reasoning_parameter_supported:false,response_model:None,
+        let dir =
+            std::env::temp_dir().join(format!("p5-failclosed-custody-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("manifest.json"), b"fixture").unwrap();
+        let backend = OpenRouterBackend {
+            client: Client::new(),
+            secret: "fake".into(),
+            route: PinnedRoute {
+                model: "test/model".into(),
+                provider: "test-provider".into(),
+                input_micro_usd_per_million: 1_000_000,
+                output_micro_usd_per_million: 5_000_000,
+                reasoning_disabled: true,
+                reasoning_parameter_supported: false,
+                response_model: None,
             },
-            custody_dir:Some(dir.join("p5-completion-custody")),
+            custody_dir: Some(dir.join("p5-completion-custody")),
         };
-        let raw=serde_json::to_vec(&json!({"id":"gen-123","model":"test/model",
-            "choices":[{"finish_reason":"stop","message":{"content":"{}"}}]})).unwrap();
-        backend.preserve_completion(&dummy_request(),&raw).unwrap();
+        let raw = serde_json::to_vec(&json!({"id":"gen-123","model":"test/model",
+            "choices":[{"finish_reason":"stop","message":{"content":"{}"}}]}))
+        .unwrap();
+        backend.preserve_completion(&dummy_request(), &raw).unwrap();
         assert!(backend.approved_saved(&dummy_request()).is_err());
-        let hash=OpenRouterBackend::request_digest(&dummy_request()).unwrap();
-        let raw_hash=format!("{:x}",Sha256::digest(&raw));
-        let route_hash=format!("{:x}",Sha256::digest(serde_json::to_vec(&backend.route).unwrap()));
-        let approved=json!({"schema":1,"request_sha256":hash,"raw_sha256":raw_hash,
+        let hash = OpenRouterBackend::request_digest(&dummy_request()).unwrap();
+        let raw_hash = format!("{:x}", Sha256::digest(&raw));
+        let route_hash = format!(
+            "{:x}",
+            Sha256::digest(serde_json::to_vec(&backend.route).unwrap())
+        );
+        let approved = json!({"schema":1,"request_sha256":hash,"raw_sha256":raw_hash,
             "route_sha256":route_hash});
-        fs::write(dir.join("p5-completion-custody").join(format!("{hash}.approved")),
-            serde_json::to_vec(&approved).unwrap()).unwrap();
+        fs::write(
+            dir.join("p5-completion-custody")
+                .join(format!("{hash}.approved")),
+            serde_json::to_vec(&approved).unwrap(),
+        )
+        .unwrap();
         assert!(backend.approved_saved(&dummy_request()).unwrap().is_some());
         fs::remove_dir_all(&dir).unwrap();
     }
@@ -578,7 +646,7 @@ mod tests {
         let raw = serde_json::to_vec(&json!({"id":"gen-1","model":"test/model",
             "choices":[{"message":{"content":"{}"}}]}))
         .unwrap();
-        backend.preserve_completion(&dummy_request(),&raw).unwrap();
+        backend.preserve_completion(&dummy_request(), &raw).unwrap();
         let files: Vec<_> = std::fs::read_dir(dir.join("p5-completion-custody"))
             .unwrap()
             .map(|f| f.unwrap().path())

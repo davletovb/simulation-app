@@ -134,20 +134,32 @@ async fn run(trial_dir: &Path, ledger_dir: &Path, installation: &str) -> Result<
     Ok(())
 }
 fn recovered_trial(
-    trial_dir:&Path,ledger_dir:&Path,installation:&str,
-)->Result<(myth_hiyal_adapter::orchestrator::GameTrial,PinnedRoute),String>{
-    use myth_hiyal_adapter::orchestrator::{resume_live,PlayerCommandTool};
-    let bytes=std::fs::read(trial_dir.join("p5-route.json"))
-        .map_err(|_|"missing immutable trial route")?;
-    let route:PinnedRoute=serde_json::from_slice(&bytes)
-        .map_err(|_|"invalid immutable trial route")?;
-    let ledger=Arc::new(Mutex::new(Allowance::open(ledger_dir,installation)?));
-    let trial=resume_live(trial_dir,true,route.clone(),ledger,Arc::new(PlayerCommandTool))?;
-    Ok((trial,route))
+    trial_dir: &Path,
+    ledger_dir: &Path,
+    installation: &str,
+) -> Result<(myth_hiyal_adapter::orchestrator::GameTrial, PinnedRoute), String> {
+    use myth_hiyal_adapter::orchestrator::{PlayerCommandTool, resume_live};
+    let bytes = std::fs::read(trial_dir.join("p5-route.json"))
+        .map_err(|_| "missing immutable trial route")?;
+    let route: PinnedRoute =
+        serde_json::from_slice(&bytes).map_err(|_| "invalid immutable trial route")?;
+    let ledger = Arc::new(Mutex::new(Allowance::open(ledger_dir, installation)?));
+    let trial = resume_live(
+        trial_dir,
+        true,
+        route.clone(),
+        ledger,
+        Arc::new(PlayerCommandTool),
+    )?;
+    Ok((trial, route))
 }
-fn seat_id(value:&str)->Result<hiyal::core::AgentId,String>{
-    let seat=match value {"finance"=>1,"education"=>2,"infrastructure"=>3,
-        _=>return Err("expected finance|education|infrastructure seat".into())};
+fn seat_id(value: &str) -> Result<hiyal::core::AgentId, String> {
+    let seat = match value {
+        "finance" => 1,
+        "education" => 2,
+        "infrastructure" => 3,
+        _ => return Err("expected finance|education|infrastructure seat".into()),
+    };
     Ok(hiyal::core::AgentId(seat))
 }
 async fn entry() -> Result<(), String> {
