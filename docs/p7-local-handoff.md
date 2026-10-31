@@ -19,7 +19,7 @@ Navigate to `http://127.0.0.1:8787/?campaign=demo-england`. A Q1 programme can a
 
 ## Strict local inspection and privileged operator history
 
-**Stop the API server first** to avoid competing with the exclusive Hiyal writer, then run:
+**Stop the API server first**: the CLI now takes the same exclusive save-root OS writer lock as the API and refuses to inspect while the API owns it. Then run:
 
 ```sh
 cargo +1.99.1 run --locked -p myth-local-api --bin myth-report -- \

@@ -2155,7 +2155,7 @@ mod tests {
         assert_eq!(later.news[0].kind, "real_source_update");
         assert_eq!(later.news[2].kind, "fictional_simulation_news");
         assert_eq!(later.comparison.mode, "primary_campaign");
-        assert!(later.comparison.post_fork_actor_actions_fixed);
+        assert!(!later.comparison.post_fork_actor_actions_fixed);
         assert!(later.proposal.is_none());
         assert!(later.votes.is_empty());
         let payload = serde_json::to_string(&later).unwrap();
@@ -2282,6 +2282,17 @@ mod tests {
                 let chosen = accepted_step(&service, id, kind, n).await;
                 assert!(chosen.continuation_pending);
                 assert_eq!(chosen.delivery_history.len(), quarter as usize - 1);
+                let owner = service.owner(id).unwrap();
+                let engine = owner.engine.lock().await;
+                let world = engine.trial.store.world();
+                assert!(world.continuation_pending());
+                assert!(world.selected_player_command("sneaky", json!({
+                    "kind":"propose", "meeting_id": format!("q{}", world.quarter),
+                    "allocation":{"staff":0,"repairs":0,"access":0}
+                })).is_err());
+                inspect(&engine.trial.store.dir).unwrap();
+                drop(engine);
+                drop(owner);
                 let (kind, n) = step(CommandKind::FinishContinuation);
                 let next = accepted_step(&service, id, kind, n).await;
                 assert!(!next.continuation_pending);

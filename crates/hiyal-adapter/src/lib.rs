@@ -733,3 +733,17 @@ impl World for GameWorld {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod p7_period_authorization_tests {
+    use super::*;
+
+    #[test]
+    fn period_cannot_advance_an_unresolved_open_quarter_without_player_choice() {
+        let world = GameWorld::initial("p7-world-guard").unwrap();
+        assert_eq!(world.phase, Phase::QuarterOpen);
+        assert!(!world.continuation_pending());
+        assert!(world.observe(PERIOD).is_err());
+        assert!(world.selected_player_command("skip-q1", json!({"kind":"defer"})).is_err());
+    }
+}
