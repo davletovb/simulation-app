@@ -129,9 +129,11 @@ export function ConnectedView({allocation}:{allocation:Allocation}) {
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const [forkId, setForkId] = useState<string|null>(null)
+  const [integrityFailure, setIntegrityFailure] = useState(false)
   const accept = useCallback((raw: unknown) => {
     if (!validSnapshot(raw)) throw new Error('Incorrect versioned server view')
     cache.setQueryData<Committed>(CACHE_KEY,old=>newer(old??null,raw))
+    setIntegrityFailure(false)
     if (raw.operation && raw.operation.status !== 'accepted') {
       setPending(old => {
         if (old && old.id === raw.operation?.command_id) {
@@ -158,6 +160,23 @@ export function ConnectedView({allocation}:{allocation:Allocation}) {
         void cache.invalidateQueries({queryKey:CACHE_KEY})
       }
     }
+    source.addEventListener('integrity_failure', (event: MessageEvent) => {
+      if (!alive) return
+      // Cursor-0 synthetic failure payloads are NOT committed snapshots.
+      // Keep the last verified world and block actions until verification.
+      try {
+        const raw = JSON.parse(event.data) as unknown
+        if (typeof raw !== 'object' || raw === null ||
+            (raw as {snapshot?: {campaign_id?: string}}).snapshot?.campaign_id !== CAMPAIGN) return
+        setIntegrityFailure(true)
+        setTransport('unavailable')
+        setError('Campaign integrity verification failed. The last verified snapshot is retained; no further commands can be submitted until recovery.')
+      } catch {
+        setIntegrityFailure(true)
+        setTransport('unavailable')
+        setError('Invalid integrity alert; stop issuing commands and inspect the local service.')
+      }
+    })
     for (const kind of ['snapshot', 'snapshot_fallback', 'committed']) {
       source.addEventListener(kind, (event: MessageEvent) => {
         if (!alive) return
@@ -342,7 +361,7 @@ export function ConnectedView({allocation}:{allocation:Allocation}) {
             cutoff={snapshot.evidence.source_cutoff_utc}
             scope={snapshot.evidence.scope} attribution={snapshot.evidence.attribution}/>
           <div className="connected-actions">
-            {pending ? (
+            {integrityFailure ? <p role="alert">Command controls suspended pending a verified recovery.</p> : pending ? (
               <ActionButton onClick={() => void advance(pending.action)} disabled={submitting}>
                 Retry existing command ID</ActionButton>
             ) : (
