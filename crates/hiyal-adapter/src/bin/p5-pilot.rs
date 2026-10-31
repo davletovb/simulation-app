@@ -45,20 +45,19 @@ async fn run(trial_dir: &Path, ledger_dir: &Path, installation: &str) -> Result<
     let route = pinned_route()?;
     let provider: Arc<dyn Backend> = Arc::new(OpenRouterBackend::from_env(route.clone())?);
     let allowance = Arc::new(Mutex::new(Allowance::open(ledger_dir, installation)?));
-    let mut trial =
-        if trial_dir.exists() {
-            resume_live(trial_dir, false, route, allowance.clone(), provider)?
-        } else {
-            create_live(
-                trial_dir,
-                "p5-experiment-a",
-                2027,
-                "p5-experiment-a",
-                route,
-                allowance.clone(),
-                provider,
-            )?
-        };
+    let mut trial = if trial_dir.exists() {
+        resume_live(trial_dir, false, route, allowance.clone(), provider)?
+    } else {
+        create_live(
+            trial_dir,
+            "p5-experiment-a",
+            2027,
+            "p5-experiment-a",
+            route,
+            allowance.clone(),
+            provider,
+        )?
+    };
     if trial.store.world().quarter > 4 {
         return Err("four-quarter pilot completed; no further paid attempts permitted".into());
     }

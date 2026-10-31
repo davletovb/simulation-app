@@ -217,8 +217,7 @@ mod tests {
         let agreements: Vec<Value> = (0..9)
             .map(|index| json!({"id":format!("commitment-{index}"),"status":"pending"}))
             .collect();
-        observed.action.role_observation.as_mut().unwrap()["owned_commitments"] =
-            json!(agreements);
+        observed.action.role_observation.as_mut().unwrap()["owned_commitments"] = json!(agreements);
         let route = PinnedRoute {
             model: "test/model".into(),
             provider: "test-provider".into(),
@@ -229,7 +228,14 @@ mod tests {
         let EffectSpec::Model(model) = request(&observed, &route).unwrap() else {
             panic!("minister request must be a model effect");
         };
-        let prompt = model.messages.last().unwrap().content.split_once('\n').unwrap().1;
+        let prompt = model
+            .messages
+            .last()
+            .unwrap()
+            .content
+            .split_once('\n')
+            .unwrap()
+            .1;
         let rendered: Value = serde_json::from_str(prompt).unwrap();
         let bounded = rendered["owned_commitments"].as_array().unwrap();
         assert_eq!(bounded.len(), 6);
@@ -237,13 +243,19 @@ mod tests {
         assert_eq!(bounded[5]["id"], "commitment-8");
         assert_eq!(
             observed.action.role_observation.as_ref().unwrap()["owned_commitments"]
-                .as_array().unwrap().len(), 9
+                .as_array()
+                .unwrap()
+                .len(),
+            9
         );
         // Prompt memory cannot modify the world or its future observations.
         let official = world.observe(FINANCE).unwrap();
         assert_eq!(
             official.action.role_observation.as_ref().unwrap()["owned_commitments"]
-                .as_array().unwrap().len(), 0
+                .as_array()
+                .unwrap()
+                .len(),
+            0
         );
     }
     #[test]

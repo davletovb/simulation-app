@@ -790,20 +790,41 @@ mod tests {
         let mut ledger = Allowance::open(&path, "owner").unwrap();
         let role = scope(Purpose::Minister, Some("limit-case"), Some(1));
         for i in 0..14 {
-            ledger.reserve(&format!("minister-{i}"), role.clone(), route(), &request()).unwrap();
+            ledger
+                .reserve(&format!("minister-{i}"), role.clone(), route(), &request())
+                .unwrap();
         }
-        assert!(ledger.reserve("minister-over", role, route(), &request()).is_err());
+        assert!(
+            ledger
+                .reserve("minister-over", role, route(), &request())
+                .is_err()
+        );
         let helper = scope(Purpose::Assistant, Some("limit-case"), Some(1));
         for i in 0..2 {
-            ledger.reserve(&format!("assistant-{i}"), helper.clone(), route(), &request()).unwrap();
+            ledger
+                .reserve(
+                    &format!("assistant-{i}"),
+                    helper.clone(),
+                    route(),
+                    &request(),
+                )
+                .unwrap();
         }
-        assert!(ledger.reserve("assistant-over", helper.clone(), route(), &request()).is_err());
+        assert!(
+            ledger
+                .reserve("assistant-over", helper.clone(), route(), &request())
+                .is_err()
+        );
         assert_eq!(ledger.calls().len(), 16);
         let remaining = ledger.remaining_micro_usd().unwrap();
         drop(ledger);
         let mut restarted = Allowance::open(&path, "owner").unwrap();
         assert_eq!(restarted.remaining_micro_usd().unwrap(), remaining);
-        assert!(restarted.reserve("assistant-over", helper, route(), &request()).is_err());
+        assert!(
+            restarted
+                .reserve("assistant-over", helper, route(), &request())
+                .is_err()
+        );
         drop(restarted);
         std::fs::remove_dir_all(path).unwrap();
     }
