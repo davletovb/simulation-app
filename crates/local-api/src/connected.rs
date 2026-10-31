@@ -1336,6 +1336,74 @@ mod tests {
         drop(restarted);
         fs::remove_dir_all(dir).unwrap();
     }
+    #[test]
+    fn typed_wire_money_rejects_fractional_negative_and_huge_values() {
+        let valid=serde_json::json!({
+            "command_id":"whole-credits",
+            "expected_world_version":"9007199254740993",
+            "kind":{"kind":"propose",
+                "allocation":{"staff":50,"repairs":40,"access":10}}
+        });
+        let parsed:Command=serde_json::from_value(valid.clone()).unwrap();
+        assert_eq!(parsed.expected_world_version,"9007199254740993");
+        assert_eq!(serde_json::to_value(&parsed).unwrap(),valid);
+        for bad in [
+            serde_json::json!(50.0),serde_json::json!(50.1),
+            serde_json::json!(-1),serde_json::json!("50"),
+            serde_json::json!(9007199254740993u64),serde_json::Value::Null,
+        ] {
+            let mut request=valid.clone();
+            request["kind"]["allocation"]["staff"]=bad;
+            assert!(serde_json::from_value::<Command>(request).is_err());
+        }
+    }
+    #[tokio::test]
+    async fn fsynced_acceptance_before_dispatch_recovers_once() {
+        let dir=root();
+        let service=Connected::new(dir.clone()).unwrap();
+        let owner=service.owner("accepted-crash").unwrap();
+        let original=Command{
+            command_id:"accepted-before-dispatch".into(),
+            expected_world_version:"0".into(),
+            kind:CommandKind::AdvanceSlice,
+        };
+        {
+            let mut engine=owner.engine.lock().await;
+            assert_eq!(capture(&engine.trial).unwrap().cursor,"0");
+            engine.log.records.push(Operation{
+                campaign_id:"accepted-crash".into(),
+                command_id:original.command_id.clone(),
+                request_sha256:digest(&serde_json::to_vec(&original).unwrap()),
+                expected_world_version:original.expected_world_version.clone(),
+                kind:original.kind.clone(),
+                status:OperationStatus::Accepted,
+                committed_cursor:None,
+                message:None,
+            });
+            persist_log(&owner.log_path,&engine.log).unwrap();
+        }
+        drop(owner);drop(service);
+        let restarted=Connected::new(dir.clone()).unwrap();
+        let writer=restarted.owner("accepted-crash").unwrap();
+        for _ in 0..120 {
+            if writer.engine.lock().await.log.records[0].status==OperationStatus::Completed {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        let engine=writer.engine.lock().await;
+        assert_eq!(engine.log.records[0].status,OperationStatus::Completed);
+        assert_eq!(engine.trial.store.world().actions.len(),1);
+        let cursor=capture(&engine.trial).unwrap().cursor;
+        drop(engine);
+        let (code,Json(reply))=command(
+            State(restarted.clone()),Path("accepted-crash".into()),Json(original),
+        ).await.unwrap();
+        assert_eq!(code,StatusCode::OK);
+        assert_eq!(reply.status,OperationStatus::Completed);
+        assert_eq!(capture(&writer.engine.lock().await.trial).unwrap().cursor,cursor);
+        drop(writer);drop(restarted);fs::remove_dir_all(dir).unwrap();
+    }
     #[tokio::test]
     async fn p6_offline_metrics_without_model_calls() {
         let dir = root();
