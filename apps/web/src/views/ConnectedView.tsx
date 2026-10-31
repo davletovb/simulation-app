@@ -168,11 +168,19 @@ export function ConnectedView({allocation}:{allocation:Allocation}) {
           kind: operation.action,
         }),
       })
+      if (response.status === 409) {
+        // The server definitively rejected this admission. It cannot be a
+        // lost 202 acknowledgment: no new durable operation was accepted.
+        // Retrying the same stale version/ID forever would trap the player.
+        setPending(null)
+        writeStored(PENDING_KEY, '')
+        void load().catch(() => setError('Refresh the verified snapshot before retrying.'))
+        throw new Error('Command conflict or stale view. Review the refreshed state, then submit a new decision.')
+      }
       if (!response.ok) {
-        const detail = response.status === 409
-          ? 'Command conflict or stale view. Refresh before making a new decision.'
-          : 'Local command service rejected the operation.'
-        throw new Error(detail)
+        // Network failures and ambiguous server errors might follow a
+        // durable acceptance; preserve the exact command ID for recovery.
+        throw new Error('Local command service rejected the operation; check its durable status before retrying.')
       }
       const saved = await response.json() as Operation
       if (saved.command_id !== operation.id) throw new Error('Command ID mismatch')
