@@ -119,6 +119,19 @@ export function ConnectedEvidenceReport() {
     </dl>
     <p>{snapshot.evidence.attribution}</p>
     <p>{snapshot.evidence.scope}</p>
+    <h3>Archived England education source indicators</h3>
+    <p>The eight figures below retain their original measurement universes and
+      reference periods. They are context for a fictional pilot, not measurements
+      of simulated delivery or actual pupil outcomes.</p>
+    <ul className="connected-public-list">
+      {snapshot.evidence.indicators.map(item=><li key={item.variable_id}>
+        <strong>{item.display_value} · {item.variable_id}</strong>
+        {' '}{item.definition}. {item.scope} · {item.reference_period}.
+        {' '}Publisher: {item.publisher}.
+        {' '}<a href={item.source_url} target="_blank" rel="noopener noreferrer">Archived source reference</a>
+        {item.quality_flags.length>0 && <> · Quality flags: {item.quality_flags.join(', ')}</>}
+      </li>)}
+    </ul>
     <h3>Frozen news and scenario markers</h3>
     <ul className="connected-public-list">
       {snapshot.news.map((item,i)=><li key={item.date+'-'+i}>

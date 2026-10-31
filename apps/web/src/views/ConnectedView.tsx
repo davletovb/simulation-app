@@ -48,7 +48,10 @@ export interface Snapshot {
     post_fork_actor_actions_fixed:boolean
   }
   evidence:{case_pack:string;source_cutoff_utc:string;evidence_pack_sha256:string;
-    scenario_sha256:string;attribution:string;scope:string}
+    scenario_sha256:string;attribution:string;scope:string;
+    indicators:{variable_id:string;definition:string;scope:string;publisher:string;
+      reference_period:string;display_value:string;unit:string;source_url:string;
+      quality_flags:string[]}[]}
   outcome: string | null
   assumption: string
   mode: 'offline_scripted'
@@ -96,6 +99,10 @@ function validSnapshot(raw: unknown): raw is Committed {
     !!s.evidence && typeof s.evidence.case_pack==='string' &&
     typeof s.evidence.source_cutoff_utc==='string' &&
     typeof s.evidence.scope==='string' &&
+    Array.isArray(s.evidence.indicators) && s.evidence.indicators.length===8 &&
+    s.evidence.indicators.every(item=>typeof item.variable_id==='string' &&
+      typeof item.display_value==='string' && typeof item.source_url==='string' &&
+      item.source_url.startsWith('https://') && Array.isArray(item.quality_flags)) &&
     !!s.treasury && Object.values(s.treasury).every(n=>Number.isInteger(n) && n>=0 && n<=100)
 }
 function exactAllocation(a:Allocation,available:number):boolean{

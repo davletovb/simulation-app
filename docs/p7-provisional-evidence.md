@@ -35,3 +35,7 @@ The above are **commands to run**, not claimed test results. No Rust compiler is
 ### Connected audit input (added)
 
 The connected player may issue an idempotent `order_audit` command with a typed family and an inspected, completed quarter. P3 enforces timing, historical eligibility, the first-free/later-two-credit rule, and duplicate audit validation. The public snapshot intentionally **does not reveal player-private audit results or minister-private efforts**; before exposing the player audit ledger, implement an authenticated chair-specific visibility boundary. The audit command's completion status and treasury balance remain observable. This is not P7-01's completed audit/commitment experience.
+
+### Source-grounded country setup (added)
+
+The P7 public evidence projection now binds the eight frozen `country-pack.json` source descriptors to the eight frozen `values.json` recorded headlines by stable variable ID, with strict size, schema, cutoff, exact ID uniqueness and unit checks. Public output retains original displayed values and caveats/quality flags, not a fabricated conversion to pilot credits. UI shows source URL and period per indicator and labels the mixed measurement universes. This is **deterministic evidence display**, not the still-required OpenRouter assistant or independent revalidation of each original publication.
