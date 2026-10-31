@@ -39,10 +39,15 @@ const MAX_COMMANDS: usize = 512;
 
 /// Removes uncommitted fork staging on *all* error paths. A published fork
 /// remains durable even if the following directory fsync fails.
-struct ForkStageGuard { path: PathBuf, active: bool }
+struct ForkStageGuard {
+    path: PathBuf,
+    active: bool,
+}
 impl Drop for ForkStageGuard {
     fn drop(&mut self) {
-        if self.active { let _ = fs::remove_dir_all(&self.path); }
+        if self.active {
+            let _ = fs::remove_dir_all(&self.path);
+        }
     }
 }
 
@@ -506,17 +511,31 @@ impl Connected {
         if !valid_id(id) {
             return Err("invalid campaign id".into());
         }
-        if let Some(held) = self.owners.lock().map_err(|_| "owner registry poisoned")?.get(id) {
+        if let Some(held) = self
+            .owners
+            .lock()
+            .map_err(|_| "owner registry poisoned")?
+            .get(id)
+        {
             return Ok(held.clone());
         }
         if !create && !self.root.join(id).is_dir() {
             return Err("campaign not found".into());
         }
         let _loading = self.loading.lock().await;
-        if let Some(held) = self.owners.lock().map_err(|_| "owner registry poisoned")?.get(id) {
+        if let Some(held) = self
+            .owners
+            .lock()
+            .map_err(|_| "owner registry poisoned")?
+            .get(id)
+        {
             return Ok(held.clone());
         }
-        if self.owners.lock().map_err(|_| "owner registry poisoned")?.len()
+        if self
+            .owners
+            .lock()
+            .map_err(|_| "owner registry poisoned")?
+            .len()
             >= MAX_CACHED_CAMPAIGNS
         {
             return Err("campaign owner cache is full".into());
@@ -541,8 +560,11 @@ impl Connected {
                 let provenance = read_fork_meta(&path)?.ok_or("missing fork provenance")?;
                 if provenance.branch_id != id_for_load
                     || provenance.source_campaign_id != trial.store.world().campaign_id
-                    || inspect(&path)?.2 < provenance.source_cursor
-                        .parse::<u64>().map_err(|_| "invalid fork source cursor")?
+                    || inspect(&path)?.2
+                        < provenance
+                            .source_cursor
+                            .parse::<u64>()
+                            .map_err(|_| "invalid fork source cursor")?
                 {
                     return Err("fork origin mismatch or truncated journal".into());
                 }
@@ -551,7 +573,9 @@ impl Connected {
             }
             let log = read_log(&log_path, &id_for_load)?;
             Ok::<_, String>((trial, log))
-        }).await.map_err(|_| "campaign restoration task failed")??;
+        })
+        .await
+        .map_err(|_| "campaign restoration task failed")??;
         let (sender, _) = broadcast::channel(64);
         let owner = Arc::new(Owner {
             engine: AsyncMutex::new(Engine {
@@ -565,9 +589,15 @@ impl Connected {
             id: key.clone(),
             _writer_lock: self._writer_lock.clone(),
         });
-        let recover = owner.engine.try_lock().is_ok_and(|g| g.log.records
-            .iter().any(|r| r.status == OperationStatus::Accepted));
-        self.owners.lock().map_err(|_| "owner registry poisoned")?
+        let recover = owner.engine.try_lock().is_ok_and(|g| {
+            g.log
+                .records
+                .iter()
+                .any(|r| r.status == OperationStatus::Accepted)
+        });
+        self.owners
+            .lock()
+            .map_err(|_| "owner registry poisoned")?
             .insert(key, owner.clone());
         if recover {
             schedule(owner.clone());
@@ -711,13 +741,24 @@ async fn create(
         return Err(status(StatusCode::BAD_REQUEST, "invalid campaign id"));
     }
     let exists = service.root.join(&id).is_dir();
-    let owner = service.owner(&id, true).await
+    let owner = service
+        .owner(&id, true)
+        .await
         .map_err(|_| status(StatusCode::CONFLICT, "campaign could not be created"))?;
     let engine = owner.engine.lock().await;
     let view = capture_for(&engine.trial, &owner.id)
         .map_err(|_| status(StatusCode::CONFLICT, "verification failed"))?;
-    Ok((if exists { StatusCode::OK } else { StatusCode::CREATED },
-        Json(Committed {snapshot:view,operation:None})))
+    Ok((
+        if exists {
+            StatusCode::OK
+        } else {
+            StatusCode::CREATED
+        },
+        Json(Committed {
+            snapshot: view,
+            operation: None,
+        }),
+    ))
 }
 async fn snapshot(
     State(service): State<Arc<Connected>>,
@@ -903,11 +944,16 @@ async fn stream_events(
                 // An unverified boundary is a notification, NOT a cursor-0
                 // commit. Never feed it through monotonic state reduction.
                 let frame = if event.snapshot.phase == "IntegrityFailure" {
-                    Event::default().event("integrity_failure")
-                        .json_data(event).ok()?
+                    Event::default()
+                        .event("integrity_failure")
+                        .json_data(event)
+                        .ok()?
                 } else {
-                    Event::default().event("committed").id(id)
-                        .json_data(event).ok()?
+                    Event::default()
+                        .event("committed")
+                        .id(id)
+                        .json_data(event)
+                        .ok()?
                 };
                 Some((Ok(frame), (None, receiver)))
             }
@@ -982,126 +1028,130 @@ async fn fork(
     let root = service.root.clone();
     drop(engine);
     tokio::task::spawn_blocking(move || -> Result<_, Failure> {
-    let dst = root.join(&request.branch_id);
-    if dst.exists() {
-        let existing = read_fork_meta(&dst)
-            .map_err(|_| status(StatusCode::CONFLICT, "existing branch invalid"))?;
-        if existing.as_ref().is_some_and(|v| {
-            v.branch_id == meta.branch_id
-                && v.source_campaign_id == meta.source_campaign_id
-                && v.source_cursor == meta.source_cursor
-                && v.source_state_sha256 == meta.source_state_sha256
-        }) {
-            return Ok((StatusCode::OK, Json(fork_receipt(&meta))));
-        }
-        return Err(status(
-            StatusCode::CONFLICT,
-            "branch already exists at another boundary",
-        ));
-    }
-    // Do not copy unverified output, temp artifacts, locks or auth secrets.
-    // Only the Hiyal manifest, exact journal and optional verified snapshot
-    // and receipts are eligible for a bounded local offline fork.
-    let stage = service
-        .root
-        .join(format!(".{}.fork-stage", request.branch_id));
-    fs::create_dir(&stage).map_err(|_| {
-        status(
-            StatusCode::CONFLICT,
-            "fork staging exists or cannot be created",
-        )
-    })?;
-    let mut cleanup = ForkStageGuard { path: stage.clone(), active: true };
-    for name in [
-        "manifest.json",
-        "events.jsonl",
-        "effects.jsonl",
-        "snapshot.json",
-    ] {
-        let original = source.join(name);
-        if !original.exists() {
-            continue;
-        }
-        let metadata = fs::symlink_metadata(&original)
-            .map_err(|_| status(StatusCode::CONFLICT, "fork source metadata unavailable"))?;
-        if !metadata.file_type().is_file() || metadata.len() > 64 * 1024 * 1024 {
+        let dst = root.join(&request.branch_id);
+        if dst.exists() {
+            let existing = read_fork_meta(&dst)
+                .map_err(|_| status(StatusCode::CONFLICT, "existing branch invalid"))?;
+            if existing.as_ref().is_some_and(|v| {
+                v.branch_id == meta.branch_id
+                    && v.source_campaign_id == meta.source_campaign_id
+                    && v.source_cursor == meta.source_cursor
+                    && v.source_state_sha256 == meta.source_state_sha256
+            }) {
+                return Ok((StatusCode::OK, Json(fork_receipt(&meta))));
+            }
             return Err(status(
                 StatusCode::CONFLICT,
-                "unsafe source artifact for fork",
+                "branch already exists at another boundary",
             ));
         }
-        let target = stage.join(name);
-        fs::copy(&original, &target).map_err(|_| {
+        // Do not copy unverified output, temp artifacts, locks or auth secrets.
+        // Only the Hiyal manifest, exact journal and optional verified snapshot
+        // and receipts are eligible for a bounded local offline fork.
+        let stage = service
+            .root
+            .join(format!(".{}.fork-stage", request.branch_id));
+        fs::create_dir(&stage).map_err(|_| {
             status(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "cannot copy fork journal",
+                StatusCode::CONFLICT,
+                "fork staging exists or cannot be created",
             )
         })?;
-        File::open(&target)
-            .and_then(|file| file.sync_all())
+        let mut cleanup = ForkStageGuard {
+            path: stage.clone(),
+            active: true,
+        };
+        for name in [
+            "manifest.json",
+            "events.jsonl",
+            "effects.jsonl",
+            "snapshot.json",
+        ] {
+            let original = source.join(name);
+            if !original.exists() {
+                continue;
+            }
+            let metadata = fs::symlink_metadata(&original)
+                .map_err(|_| status(StatusCode::CONFLICT, "fork source metadata unavailable"))?;
+            if !metadata.file_type().is_file() || metadata.len() > 64 * 1024 * 1024 {
+                return Err(status(
+                    StatusCode::CONFLICT,
+                    "unsafe source artifact for fork",
+                ));
+            }
+            let target = stage.join(name);
+            fs::copy(&original, &target).map_err(|_| {
+                status(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "cannot copy fork journal",
+                )
+            })?;
+            File::open(&target)
+                .and_then(|file| file.sync_all())
+                .map_err(|_| {
+                    status(
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        "cannot sync fork journal",
+                    )
+                })?;
+        }
+        let raw = serde_json::to_vec(&meta).map_err(|_| {
+            status(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "cannot encode fork metadata",
+            )
+        })?;
+        let mut file = OpenOptions::new()
+            .create_new(true)
+            .write(true)
+            .open(stage.join("p6-fork-origin.json"))
             .map_err(|_| {
                 status(
                     StatusCode::INTERNAL_SERVER_ERROR,
-                    "cannot sync fork journal",
+                    "cannot stage fork metadata",
                 )
             })?;
-    }
-    let raw = serde_json::to_vec(&meta).map_err(|_| {
-        status(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "cannot encode fork metadata",
-        )
-    })?;
-    let mut file = OpenOptions::new()
-        .create_new(true)
-        .write(true)
-        .open(stage.join("p6-fork-origin.json"))
-        .map_err(|_| {
+        file.write_all(&raw)
+            .and_then(|_| file.sync_all())
+            .map_err(|_| {
+                status(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "cannot sync fork provenance",
+                )
+            })?;
+        #[cfg(unix)]
+        File::open(&stage).and_then(|f| f.sync_all()).map_err(|_| {
             status(
                 StatusCode::INTERNAL_SERVER_ERROR,
-                "cannot stage fork metadata",
+                "cannot sync fork staging",
             )
         })?;
-    file.write_all(&raw)
-        .and_then(|_| file.sync_all())
-        .map_err(|_| {
+        // Verify the copied committed boundary before publishing it.
+        let clone_hash = inspect(&stage).map_err(|_| {
             status(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "cannot sync fork provenance",
+                StatusCode::CONFLICT,
+                "copied journal did not strictly replay",
             )
         })?;
-    #[cfg(unix)]
-    File::open(&stage).and_then(|f| f.sync_all()).map_err(|_| {
-        status(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "cannot sync fork staging",
-        )
-    })?;
-    // Verify the copied committed boundary before publishing it.
-    let clone_hash = inspect(&stage).map_err(|_| {
-        status(
-            StatusCode::CONFLICT,
-            "copied journal did not strictly replay",
-        )
-    })?;
-    if clone_hash.0 != meta.source_state_sha256 || clone_hash.2.to_string() != meta.source_cursor {
-        return Err(status(StatusCode::CONFLICT, "fork hash or cursor mismatch"));
-    }
-    fs::rename(&stage, &dst)
-        .map_err(|_| status(StatusCode::CONFLICT, "fork publication failed"))?;
-    cleanup.active = false;
-    #[cfg(unix)]
-    File::open(&root)
-        .and_then(|f| f.sync_all())
-        .map_err(|_| {
+        if clone_hash.0 != meta.source_state_sha256
+            || clone_hash.2.to_string() != meta.source_cursor
+        {
+            return Err(status(StatusCode::CONFLICT, "fork hash or cursor mismatch"));
+        }
+        fs::rename(&stage, &dst)
+            .map_err(|_| status(StatusCode::CONFLICT, "fork publication failed"))?;
+        cleanup.active = false;
+        #[cfg(unix)]
+        File::open(&root).and_then(|f| f.sync_all()).map_err(|_| {
             status(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "cannot sync branch directory",
             )
         })?;
-    Ok((StatusCode::CREATED, Json(fork_receipt(&meta))))
-    }).await.map_err(|_| status(StatusCode::INTERNAL_SERVER_ERROR, "fork task failed"))?
-
+        Ok((StatusCode::CREATED, Json(fork_receipt(&meta))))
+    })
+    .await
+    .map_err(|_| status(StatusCode::INTERNAL_SERVER_ERROR, "fork task failed"))?
 }
 pub fn routes() -> Router<Arc<Connected>> {
     Router::new()
@@ -1371,7 +1421,8 @@ mod tests {
         assert_eq!(
             capture_for(
                 &recovered
-                    .owner("alternate", true).await
+                    .owner("alternate", true)
+                    .await
                     .unwrap()
                     .engine
                     .lock()
@@ -1965,7 +2016,8 @@ mod tests {
         assert_eq!(saved.quarter, 2);
         let before = inspect(
             &service
-                .owner("decision", true).await
+                .owner("decision", true)
+                .await
                 .unwrap()
                 .engine
                 .lock()
@@ -1982,7 +2034,8 @@ mod tests {
         assert_eq!(
             capture(
                 &recovered
-                    .owner("decision", true).await
+                    .owner("decision", true)
+                    .await
                     .unwrap()
                     .engine
                     .lock()
