@@ -840,19 +840,22 @@ mod tests {
             3,
         )
         .await;
-        assert_eq!(amended.phase, "FinalPositionsFrozen");
-        let final_votes = accepted_step(&service, "decision", CommandKind::AdvanceSlice, 4).await;
+        // Amendment and final-position freeze are separate committed actions.
+        assert_eq!(amended.phase, "AmendmentWindow");
+        let frozen = accepted_step(&service, "decision", CommandKind::AdvanceSlice, 4).await;
+        assert_eq!(frozen.phase, "FinalPositionsFrozen");
+        let final_votes = accepted_step(&service, "decision", CommandKind::AdvanceSlice, 5).await;
         assert_eq!(final_votes.votes.len(), 6);
         let result = accepted_step(
             &service,
             "decision",
             CommandKind::Decide { ratify: true },
-            5,
+            6,
         )
         .await;
         assert_eq!(result.phase, "Resolved");
         assert_eq!(result.outcome.as_deref(), Some("ratified"));
-        let saved = accepted_step(&service, "decision", CommandKind::AdvanceSlice, 6).await;
+        let saved = accepted_step(&service, "decision", CommandKind::AdvanceSlice, 7).await;
         assert_eq!(saved.quarter, 2);
         let before = inspect(
             &service
