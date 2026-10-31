@@ -2,15 +2,20 @@
 //! HTTP backend cannot submit strict response_format schemas; we keep its
 //! Hiyal Backend effect boundary but use an OpenRouter-only HTTP adapter.
 //! The API key is never Debug-formatted, logged, serialized, or put in a receipt.
-use crate::p5_allowance::{validate_model_request,PinnedRoute,Purpose};
+use crate::p5_allowance::{PinnedRoute, Purpose, validate_model_request};
 use hiyal::{
     effects::{EffectResult, ModelRequest, Role, Usage},
     runtime::{Backend, BoxResult, EffectSpec},
 };
 use reqwest::{Client, redirect::Policy};
 use serde_json::{Value, json};
-use std::{time::Duration, path::{Path,PathBuf}, fs::{self,OpenOptions}, io::Write};
-use sha2::{Digest,Sha256};
+use sha2::{Digest, Sha256};
+use std::{
+    fs::{self, OpenOptions},
+    io::Write,
+    path::{Path, PathBuf},
+    time::Duration,
+};
 
 const CHAT_URL: &str = "https://openrouter.ai/api/v1/chat/completions";
 const GENERATION_URL: &str = "https://openrouter.ai/api/v1/generation";
@@ -33,7 +38,11 @@ impl OpenRouterBackend {
             return Err("invalid OpenRouter credential".into());
         }
         if !route.reasoning_parameter_supported
-            && std::env::var("MYTH_P5_NON_REASONING_ROUTE_VERIFIED").ok().as_deref()!=Some("yes") {
+            && std::env::var("MYTH_P5_NON_REASONING_ROUTE_VERIFIED")
+                .ok()
+                .as_deref()
+                != Some("yes")
+        {
             return Err("non-reasoning route must be independently certified before omitting reasoning control".into());
         }
         let client = Client::builder()
@@ -54,40 +63,54 @@ impl OpenRouterBackend {
     /// before live POST dispatch; the completion stays available if the
     /// eventual generation-metadata lookup fails after a paid response.
     pub fn with_custody_dir(mut self, trial_dir: &Path) -> Self {
-        self.custody_dir=Some(trial_dir.join("p5-completion-custody"));
+        self.custody_dir = Some(trial_dir.join("p5-completion-custody"));
         self
     }
-    fn preserve_completion(&self, bytes: &[u8]) -> Result<(),String> {
-        let dir=self.custody_dir.as_ref().ok_or("private completion custody not configured")?;
-        if !dir.parent().is_some_and(|p| p.join("manifest.json").is_file()) {
+    fn preserve_completion(&self, bytes: &[u8]) -> Result<(), String> {
+        let dir = self
+            .custody_dir
+            .as_ref()
+            .ok_or("private completion custody not configured")?;
+        if !dir
+            .parent()
+            .is_some_and(|p| p.join("manifest.json").is_file())
+        {
             return Err("trial not initialized for provider completion custody".into());
         }
         fs::create_dir_all(dir).map_err(|_| "cannot initialize private completion custody")?;
         #[cfg(unix)]
-        { use std::os::unix::fs::PermissionsExt;
-          fs::set_permissions(dir,fs::Permissions::from_mode(0o700))
-            .map_err(|_| "cannot protect completion custody")?; }
-        let digest=format!("{:x}",Sha256::digest(bytes));
-        let target=dir.join(format!("{digest}.json"));
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(dir, fs::Permissions::from_mode(0o700))
+                .map_err(|_| "cannot protect completion custody")?;
+        }
+        let digest = format!("{:x}", Sha256::digest(bytes));
+        let target = dir.join(format!("{digest}.json"));
         if target.exists() {
             if fs::read(target).map_err(|_| "cannot recheck saved completion")? != bytes {
                 return Err("saved completion hash collision or corruption".into());
             }
             return Ok(());
         }
-        let temp=dir.join(format!("{digest}.tmp"));
-        let mut file=OpenOptions::new().write(true).create_new(true).open(&temp)
+        let temp = dir.join(format!("{digest}.tmp"));
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&temp)
             .map_err(|_| "cannot create durable completion custody")?;
-        file.write_all(bytes).map_err(|_| "cannot write durable completion")?;
-        file.sync_all().map_err(|_| "cannot sync durable completion")?;
-        fs::rename(&temp,&target).map_err(|_| "cannot publish durable completion")?;
+        file.write_all(bytes)
+            .map_err(|_| "cannot write durable completion")?;
+        file.sync_all()
+            .map_err(|_| "cannot sync durable completion")?;
+        fs::rename(&temp, &target).map_err(|_| "cannot publish durable completion")?;
         #[cfg(unix)]
-        fs::File::open(dir).and_then(|f| f.sync_all())
+        fs::File::open(dir)
+            .and_then(|f| f.sync_all())
             .map_err(|_| "cannot sync completion directory")?;
         Ok(())
     }
     fn request_body(&self, request: &ModelRequest) -> Result<Value, String> {
-        validate_model_request(request,&self.route,&Purpose::Authoring)?;
+        validate_model_request(request, &self.route, &Purpose::Authoring)?;
         if request.provider != "openrouter"
             || request.model != self.route.model
             || request.resolved_model_version.as_deref() != Some(self.route.provider.as_str())
@@ -157,7 +180,7 @@ impl OpenRouterBackend {
             }
         });
         if self.route.reasoning_parameter_supported {
-            body["reasoning"]=json!({"effort":"none"});
+            body["reasoning"] = json!({"effort":"none"});
         }
         if let Some(t) = request.sampling.temperature {
             body["temperature"] = json!(t);
@@ -190,24 +213,34 @@ impl OpenRouterBackend {
         // Retry only the read-only generation-metadata GET, never the paid
         // completion POST. OpenRouter may publish metadata asynchronously.
         for n in 0..4 {
-            let response=self.client.get(GENERATION_URL)
-                .bearer_auth(&self.secret).query(&[("id",id)]).send().await;
+            let response = self
+                .client
+                .get(GENERATION_URL)
+                .bearer_auth(&self.secret)
+                .query(&[("id", id)])
+                .send()
+                .await;
             if let Ok(response) = response {
                 if response.status().is_success() {
-                    final_response=Some(response);
+                    final_response = Some(response);
                     break;
                 }
-                if !(response.status().as_u16()==404
-                    || response.status().as_u16()==429
-                    || response.status().is_server_error()) {
+                if !(response.status().as_u16() == 404
+                    || response.status().as_u16() == 429
+                    || response.status().is_server_error())
+                {
                     return Err("generation metadata returned terminal status".into());
                 }
             }
-            if n<3 { tokio::time::sleep(Duration::from_millis(200*(n+1))).await; }
+            if n < 3 {
+                tokio::time::sleep(Duration::from_millis(200 * (n + 1))).await;
+            }
         }
-        let response=final_response.ok_or("generation metadata not confirmed after bounded retry")?;
-        let bytes=bounded_bytes(response).await?;
-        let value: Value=serde_json::from_slice(&bytes).map_err(|_| "invalid generation metadata")?;
+        let response =
+            final_response.ok_or("generation metadata not confirmed after bounded retry")?;
+        let bytes = bounded_bytes(response).await?;
+        let value: Value =
+            serde_json::from_slice(&bytes).map_err(|_| "invalid generation metadata")?;
         if value["data"]["model"] != self.route.echoed_model() {
             return Err("generation metadata reported unapproved resolved model".into());
         }
@@ -335,7 +368,9 @@ impl Backend for OpenRouterBackend {
             // the exact approved echoed model and actual provider separately.
             let output = match output {
                 EffectResult::Model { content, usage, .. } => EffectResult::Model {
-                    content, usage, effective_model: self.route.model.clone()
+                    content,
+                    usage,
+                    effective_model: self.route.model.clone(),
                 },
                 other => other,
             };

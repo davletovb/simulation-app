@@ -382,32 +382,41 @@ fn staged_route_path(dir: &Path) -> std::path::PathBuf {
 }
 fn route_bytes(route: &PinnedRoute) -> Result<Vec<u8>, String> {
     route.validate()?;
-    let bytes=serde_json::to_vec(route).map_err(|_| "invalid route metadata")?;
-    if bytes.len()>4096 {return Err("route metadata oversized".into());}
+    let bytes = serde_json::to_vec(route).map_err(|_| "invalid route metadata")?;
+    if bytes.len() > 4096 {
+        return Err("route metadata oversized".into());
+    }
     Ok(bytes)
 }
 fn stage_live_route(dir: &Path, route: &PinnedRoute) -> Result<(), String> {
     use std::io::Write;
-    if dir.exists() {return Err("live trial directory already exists".into());}
-    let bytes=route_bytes(route)?;
-    let path=staged_route_path(dir);
-    let mut file=std::fs::OpenOptions::new().write(true).create_new(true).open(path)
+    if dir.exists() {
+        return Err("live trial directory already exists".into());
+    }
+    let bytes = route_bytes(route)?;
+    let path = staged_route_path(dir);
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(path)
         .map_err(|_| "preflight route binding already exists or cannot be created")?;
-    file.write_all(&bytes).map_err(|_| "cannot persist staged immutable route")?;
+    file.write_all(&bytes)
+        .map_err(|_| "cannot persist staged immutable route")?;
     file.sync_all().map_err(|_| "cannot sync staged route")?;
-    if let Some(parent)=dir.parent() {
+    if let Some(parent) = dir.parent() {
         #[cfg(unix)]
-        std::fs::File::open(parent).and_then(|f| f.sync_all())
+        std::fs::File::open(parent)
+            .and_then(|f| f.sync_all())
             .map_err(|_| "cannot sync staging directory")?;
     }
     Ok(())
 }
 fn bind_live_route(dir: &Path, route: &PinnedRoute, creating: bool) -> Result<(), String> {
-    let bytes=route_bytes(route)?;
-    let bound=dir.join("p5-route.json");
-    let staged=staged_route_path(dir);
+    let bytes = route_bytes(route)?;
+    let bound = dir.join("p5-route.json");
+    let staged = staged_route_path(dir);
     if bound.is_file() {
-        if std::fs::read(&bound).map_err(|_| "cannot read immutable live route")?!=bytes {
+        if std::fs::read(&bound).map_err(|_| "cannot read immutable live route")? != bytes {
             return Err("live route or pricing differs from saved trial".into());
         }
         return Ok(());
@@ -417,16 +426,23 @@ fn bind_live_route(dir: &Path, route: &PinnedRoute, creating: bool) -> Result<()
     }
     // A trial created before the atomic route rename can be restored only
     // before its first effect/action; never invent a binding for an active run.
-    if !creating && std::fs::metadata(dir.join("events.jsonl"))
-        .map_err(|_| "missing trial event history")?.len()!=0 {
-        return Err("route recovery rejected: trial has events; manual investigation required".into());
+    if !creating
+        && std::fs::metadata(dir.join("events.jsonl"))
+            .map_err(|_| "missing trial event history")?
+            .len()
+            != 0
+    {
+        return Err(
+            "route recovery rejected: trial has events; manual investigation required".into(),
+        );
     }
-    if std::fs::read(&staged).map_err(|_| "cannot read staged route")?!=bytes {
+    if std::fs::read(&staged).map_err(|_| "cannot read staged route")? != bytes {
         return Err("staged model or price differs from requested route".into());
     }
-    std::fs::rename(&staged,&bound).map_err(|_| "cannot atomically bind staged route")?;
+    std::fs::rename(&staged, &bound).map_err(|_| "cannot atomically bind staged route")?;
     #[cfg(unix)]
-    std::fs::File::open(dir).and_then(|f| f.sync_all())
+    std::fs::File::open(dir)
+        .and_then(|f| f.sync_all())
         .map_err(|_| "cannot sync immutable trial route")?;
     Ok(())
 }
@@ -475,7 +491,7 @@ pub fn create_live(
     // Preflight and fsync the identity before Hiyal commits a trial genesis.
     // On a crash, resume can atomically complete the staged binding if no
     // actions have yet been journaled; otherwise admission remains closed.
-    stage_live_route(dir,&route_for_binding)?;
+    stage_live_route(dir, &route_for_binding)?;
     let mut inner = Trial::create(
         dir,
         name,

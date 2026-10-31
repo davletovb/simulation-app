@@ -1,7 +1,7 @@
 //! Bounded, typed, role-visible P5 minister model requests. No speeches,
 //! player chat, news text or secret authoring notes enter the model context.
 use crate::GameObservation;
-use crate::p5_allowance::{validate_model_request,PinnedRoute,Purpose};
+use crate::p5_allowance::{PinnedRoute, Purpose, validate_model_request};
 use hiyal::{
     effects::{Message, ModelRequest, Role, Sampling},
     runtime::EffectSpec,

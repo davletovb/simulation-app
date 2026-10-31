@@ -30,8 +30,10 @@ fn pinned_route() -> Result<PinnedRoute, String> {
             .parse()
             .map_err(|_| "invalid output price")?,
         reasoning_disabled: true,
-            reasoning_parameter_supported: env::var("MYTH_P5_REASONING_PARAMETER_SUPPORTED")
-            .ok().as_deref()==Some("yes"),
+        reasoning_parameter_supported: env::var("MYTH_P5_REASONING_PARAMETER_SUPPORTED")
+            .ok()
+            .as_deref()
+            == Some("yes"),
         response_model: env::var("MYTH_P5_RESPONSE_MODEL").ok(),
     };
     route.validate()?;
@@ -48,7 +50,8 @@ async fn run(trial_dir: &Path, ledger_dir: &Path, installation: &str) -> Result<
     }
     // All settings checked before attempting to provision the allowance.
     let route = pinned_route()?;
-    let provider: Arc<dyn Backend> = Arc::new(OpenRouterBackend::from_env(route.clone())?.with_custody_dir(trial_dir));
+    let provider: Arc<dyn Backend> =
+        Arc::new(OpenRouterBackend::from_env(route.clone())?.with_custody_dir(trial_dir));
     let allowance = Arc::new(Mutex::new(Allowance::open(ledger_dir, installation)?));
     let mut trial = if trial_dir.exists() {
         resume_live(trial_dir, false, route, allowance.clone(), provider)?

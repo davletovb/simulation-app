@@ -26,18 +26,25 @@ pub const ASSISTANT_OUTPUT_TOKENS: u32 = 800;
 /// framing as conservative token-equivalent input for price reservations;
 /// provider-specific actual token counts are not independently certified.
 pub fn validate_model_request(
-    request: &ModelRequest, route: &PinnedRoute, purpose: &Purpose,
+    request: &ModelRequest,
+    route: &PinnedRoute,
+    purpose: &Purpose,
 ) -> Result<u64, String> {
     route.validate()?;
     if request.provider != "openrouter"
         || request.model != route.model
         || request.resolved_model_version.as_deref() != Some(route.provider.as_str())
-        || request.streaming || !request.tool_schemas.is_empty()
+        || request.streaming
+        || !request.tool_schemas.is_empty()
         || request.response_format.as_ref().is_none_or(|v| {
-            v["type"] != "json_schema" || v["json_schema"]["strict"] != true
+            v["type"] != "json_schema"
+                || v["json_schema"]["strict"] != true
                 || v["json_schema"]["schema"]["type"] != "object"
-                || v["json_schema"]["name"].as_str().is_none_or(|n| n.is_empty() || n.len() > 64)
-        }) {
+                || v["json_schema"]["name"]
+                    .as_str()
+                    .is_none_or(|n| n.is_empty() || n.len() > 64)
+        })
+    {
         return Err(reject("unapproved OpenRouter strict-schema request"));
     }
     let assistant = *purpose != Purpose::Minister;
@@ -45,12 +52,19 @@ pub fn validate_model_request(
         maximum_micro_usd: CAMPAIGN_MICRO_USD,
         prompt_micro_usd_per_token: 1,
         output_micro_usd_per_token: 5,
-        max_input_bytes: if assistant {ASSISTANT_REQUEST_BYTES} else {MINISTER_REQUEST_BYTES},
-        max_output_tokens: if assistant {ASSISTANT_OUTPUT_TOKENS} else {MINISTER_OUTPUT_TOKENS},
+        max_input_bytes: if assistant {
+            ASSISTANT_REQUEST_BYTES
+        } else {
+            MINISTER_REQUEST_BYTES
+        },
+        max_output_tokens: if assistant {
+            ASSISTANT_OUTPUT_TOKENS
+        } else {
+            MINISTER_OUTPUT_TOKENS
+        },
     };
     config.reserve_amount(request)
 }
-
 
 fn valid_id(id: &str) -> bool {
     (1..=100).contains(&id.len())
@@ -89,7 +103,8 @@ impl Scope {
             || self.batch_id.as_deref().is_some_and(|x| !valid_id(x))
             || self.quarter.is_some_and(|q| !(1..=6).contains(&q))
             || self.quarter.is_some() != self.campaign_id.is_some()
-            || (matches!(self.purpose, Purpose::Minister | Purpose::Assistant) && self.campaign_id.is_none())
+            || (matches!(self.purpose, Purpose::Minister | Purpose::Assistant)
+                && self.campaign_id.is_none())
             || (self.purpose == Purpose::Evaluation && self.batch_id.is_none())
         {
             return Err(reject("invalid call scope"));
@@ -123,7 +138,10 @@ impl PinnedRoute {
             || self.output_micro_usd_per_million == 0
             || self.output_micro_usd_per_million > 5_000_000
             || !self.reasoning_disabled
-            || self.response_model.as_deref().is_some_and(|name| !valid_id(name))
+            || self
+                .response_model
+                .as_deref()
+                .is_some_and(|name| !valid_id(name))
         {
             return Err(reject("unapproved, unpriced or unbounded model route"));
         }
@@ -343,12 +361,20 @@ impl Allowance {
                 .ok_or_else(|| reject("allowance overflow"))
         })
     }
-    fn quarter_usage(&self, campaign: &str, quarter: u8) -> Result<(u64,usize,usize),String> {
-        self.state.calls.iter().filter(|c| c.scope.campaign_id.as_deref()==Some(campaign)
-            && c.scope.quarter==Some(quarter))
-            .try_fold((0u64,0usize,0usize), |(cash,calls,ministers),c| {
-                Ok((cash.checked_add(c.maximum_micro_usd).ok_or("quarter overflow")?,
-                    calls + 1, ministers + usize::from(c.scope.purpose==Purpose::Minister)))
+    fn quarter_usage(&self, campaign: &str, quarter: u8) -> Result<(u64, usize, usize), String> {
+        self.state
+            .calls
+            .iter()
+            .filter(|c| {
+                c.scope.campaign_id.as_deref() == Some(campaign) && c.scope.quarter == Some(quarter)
+            })
+            .try_fold((0u64, 0usize, 0usize), |(cash, calls, ministers), c| {
+                Ok((
+                    cash.checked_add(c.maximum_micro_usd)
+                        .ok_or("quarter overflow")?,
+                    calls + 1,
+                    ministers + usize::from(c.scope.purpose == Purpose::Minister),
+                ))
             })
     }
     fn check_recovery(&self) -> Result<(), String> {
@@ -356,9 +382,9 @@ impl Allowance {
             return Err(reject("recovered allowance exceeded funded amount"));
         }
         for call in &self.state.calls {
-            if let (Some(c),Some(q))=(&call.scope.campaign_id,call.scope.quarter) {
-                let (amount,count,minister_count)=self.quarter_usage(c,q)?;
-                if amount>QUARTER_MICRO_USD || count>16 || minister_count>14 {
+            if let (Some(c), Some(q)) = (&call.scope.campaign_id, call.scope.quarter) {
+                let (amount, count, minister_count) = self.quarter_usage(c, q)?;
+                if amount > QUARTER_MICRO_USD || count > 16 || minister_count > 14 {
                     return Err(reject("recovered quarter exceeds durable call or cost cap"));
                 }
             }
@@ -432,7 +458,9 @@ impl Allowance {
         self.ensure_available()?;
         scope.validate()?;
         route.validate()?;
-        if !valid_id(call_id) { return Err(reject("invalid call identifier")); }
+        if !valid_id(call_id) {
+            return Err(reject("invalid call identifier"));
+        }
         let maximum = validate_model_request(request, &route, &scope.purpose)?;
         let digest = hash(&serde_json::to_vec(request).map_err(|e| e.to_string())?);
         if let Some(old) = self.state.calls.iter().find(|x| x.call_id == call_id) {
@@ -475,11 +503,14 @@ impl Allowance {
                 return Err(reject("campaign allowance exhausted"));
             }
             if let Some(q) = scope.quarter {
-                let (used,count,minister_count) = self.quarter_usage(campaign,q)?;
-                if count >= 16 || (scope.purpose==Purpose::Minister && minister_count>=14) {
+                let (used, count, minister_count) = self.quarter_usage(campaign, q)?;
+                if count >= 16 || (scope.purpose == Purpose::Minister && minister_count >= 14) {
                     return Err(reject("quarter call cap exhausted"));
                 }
-                if used.checked_add(maximum).is_none_or(|n| n>QUARTER_MICRO_USD) {
+                if used
+                    .checked_add(maximum)
+                    .is_none_or(|n| n > QUARTER_MICRO_USD)
+                {
                     return Err(reject("quarter allowance exhausted"));
                 }
             }
@@ -669,7 +700,10 @@ mod tests {
             let cases = [
                 ("c1", scope(Purpose::Minister, Some("campaign-a"), Some(1))),
                 ("c2", scope(Purpose::Minister, Some("campaign-b"), Some(1))),
-                ("asst", scope(Purpose::Assistant, Some("campaign-a"), Some(1))),
+                (
+                    "asst",
+                    scope(Purpose::Assistant, Some("campaign-a"), Some(1)),
+                ),
                 ("author", scope(Purpose::Authoring, None, None)),
             ];
             for (id, s) in cases {
@@ -827,28 +861,50 @@ mod tests {
     }
     #[test]
     fn assistant_cannot_hide_behind_missing_campaign_or_quarter() {
-        let path=temporary().join("scoped-assistant");
-        let mut ledger=Allowance::open(&path,"owner").unwrap();
-        let bad=scope(Purpose::Assistant,None,None);
-        assert!(ledger.reserve("hidden",bad,route(),&request()).is_err());
-        let valid=scope(Purpose::Assistant,Some("campaign-a"),Some(1));
-        let result=ledger.reserve("visible",valid,route(),&request()).unwrap();
+        let path = temporary().join("scoped-assistant");
+        let mut ledger = Allowance::open(&path, "owner").unwrap();
+        let bad = scope(Purpose::Assistant, None, None);
+        assert!(ledger.reserve("hidden", bad, route(), &request()).is_err());
+        let valid = scope(Purpose::Assistant, Some("campaign-a"), Some(1));
+        let result = ledger
+            .reserve("visible", valid, route(), &request())
+            .unwrap();
         assert!(result.fresh);
-        assert_eq!(ledger.calls().len(),1);
-        drop(ledger);std::fs::remove_dir_all(path).unwrap();
+        assert_eq!(ledger.calls().len(), 1);
+        drop(ledger);
+        std::fs::remove_dir_all(path).unwrap();
     }
     #[test]
     fn realistic_role_context_under_12288_bytes_is_accepted() {
-        let path=temporary().join("realistic-context");
-        let mut ledger=Allowance::open(&path,"owner").unwrap();
-        let mut req=request();
-        req.messages[0].content="x".repeat(5_500);
-        let bytes=serde_json::to_vec(&req).unwrap().len();
-        assert!(bytes>3_000 && bytes<MINISTER_REQUEST_BYTES);
-        assert!(ledger.reserve("realistic",scope(Purpose::Minister,Some("a"),Some(1)),route(),&req).is_ok());
-        req.messages[0].content="x".repeat(12_400);
-        assert!(ledger.reserve("oversize",scope(Purpose::Minister,Some("a"),Some(1)),route(),&req).is_err());
-        drop(ledger);std::fs::remove_dir_all(path).unwrap();
+        let path = temporary().join("realistic-context");
+        let mut ledger = Allowance::open(&path, "owner").unwrap();
+        let mut req = request();
+        req.messages[0].content = "x".repeat(5_500);
+        let bytes = serde_json::to_vec(&req).unwrap().len();
+        assert!(bytes > 3_000 && bytes < MINISTER_REQUEST_BYTES);
+        assert!(
+            ledger
+                .reserve(
+                    "realistic",
+                    scope(Purpose::Minister, Some("a"), Some(1)),
+                    route(),
+                    &req
+                )
+                .is_ok()
+        );
+        req.messages[0].content = "x".repeat(12_400);
+        assert!(
+            ledger
+                .reserve(
+                    "oversize",
+                    scope(Purpose::Minister, Some("a"), Some(1)),
+                    route(),
+                    &req
+                )
+                .is_err()
+        );
+        drop(ledger);
+        std::fs::remove_dir_all(path).unwrap();
     }
     #[test]
     fn pre_dispatch_rejections_and_uncertain_across_resets() {
