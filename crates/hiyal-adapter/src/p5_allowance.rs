@@ -671,14 +671,14 @@ impl Allowance {
             funded_micro_usd,
             carried_unresolved_micro_usd: liability,
         });
-        self.state.epoch_id = epoch;
-        self.state.epoch_funded_micro_usd = funded_micro_usd;
-        // Explicit funded epochs are the only compaction boundary. Retain
-        // every uncertain/reserved/recorded call verbatim across all resets.
         let verified=self.state.calls.iter().filter(|c|c.status==Status::Verified).count();
         if self.state.archived.len().checked_add(verified).is_none_or(|x|x>MAX_ARCHIVED) {
             return Err(reject("verified archive capacity exhausted"));
         }
+        self.state.epoch_id = epoch;
+        self.state.epoch_funded_micro_usd = funded_micro_usd;
+        // Explicit funded epochs are the only compaction boundary. Retain
+        // every uncertain/reserved/recorded call verbatim across all resets.
         let mut active=Vec::new();
         for call in std::mem::take(&mut self.state.calls) {
             if call.status==Status::Verified {
@@ -966,6 +966,52 @@ mod tests {
         );
         drop(ledger);
         std::fs::remove_dir_all(path).unwrap();
+    }
+    #[test]
+    fn verified_epoch_compaction_retains_idempotency_and_quarter_caps() {
+        let path=temporary().join("verified-archive");
+        let mut ledger=Allowance::open(&path,"owner").unwrap();
+        for i in 0..14 {
+            let id=format!("minister-{i}");
+            ledger.reserve(&id,scope(Purpose::Minister,Some("campaign-a"),Some(1)),route(),&request()).unwrap();
+            ledger.mark_dispatched(&id).unwrap();
+            ledger.record(&id,Some(10),Some(3),Some(7)).unwrap();
+            ledger.verify_charge(&id,7).unwrap();
+        }
+        for i in 0..2 {
+            let id=format!("assistant-{i}");
+            ledger.reserve(&id,scope(Purpose::Assistant,Some("campaign-a"),Some(1)),route(),&request()).unwrap();
+            ledger.mark_dispatched(&id).unwrap();
+            ledger.record(&id,Some(10),Some(2),None).unwrap();
+            ledger.verify_charge(&id,7).unwrap();
+        }
+        ledger.start_funded_epoch(INITIAL_MICRO_USD).unwrap();
+        assert_eq!(ledger.calls().len(),0);
+        assert_eq!(ledger.state.archived.len(),16);
+        assert!(ledger.reserve("assistant-extra",scope(Purpose::Assistant,Some("campaign-a"),Some(1)),
+            route(),&request()).is_err());
+        assert!(ledger.reserve("minister-0",scope(Purpose::Minister,Some("campaign-a"),Some(1)),
+            route(),&request()).is_err());
+        drop(ledger);
+        let again=Allowance::open(&path,"owner").unwrap();
+        assert_eq!(again.state.archived.len(),16);
+        assert_eq!(again.quarter_usage("campaign-a",1).unwrap().1,16);
+        drop(again);std::fs::remove_dir_all(path).unwrap();
+    }
+    #[test]
+    fn unverified_calls_do_not_disappear_during_epoch_archival() {
+        let path=temporary().join("uncertain-archive");
+        let mut ledger=Allowance::open(&path,"owner").unwrap();
+        ledger.reserve("unknown",scope(Purpose::Authoring,None,None),route(),&request()).unwrap();
+        let held=ledger.calls()[0].maximum_micro_usd;
+        ledger.start_funded_epoch(INITIAL_MICRO_USD).unwrap();
+        assert_eq!(ledger.calls().len(),1);
+        assert!(ledger.state.archived.is_empty());
+        assert_eq!(ledger.remaining_micro_usd().unwrap(),INITIAL_MICRO_USD-held);
+        drop(ledger);
+        let reopened=Allowance::open(&path,"owner").unwrap();
+        assert_eq!(reopened.remaining_micro_usd().unwrap(),INITIAL_MICRO_USD-held);
+        drop(reopened);std::fs::remove_dir_all(path).unwrap();
     }
     #[test]
     fn pre_dispatch_rejections_and_uncertain_across_resets() {
