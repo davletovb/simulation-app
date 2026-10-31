@@ -4,7 +4,7 @@
 //! connection is used here.
 use crate::{ACTORS,ActionKind,GameAction,GameObservation,GameWorld,PLAYER,PERIOD,WORLD_KIND};
 use hiyal::{
-    core::AgentId,
+    core::{AgentId, World},
     effects::{EffectResult,ModelRequest,Message,Role,Sampling,Usage},
     experiment::{EffectPolicy,Step,Trial},
     runtime::{Backend,BillingDisposition,BoxResult,EffectSpec,Receipt},
