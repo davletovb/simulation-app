@@ -90,11 +90,11 @@ fn actor_role(actor: AgentId) -> Option<d::Ministry> {
     }
 }
 // Serialize the same typed vote enums as the validated P1 contracts.
-fn wire_vote(value:d::Position)->myth_contracts::Vote {
+fn wire_vote(value: d::Position) -> myth_contracts::Vote {
     match value {
-        d::Position::Support=>myth_contracts::Vote::Support,
-        d::Position::Conditional=>myth_contracts::Vote::Conditional,
-        d::Position::Oppose=>myth_contracts::Vote::Oppose,
+        d::Position::Support => myth_contracts::Vote::Support,
+        d::Position::Conditional => myth_contracts::Vote::Conditional,
+        d::Position::Oppose => myth_contracts::Vote::Oppose,
     }
 }
 fn allocation_value(a: d::Allocation) -> Value {
