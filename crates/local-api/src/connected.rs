@@ -378,11 +378,9 @@ fn schedule(owner: Arc<Owner>) {
                 let body = engine.log.records[pos]
                     .kind
                     .body(engine.trial.store.world());
-                let command_id=engine.log.records[pos].command_id.clone();
+                let command_id = engine.log.records[pos].command_id.clone();
                 let prepared = match body {
-                    Ok(Some(payload)) => engine
-                        .trial
-                        .select_player_command(&command_id, payload),
+                    Ok(Some(payload)) => engine.trial.select_player_command(&command_id, payload),
                     Ok(None) => Ok(()),
                     Err(error) => Err(error),
                 };
