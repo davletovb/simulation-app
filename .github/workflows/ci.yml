@@ -37,6 +37,14 @@ jobs:
         with:
           toolchain: 1.99.1
           components: rustfmt, clippy
+      - name: Temporary P5 locked dependency resolution capture
+        if: ${{ github.head_ref == 'feat/p5-offline-admission-ledger' }}
+        shell: bash
+        run: |
+          cargo fetch
+          echo P5_LOCK_BEGIN
+          cat Cargo.lock
+          echo P5_LOCK_END
       - name: Verify pinned toolchain and locked Cargo dependencies
         if: steps.workspace.outputs.present == 'true'
         shell: bash
