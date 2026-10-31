@@ -1,4 +1,6 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
+import { draftStatus, type Allocation } from '../game'
+import { readStored, writeStored } from '../storage'
 
 interface Vote {
   ministry: string
@@ -30,6 +32,7 @@ interface Committed { snapshot: Snapshot; operation: Operation | null }
 type Transport = 'connecting' | 'connected' | 'reconnecting' | 'unavailable'
 const CAMPAIGN = 'demo-england'
 const root = '/api/campaigns/' + CAMPAIGN
+const PENDING_KEY = 'myth-p6.pending-demo-england'
 
 function validSnapshot(raw: unknown): raw is Committed {
   if (typeof raw !== 'object' || raw === null) return false
@@ -61,16 +64,31 @@ function makeCommandId(): string {
 
 /** Connected P6 panel. Rust alone owns all world changes and committed reports.
  * This preview cannot dispatch OpenRouter calls and cannot interpret rules. */
-export function ConnectedView() {
+type PlayerCommand = { kind: 'advance_slice' } | { kind:'propose' | 'amend'; allocation:Allocation } |
+  {kind:'decide';ratify:boolean}
+interface Pending {id:string;version:string;action:PlayerCommand}
+function readPending():Pending|null {
+  try {
+    const raw=readStored(PENDING_KEY)
+    if (!raw) return null
+    const value=JSON.parse(raw) as Partial<Pending>
+    if (typeof value.id!=='string' || !/^op-[a-f0-9-]{36}$/.test(value.id)
+      || typeof value.version!=='string' || typeof value.action?.kind!=='string') return null
+    return value as Pending
+  }catch{return null}
+}
+export function ConnectedView({allocation}:{allocation:Allocation}) {
   const [current, setCurrent] = useState<Committed | null>(null)
   const [transport, setTransport] = useState<Transport>('connecting')
-  const [pending, setPending] = useState<{ id: string; version: string } | null>(null)
+  const [pending, setPending] = useState<Pending | null>(readPending)
   const [error, setError] = useState<string | null>(null)
-  const sourceRef = useRef<EventSource | null>(null)
   const accept = useCallback((raw: unknown) => {
     if (!validSnapshot(raw)) throw new Error('Incorrect versioned server view')
     setCurrent(old => newer(old, raw))
-    if (raw.operation && raw.operation.status !== 'accepted') setPending(null)
+    if (raw.operation && raw.operation.status !== 'accepted') {
+      setPending(null)
+      writeStored(PENDING_KEY,'')
+    }
   }, [])
 
   const load = useCallback(async () => {
@@ -83,7 +101,6 @@ export function ConnectedView() {
     let alive = true
     void load().catch(() => { if (alive) setTransport('unavailable') })
     const source = new EventSource(root + '/events')
-    sourceRef.current = source
     source.onopen = () => { if (alive) setTransport('connected') }
     source.onerror = () => { if (alive) setTransport('reconnecting') }
     for (const kind of ['snapshot', 'snapshot_fallback', 'committed']) {
@@ -93,13 +110,14 @@ export function ConnectedView() {
         catch { setError('Invalid streamed view; refresh the verified snapshot') }
       })
     }
-    return () => { alive = false; source.close(); sourceRef.current = null }
+    return () => { alive = false; source.close() }
   }, [load, accept])
 
-  const advance = async () => {
+  const advance = async (requested:PlayerCommand) => {
     if (!current || current.snapshot.closed) return
-    const operation = pending ?? { id: makeCommandId(), version: current.snapshot.view_version }
+    const operation:Pending = pending ?? { id: makeCommandId(), version: current.snapshot.view_version,action:requested }
     setPending(operation)
+    writeStored(PENDING_KEY,JSON.stringify(operation))
     setError(null)
     try {
       const response = await fetch(root + '/commands', {
@@ -108,7 +126,7 @@ export function ConnectedView() {
         body: JSON.stringify({
           command_id: operation.id,
           expected_world_version: operation.version,
-          kind: 'advance_slice',
+          ...operation.action,
         }),
       })
       if (!response.ok) {
@@ -119,7 +137,10 @@ export function ConnectedView() {
       }
       const saved = await response.json() as Operation
       if (saved.command_id !== operation.id) throw new Error('Command ID mismatch')
-      if (saved.status !== 'accepted') setPending(null)
+      if (saved.status !== 'accepted') {
+        setPending(null)
+        writeStored(PENDING_KEY,'')
+      }
       // The committed update arrives through SSE; 202 is NOT a game success.
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Unknown network error')
@@ -177,10 +198,27 @@ export function ConnectedView() {
           </div>
           <p className="connected-assumptions">{snapshot.assumption}</p>
           <div className="connected-actions">
-            <button type="button" onClick={() => void advance()}
-              disabled={snapshot.closed || (pending !== null && !error)}>
-              {snapshot.closed ? 'Campaign complete' : pending ? 'Retry same operation' : 'Advance one verified phase'}
-            </button>
+            {pending ? (
+              <button type="button" onClick={() => void advance(pending.action)}
+                disabled={!error}>Retry existing command ID</button>
+            ) : (
+              <>
+                {snapshot.phase === 'QuarterOpen' && <button type="button"
+                  disabled={draftStatus(allocation)!=='valid'}
+                  onClick={() => void advance({kind:'propose',allocation})}>Submit draft proposal</button>}
+                {snapshot.phase === 'AmendmentWindow' && <button type="button"
+                  disabled={draftStatus(allocation)!=='valid'}
+                  onClick={() => void advance({kind:'amend',allocation})}>Submit amendment</button>}
+                {snapshot.phase === 'FinalPositionsFrozen' && snapshot.votes.filter(v=>v.stage==='final').length >= 3 && (
+                  <>
+                    <button type="button" onClick={() => void advance({kind:'decide',ratify:true})}>Ratify proposal</button>
+                    <button type="button" onClick={() => void advance({kind:'decide',ratify:false})}>Defer proposal</button>
+                  </>
+                )}
+                {!snapshot.closed && <button type="button" onClick={() => void advance({kind:'advance_slice'})}>
+                  Continue scripted phase</button>}
+              </>
+            )}
             <button type="button" onClick={refresh}>Refresh committed view</button>
           </div>
           {pending && <p role="status">Operation {pending.id}: submitted or awaiting acknowledgment. Keep this ID for retries.</p>}

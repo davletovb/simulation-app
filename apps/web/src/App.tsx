@@ -72,7 +72,7 @@ export function App() {
       <div className="stage">
         <ViewNav view={view} onChange={changeView} />
         <main className="view">
-          {view === 'command' && <ConnectedView />}
+          {view === 'command' && <ConnectedView allocation={allocation} />}
           <div id="view-panel" role="tabpanel" aria-labelledby={`tab-${view}`} tabIndex={-1} className="view-inner">
             {view === 'command' && <CommandView allocation={allocation} onChange={setAllocation} />}
             {view === 'cabinet' && <CabinetView />}
