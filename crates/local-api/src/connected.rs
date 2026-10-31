@@ -317,7 +317,7 @@ fn capture(trial: &GameTrial) -> Result<PublicView, String> {
     }
     let mut proposal = None;
     let mut outcome = None;
-    let mut votes = Vec::new();
+    let mut votes: Vec<PublicVote> = Vec::new();
     let mut decisions = Vec::new();
     let mut last_quarter = 1u8;
     for action in &world.actions {
@@ -422,6 +422,8 @@ fn capture(trial: &GameTrial) -> Result<PublicView, String> {
         proposal,
         votes,
         treasury:fiscal,
+        decisions,
+        evidence,
         outcome,
         assumption:"Synthetic education-delivery rules; scripted cabinet, not live ministers or empirical predictions".into(),
         mode:"offline_scripted",
