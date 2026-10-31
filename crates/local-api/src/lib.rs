@@ -139,6 +139,7 @@ struct Health {
     schema_version: u16,
     network_calls: bool,
     authoritative_simulation: bool,
+    connected_authoritative_simulation: bool,
 }
 async fn health(State(state): State<AppState>) -> Json<Health> {
     Json(Health {
@@ -147,6 +148,7 @@ async fn health(State(state): State<AppState>) -> Json<Health> {
         schema_version: d::SCHEMA_VERSION,
         network_calls: false,
         authoritative_simulation: false,
+        connected_authoritative_simulation: true,
     })
 }
 

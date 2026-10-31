@@ -22,6 +22,7 @@ done
 if [ -z "$READY" ]; then echo 'Offline API did not start' >&2; cat "$TMP/server.log"; exit 1; fi
 grep -q '"network_calls":false' "$TMP/health"
 grep -q '"authoritative_simulation":false' "$TMP/health"
+grep -q '"connected_authoritative_simulation":true' "$TMP/health"
 
 curl -fsS "$BASE/api/preview" -H 'Content-Type: application/json' \
   -d '{"allocation":{"staff":0,"repairs":0,"access":25}}' >"$TMP/forecast"
@@ -32,6 +33,41 @@ curl -fsS "$BASE/api/scripted/meeting" -H 'Content-Type: application/json' \
   -d '{"allocation":{"staff":50,"repairs":40,"access":10}}' >"$TMP/votes"
 grep -q '"support_count":3' "$TMP/votes"
 grep -q '"institutional_ratification":false' "$TMP/votes"
+
+# P6: actual loopback wire contract (nested typed kind), durable 202,
+# idempotent 200 retry, changed-content 409, committed snapshot and no keys.
+curl -fsS "$BASE/api/campaigns/demo-england/snapshot" >"$TMP/connected-first"
+grep -q '"cursor":"0"' "$TMP/connected-first"
+cat >"$TMP/connected-command" <<'JSON'
+{"command_id":"smoke-proposal","expected_world_version":"0","kind":{"kind":"propose","allocation":{"staff":50,"repairs":40,"access":10}}}
+JSON
+status=$(curl -sS -o "$TMP/accepted" -w '%{http_code}' \
+  "$BASE/api/campaigns/demo-england/commands" -H 'Content-Type: application/json' \
+  --data-binary "@$TMP/connected-command")
+test "$status" = 202
+grep -q '"status":"accepted"' "$TMP/accepted"
+status=$(curl -sS -o "$TMP/repeated" -w '%{http_code}' \
+  "$BASE/api/campaigns/demo-england/commands" -H 'Content-Type: application/json' \
+  --data-binary "@$TMP/connected-command")
+test "$status" = 200
+for _ in $(seq 1 50); do
+  curl -fsS "$BASE/api/campaigns/demo-england/commands/smoke-proposal" >"$TMP/op"
+  if grep -q '"status":"completed"' "$TMP/op"; then break; fi
+  sleep 0.1
+done
+grep -q '"status":"completed"' "$TMP/op"
+curl -fsS "$BASE/api/campaigns/demo-england/snapshot" >"$TMP/connected-saved"
+grep -q '"phase":"FirstPositionsFrozen"' "$TMP/connected-saved"
+status=$(curl -sS -o "$TMP/conflict" -w '%{http_code}' \
+  "$BASE/api/campaigns/demo-england/commands" -H 'Content-Type: application/json' \
+  -d '{"command_id":"smoke-proposal","expected_world_version":"0","kind":{"kind":"advance_slice"}}')
+test "$status" = 409
+curl -fsS "$BASE/api/campaigns/another-campaign/snapshot" >"$TMP/isolated"
+grep -q '"cursor":"0"' "$TMP/isolated"
+status=$(curl -sS -o /dev/null -w '%{http_code}' \
+  "$BASE/api/campaigns/demo-england/commands" -H 'Origin: https://foreign.example' \
+  -H 'Content-Type: application/json' --data-binary "@$TMP/connected-command")
+test "$status" = 403
 
 # Unfunded, over-budget packages are invalid requests, not three legitimate no-votes.
 status=$(curl -s -o /dev/null -w '%{http_code}' "$BASE/api/scripted/meeting" \
