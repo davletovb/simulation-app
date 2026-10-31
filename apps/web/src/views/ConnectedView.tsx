@@ -287,7 +287,7 @@ export function ConnectedView({allocation}:{allocation:Allocation}) {
 
   const createCampaign = async () => {
     try {
-      const response = await fetch(root, {method:'POST'})
+      const response = await fetch(root, {method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})
       if (!response.ok) throw new Error('Could not start this local campaign')
       const created = await response.json() as unknown
       accept(created)
