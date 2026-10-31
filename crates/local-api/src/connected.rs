@@ -16,7 +16,9 @@ use myth_contracts::Allocation as WireAllocation;
 use myth_domain::PolicyFamily;
 use myth_hiyal_adapter::{
     ActionKind, GameWorld,
-    orchestrator::{GameTrial, advance_slice, create_campaign, inspect, resume},
+    orchestrator::{
+        GameTrial, advance_slice, advance_unmodified_quarter, create_campaign, inspect, resume,
+    },
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -92,7 +94,7 @@ impl CommandKind {
         };
         Ok(match self {
             Self::AdvanceSlice => None,
-            Self::ContinueQuarter => Some(json!({"kind":"advance_quarter"})),
+            Self::ContinueQuarter => None,
             Self::Propose { allocation } => Some(json!({
                 "kind":"propose","meeting_id":meeting,"allocation":allocation,
             })),
@@ -824,6 +826,9 @@ fn schedule(owner: Arc<Owner>) {
                     Err(error) => Err(error),
                 };
                 let applied = match prepared {
+                    Ok(()) if engine.log.records[pos].kind == CommandKind::ContinueQuarter => {
+                        advance_unmodified_quarter(&mut engine.trial).await
+                    }
                     Ok(()) => advance_slice(&mut engine.trial).await.map(|_| ()),
                     Err(error) => Err(error),
                 };
@@ -1008,6 +1013,11 @@ async fn command(
     }
     if engine.trial.store.world().is_closed() {
         return Err(status(StatusCode::CONFLICT, "campaign closed"));
+    }
+    if request.kind == CommandKind::ContinueQuarter
+        && engine.trial.store.world().phase != myth_contracts::checkpoint::Phase::QuarterOpen
+    {
+        return Err(status(StatusCode::CONFLICT, "cannot continue an active cabinet meeting"));
     }
     if let Some(body) = request
         .kind
@@ -2130,7 +2140,7 @@ mod tests {
         let world = GameWorld::initial("continue-wire").unwrap();
         assert_eq!(
             CommandKind::ContinueQuarter.body(&world).unwrap(),
-            Some(json!({"kind":"advance_quarter"}))
+            None
         );
     }
     #[tokio::test]

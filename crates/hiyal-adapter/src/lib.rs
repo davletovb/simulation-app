@@ -423,7 +423,7 @@ impl GameWorld {
         let valid_phase = match (self.phase, kind) {
             // Explicit continuation keeps the current funded programme intact.
             // Audits retain P3's Q3+ historical and funding eligibility checks.
-            (Phase::QuarterOpen, "propose" | "advance_quarter" | "order_audit") => true,
+            (Phase::QuarterOpen, "propose" | "order_audit") => true,
             (Phase::AmendmentWindow, "amend") => true,
             (Phase::FinalPositionsFrozen, "ratify" | "defer")
                 if self.final_votes_this_meeting() == 3 =>
@@ -539,7 +539,7 @@ impl GameWorld {
                 "command_id":format!("{meeting}-player-{}",self.world_version),
                 "expected_world_version":self.world_version,"command":body});
         } else if actor == PERIOD {
-            if self.phase != Phase::Resolved {
+            if !matches!(self.phase, Phase::Resolved | Phase::QuarterOpen) {
                 return Err("period actor not eligible".into());
             }
             kind = ActionKind::PlayerCommand;
