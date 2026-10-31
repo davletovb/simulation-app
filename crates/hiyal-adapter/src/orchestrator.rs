@@ -551,13 +551,13 @@ mod tests {
         }
         fn resolve<'a>(&'a self, spec: &'a EffectSpec) -> BoxResult<'a> {
             Box::pin(async move {
-                if let EffectSpec::Model(m) = spec {
-                    if m.messages.iter().any(|x| x.content.contains("actor2")) {
-                        return Ok(EffectResult::Failed {
-                            category: "synthetic".into(),
-                            message: "one seat failed".into(),
-                        });
-                    }
+                if let EffectSpec::Model(m) = spec
+                    && m.messages.iter().any(|x| x.content.contains("actor2"))
+                {
+                    return Ok(EffectResult::Failed {
+                        category: "synthetic".into(),
+                        message: "one seat failed".into(),
+                    });
                 }
                 let backend = PlayerCommandTool;
                 backend.resolve(spec).await
