@@ -552,6 +552,132 @@ pub fn resume_live(
         live_admission: Some(admitted),
     })
 }
+
+/// Operator approvals are *not* Hiyal effect receipts. They are separate
+/// fsynced private authorization state; the actual retry gets a new Hiyal
+/// event sequence and therefore a different durable effect call key.
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RetryAuthorization {
+    actor: u64,
+    quarter: u8,
+    phase: Phase,
+    frozen_observation_sha256: String,
+    source_event_hash: String,
+    source_receipt_hash: String,
+}
+#[derive(Default, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RetryAuthorizations {
+    schema: u8,
+    entries: Vec<RetryAuthorization>,
+}
+fn retry_file(dir: &Path) -> std::path::PathBuf {
+    dir.join("p5-retry-authorizations.json")
+}
+fn read_retry_authorizations(dir: &Path) -> Result<RetryAuthorizations, String> {
+    let path=retry_file(dir);
+    if !path.exists() {
+        return Ok(RetryAuthorizations{schema:1,entries:Vec::new()});
+    }
+    let bytes=std::fs::read(path).map_err(|_| "cannot read private retry approvals")?;
+    if bytes.len()>65_536 {return Err("retry approvals exceed bound".into());}
+    let state:RetryAuthorizations=serde_json::from_slice(&bytes)
+        .map_err(|_| "invalid private retry approvals")?;
+    if state.schema!=1 || state.entries.len()>12 {
+        return Err("invalid retry approval schema or count".into());
+    }
+    Ok(state)
+}
+fn retry_source(trial:&GameTrial, actor:AgentId) -> Result<Option<RetryAuthorization>,String> {
+    use hiyal::{core::World,storage::Outcome,effects::EffectCallKey};
+    let world=trial.store.world();
+    if !matches!(world.phase,Phase::FirstPositionsFrozen|Phase::FinalPositionsFrozen)
+        || !world.remaining_ministers().contains(&actor) {
+        return Ok(None);
+    }
+    let observation=world.observe(actor)?;
+    let events=trial.store.read_events()?;
+    let freeze_sequence=events.iter().rev().find(|e|
+        e.actor==PLAYER && matches!(e.outcome,Outcome::Accepted{..}))
+        .map(|e|e.sequence()).ok_or("missing durable frozen player action")?;
+    let failed=events.iter().rev().find(|e|
+        e.actor==actor && e.sequence()>freeze_sequence
+            && matches!(e.outcome,Outcome::Rejected{..}));
+    let Some(failure)=failed else {return Ok(None)};
+    let prior=trial.effects.receipts().iter().find(|(key,receipt)|
+        key.agent_id==actor && key.logical_step==failure.sequence()
+            && matches!(receipt.result,EffectResult::Failed{..}|EffectResult::UnsupportedCapability{..}));
+    let Some((key,receipt))=prior else {
+        // Invalid *typed* outputs require a separate per-action JSON repair
+        // protocol, not an operational retry.
+        return Err("rejected minister has no operationally failed keyed receipt");
+    };
+    if *key != receipt.spec.key(&key.trial_id,key.logical_step,key.agent_id,key.call_index)? {
+        return Err("prior retry receipt key mismatch");
+    }
+    Ok(Some(RetryAuthorization{
+        actor:actor.0,quarter:world.quarter,phase:world.phase,
+        frozen_observation_sha256:observation.action.observation_sha256.clone(),
+        source_event_hash:failure.hash.clone(),
+        source_receipt_hash:receipt.content_hash.clone(),
+    }))
+}
+fn persist_retry_authorizations(dir:&Path, state:&RetryAuthorizations)->Result<(),String> {
+    use std::io::Write;
+    let bytes=serde_json::to_vec(state).map_err(|_|"cannot encode retry approvals")?;
+    if bytes.len()>65_536 {return Err("retry approval history full");}
+    let tmp=dir.join("p5-retry-authorizations.new");
+    let mut file=std::fs::OpenOptions::new().write(true).create(true).truncate(true)
+        .open(&tmp).map_err(|_|"cannot stage retry authorization")?;
+    file.write_all(&bytes).map_err(|_|"cannot write retry authorization")?;
+    file.sync_all().map_err(|_|"cannot sync retry authorization")?;
+    std::fs::rename(&tmp,retry_file(dir)).map_err(|_|"cannot commit retry authorization")?;
+    #[cfg(unix)]
+    std::fs::File::open(dir).and_then(|f|f.sync_all())
+        .map_err(|_|"cannot sync retry directory")?;
+    Ok(())
+}
+/// A retry is player/operator-initiated, never scheduled automatically.
+pub fn authorize_failed_minister_retry(trial:&GameTrial,actor:AgentId)->Result<(),String>{
+    if trial.live_admission.is_none() {return Err("not a live governed trial".into());}
+    if trial.store.dir.join("pending-round.json").exists() {
+        return Err("cannot authorize while frozen round is unfinished".into());
+    }
+    if !trial.store.world().remaining_ministers().contains(&actor) {
+        return Err("actor has no failed, unfinished minister action".into());
+    }
+    let source=retry_source(trial,actor)?.ok_or("no failed operational effect to retry")?;
+    let mut state=read_retry_authorizations(&trial.store.dir)?;
+    if state.entries.iter().any(|e|e.actor==source.actor
+        && e.source_event_hash==source.source_event_hash){
+        return Err("retry for this failed receipt already authorized");
+    }
+    if state.entries.iter().filter(|e|e.quarter==source.quarter).count()>=2 {
+        return Err("quarterly manual operational retry cap reached");
+    }
+    state.entries.push(source);
+    persist_retry_authorizations(&trial.store.dir,&state)
+}
+fn ensure_authorized_failed_ministers(trial:&GameTrial,actors:&[AgentId])->Result<(),String>{
+    if trial.live_admission.is_none(){return Ok(());}
+    let state=read_retry_authorizations(&trial.store.dir)?;
+    for &actor in actors {
+        if let Some(source)=retry_source(trial,actor)? {
+            let matching=state.entries.iter().filter(|auth|
+                auth.actor==source.actor
+                    && auth.quarter==source.quarter
+                    && auth.phase==source.phase
+                    && auth.frozen_observation_sha256==source.frozen_observation_sha256
+                    && auth.source_event_hash==source.source_event_hash
+                    && auth.source_receipt_hash==source.source_receipt_hash).count();
+            if matching!=1 {
+                return Err("failed minister requires one explicit durable retry authorization".into());
+            }
+        }
+    }
+    Ok(())
+}
 fn enable(trial: &mut GameTrial, allowed: &[AgentId]) -> Result<(), String> {
     for actor in ACTORS {
         let currently_paused = trial.paused.contains(&actor);
@@ -617,6 +743,7 @@ pub async fn advance_slice(trial: &mut GameTrial) -> Result<bool, String> {
             if remaining.is_empty() {
                 return Err("cabinet has no remaining actions".into());
             }
+            ensure_authorized_failed_ministers(trial,&remaining)?;
             enable(trial, &remaining)?;
             let steps = trial.run_round(remaining.len()).await?;
             for step in steps {
