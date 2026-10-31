@@ -1,0 +1,114 @@
+name: P4 manually requested Linux/macOS arm64 replay and resource gate
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  replay-and-bench:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            label: linux-x64
+          - os: macos-15
+            label: macos-arm64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 22
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.99.1'
+          components: rustfmt,clippy
+      - name: Verify pinned Hiyal and native architecture
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustc --version --verbose
+          uname -a
+          if [ "${{ matrix.label }}" = "macos-arm64" ] && [ "$(uname -m)" != "arm64" ]; then
+            echo "macOS runner is not arm64" >&2
+            exit 1
+          fi
+          cargo fetch --locked
+          cargo test --locked -p myth-hiyal-adapter
+      - name: Compile optimized case benchmark once
+        shell: bash
+        run: cargo build --release --locked -p myth-hiyal-adapter --bin p4-trial
+      - name: Prototype and 1024-record stress, three samples each
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p p4-evidence
+          if [ "${{ matrix.label }}" = "macos-arm64" ]; then
+            /usr/bin/time -l target/release/p4-trial benchmark 3 >p4-evidence/prototype.json 2>p4-evidence/prototype-stderr.txt
+            /usr/bin/time -l target/release/p4-trial benchmark-stress 3 >p4-evidence/stress.json 2>p4-evidence/stress-stderr.txt
+            # macOS time -l reports maximum resident set size in bytes.
+            awk '/maximum resident set size/{ print $1 }' p4-evidence/stress-stderr.txt | tail -n 1 >p4-evidence/macos-peak-rss-bytes.txt
+            awk '/maximum resident set size/{ print $1 }' p4-evidence/prototype-stderr.txt | tail -n 1 >p4-evidence/macos-peak-rss-prototype-bytes.txt
+            test -s p4-evidence/macos-peak-rss-bytes.txt
+            test -s p4-evidence/macos-peak-rss-prototype-bytes.txt
+          else
+            target/release/p4-trial benchmark 3 >p4-evidence/prototype.json 2>p4-evidence/prototype-stderr.txt
+            target/release/p4-trial benchmark-stress 3 >p4-evidence/stress.json 2>p4-evidence/stress-stderr.txt
+          fi
+          cp rust-toolchain.toml p4-evidence/rust-toolchain.toml
+          printf '%s\n' "${{ matrix.label }}" >p4-evidence/platform.txt
+          cat p4-evidence/prototype.json
+          cat p4-evidence/stress.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: p4-${{ matrix.label }}
+          path: p4-evidence/
+          retention-days: 7
+  compare:
+    needs: replay-and-bench
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: p4-*
+          path: evidence
+      - name: Compare deterministic authoritative hashes and declared limits
+        run: |
+          python3 - <<'PY'
+          import json, pathlib
+          dirs = {s:pathlib.Path("evidence")/f"p4-{s}" for s in ("linux-x64","macos-arm64")}
+          j = {(s,k):json.loads((p/f"{k}.json").read_text()) for s,p in dirs.items() for k in ("prototype","stress")}
+          for kind in ("prototype","stress"):
+              a=j["linux-x64",kind]; b=j["macos-arm64",kind]
+              assert a["target_os"] == "linux" and a["target_arch"] == "x86_64"
+              assert b["target_os"] == "macos" and b["target_arch"] == "aarch64"
+              assert a["case_sha256"] == b["case_sha256"], f"{kind}: state hash mismatch"
+              assert a["samples"] == b["samples"] == 3
+              for result in (a,b):
+                  assert result["durability"] == "every_event"
+                  assert result["explicit_sync_probe"] == "succeeded"
+                  assert result["checkpoint_bytes_max"] is not None
+                  assert result["trial_disk_bytes_max"] is not None
+                  assert int(result["checkpoint_bytes_max"]) <= 10*1024*1024
+                  assert int(result["trial_disk_bytes_max"]) <= (64 if kind=="stress" else 10)*1024*1024
+                  assert result["accepted_game_actions"] > 0
+                  assert int(result["resume_full_validation"]["p95_us"]) <= (10 if kind=="stress" else 2)*1_000_000
+                  assert int(result["independent_full_verify"]["p95_us"]) <= (30 if kind=="stress" else 5)*1_000_000
+                  if kind=="prototype":
+                      assert int(result["quarter_advance_commit"]["p95_us"]) <= 250_000
+                      assert int(result["cabinet_action_commit"]["p95_us"]) <= 150_000
+                  if kind=="stress":
+                      assert result["synthetic_stress_records"] == 1024
+                      assert result["fake_model_receipts"] == 96
+              print(f"{kind} cross-OS private state SHA256: {a['case_sha256']}")
+          mac=dirs["macos-arm64"]
+          peak=int((mac/"macos-peak-rss-bytes.txt").read_text().strip())
+          proto_peak=int((mac/"macos-peak-rss-prototype-bytes.txt").read_text().strip())
+          assert peak <= 512*1024*1024, f"macOS arm64 stress peak RSS {peak}"
+          assert proto_peak <= 256*1024*1024, f"macOS arm64 prototype peak RSS {proto_peak}"
+          for kind in ("prototype","stress"):
+              linux_peak=j["linux-x64",kind]["peak_rss_bytes"]
+              assert linux_peak is not None
+              assert int(linux_peak) <= (512 if kind=="stress" else 256)*1024*1024
+          print(f"macOS arm64 prototype and stress peak RSS bytes: {proto_peak}, {peak}")
+          print("P4 cross-OS deterministic replay and bounded resource gate PASSED")
+          PY
