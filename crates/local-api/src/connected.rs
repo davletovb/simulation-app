@@ -40,7 +40,8 @@ fn valid_id(s: &str) -> bool {
     !s.is_empty()
         && s.len() <= 64
         && s.bytes()
-            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == b'-' || c == b'_')}
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == b'-' || c == b'_')
+}
 fn digest(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
 }
@@ -886,5 +887,4 @@ mod tests {
         drop(recovered);
         fs::remove_dir_all(dir).unwrap();
     }
-
 }
