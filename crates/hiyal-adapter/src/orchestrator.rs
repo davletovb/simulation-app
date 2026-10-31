@@ -1074,8 +1074,12 @@ mod tests {
         .unwrap();
         advance_slice(&mut trial).await.unwrap();
         if let Err(problem) = advance_slice(&mut trial).await {
-            let outcomes: Vec<String> = trial.effects.receipts().values()
-                .map(|r| format!("{:?}", r.result)).collect();
+            let outcomes: Vec<String> = trial
+                .effects
+                .receipts()
+                .values()
+                .map(|r| format!("{:?}", r.result))
+                .collect();
             panic!("offline cabinet round failed: {problem}; effect outcomes: {outcomes:?}");
         }
         assert_eq!(trial.store.world().phase, Phase::AmendmentWindow);
