@@ -277,6 +277,26 @@ pub struct PublicDecision {
     pub final_support: u8,
     pub final_votes: u8,
 }
+/// Public P3 report only: reported activity and schedule, not private actual
+/// delivery or hidden minister implementation effort.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct PublicDelivery {
+    pub quarter: u8,
+    pub reported_cumulative: [u16; 3],
+    pub due_cumulative: [u16; 3],
+    pub weighted_support_ppm: u32,
+    pub staff_slowdown_next: bool,
+    pub access_bonus_next: bool,
+}
+/// Exact recorded-action replay is distinct from a new scripted fork.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct PublicComparison {
+    pub mode: String,
+    pub source_campaign_id: Option<String>,
+    pub source_cursor: Option<String>,
+    pub inherited_shock_stream: bool,
+    pub post_fork_actor_actions_fixed: bool,
+}
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct PublicEvidence {
     pub case_pack: String,
@@ -300,6 +320,8 @@ pub struct PublicView {
     pub votes: Vec<PublicVote>,
     pub treasury: PublicTreasury,
     pub decisions: Vec<PublicDecision>,
+    pub delivery_history: Vec<PublicDelivery>,
+    pub comparison: PublicComparison,
     pub evidence: PublicEvidence,
     pub outcome: Option<String>,
     pub assumption: String,
@@ -402,6 +424,26 @@ fn capture(trial: &GameTrial) -> Result<PublicView, String> {
     };
     let campaign = world.fold()?;
     let treasury = campaign.world().treasury();
+    let delivery_history: Vec<PublicDelivery> = campaign
+        .player_reports()
+        .into_iter()
+        .map(|report| PublicDelivery {
+            quarter: report.quarter.value(),
+            reported_cumulative: report.reported_cumulative,
+            due_cumulative: report.due_cumulative,
+            weighted_support_ppm: report.weighted_support_ppm,
+            staff_slowdown_next: report.staff_slowdown_next,
+            access_bonus_next: report.access_bonus_next,
+        })
+        .collect();
+    if delivery_history.len() > 6
+        || delivery_history
+            .iter()
+            .enumerate()
+            .any(|(i, report)| usize::from(report.quarter) != i + 1)
+    {
+        return Err("invalid public quarterly report sequence".into());
+    }
     let fiscal = PublicTreasury {
         available_credits: treasury.available(),
         encumbered_staff: treasury.encumbered(PolicyFamily::Staffing),
@@ -423,6 +465,14 @@ fn capture(trial: &GameTrial) -> Result<PublicView, String> {
         votes,
         treasury:fiscal,
         decisions,
+        delivery_history,
+        comparison: PublicComparison {
+            mode: "exact_recorded_actions".into(),
+            source_campaign_id: None,
+            source_cursor: None,
+            inherited_shock_stream: true,
+            post_fork_actor_actions_fixed: true,
+        },
         evidence,
         outcome,
         assumption:"Synthetic education-delivery rules; scripted cabinet, not live ministers or empirical predictions".into(),
@@ -435,6 +485,18 @@ fn capture_for(trial: &GameTrial, id: &str) -> Result<PublicView, String> {
     let mut view = capture(trial)?;
     view.campaign_id = id.into();
     view.trial_id = trial.store.genesis().trial_id.clone();
+    if let Some(fork) = read_fork_meta(&trial.store.dir)? {
+        if fork.branch_id != id {
+            return Err("fork identity mismatch".into());
+        }
+        view.comparison = PublicComparison {
+            mode: "fresh_scripted_branch".into(),
+            source_campaign_id: Some(fork.source_campaign_id),
+            source_cursor: Some(fork.source_cursor),
+            inherited_shock_stream: true,
+            post_fork_actor_actions_fixed: false,
+        };
+    }
     Ok(view)
 }
 #[derive(Clone, Serialize)]
@@ -645,6 +707,14 @@ fn schedule(owner: Arc<Owner>) {
                             audit_spent: 0,
                         },
                         decisions: vec![],
+                        delivery_history: vec![],
+                        comparison: PublicComparison {
+                            mode: "verification_failed".into(),
+                            source_campaign_id: None,
+                            source_cursor: None,
+                            inherited_shock_stream: false,
+                            post_fork_actor_actions_fixed: false,
+                        },
                         evidence: PublicEvidence {
                             case_pack: "unavailable".into(),
                             source_cutoff_utc: "unavailable".into(),
@@ -1834,6 +1904,10 @@ mod tests {
         let later = accepted_step(&service, "report", CommandKind::AdvanceSlice, 6).await;
         assert_eq!(later.phase, "QuarterOpen");
         assert_eq!(later.decisions.len(), 1);
+        assert_eq!(later.delivery_history.len(), 1);
+        assert_eq!(later.delivery_history[0].quarter, 1);
+        assert_eq!(later.comparison.mode, "exact_recorded_actions");
+        assert!(later.comparison.post_fork_actor_actions_fixed);
         assert!(later.proposal.is_none());
         assert!(later.votes.is_empty());
         let payload = serde_json::to_string(&later).unwrap();
