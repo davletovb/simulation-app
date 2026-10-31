@@ -265,6 +265,18 @@ export function ConnectedView({allocation}:{allocation:Allocation}) {
     }catch(reason){setError(reason instanceof Error?reason.message:'Cannot create fork')}
   }
 
+  const createCampaign = async () => {
+    try {
+      const response = await fetch(root, {method:'POST'})
+      if (!response.ok) throw new Error('Could not start this local campaign')
+      const created = await response.json() as unknown
+      accept(created)
+      setError(null)
+    } catch(reason) {
+      setError(reason instanceof Error ? reason.message : 'Cannot start campaign')
+    }
+  }
+
   const refresh = () => {
     setError(null)
     void load().catch(() => setError('Verified campaign snapshot unavailable'))
@@ -284,7 +296,8 @@ export function ConnectedView({allocation}:{allocation:Allocation}) {
       {query.isError && !snapshot && <p role="alert">The local campaign could not be loaded.</p>}
       {!snapshot ? (
         <div className="connected-grid"><p>Loading a verified committed boundary…</p>
-          <ActionButton onClick={refresh}>Retry</ActionButton></div>
+          <ActionButton onClick={() => void createCampaign()}>Start or open this campaign</ActionButton>
+          <ActionButton onClick={refresh}>Retry loading</ActionButton></div>
       ) : (
         <>
           <div className="connected-grid">
