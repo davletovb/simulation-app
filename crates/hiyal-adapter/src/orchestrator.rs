@@ -386,13 +386,17 @@ fn bind_live_route(dir: &Path, route: &PinnedRoute, creating: bool) -> Result<()
     }
     if creating {
         let mut file = std::fs::OpenOptions::new()
-            .write(true).create_new(true).open(&path)
+            .write(true)
+            .create_new(true)
+            .open(&path)
             .map_err(|_| "could not create immutable live route")?;
         use std::io::Write;
-        file.write_all(&bytes).map_err(|_| "could not persist live route")?;
+        file.write_all(&bytes)
+            .map_err(|_| "could not persist live route")?;
         file.sync_all().map_err(|_| "could not sync live route")?;
         #[cfg(unix)]
-        std::fs::File::open(dir).and_then(|f| f.sync_all())
+        std::fs::File::open(dir)
+            .and_then(|f| f.sync_all())
             .map_err(|_| "could not sync live route directory")?;
     } else {
         let saved = std::fs::read(path).map_err(|_| "missing immutable live route")?;
