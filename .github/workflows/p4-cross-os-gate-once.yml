@@ -85,7 +85,7 @@ jobs:
               assert a["samples"] == b["samples"] == 3
               for result in (a,b):
                   assert result["durability"] == "every_event"
-                  assert result["fsync"] is True
+                  assert result["explicit_sync_probe"] == "succeeded"
                   assert result["checkpoint_bytes_max"] is not None
                   assert result["trial_disk_bytes_max"] is not None
                   assert int(result["checkpoint_bytes_max"]) <= 10*1024*1024
