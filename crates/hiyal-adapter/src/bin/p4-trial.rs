@@ -1,6 +1,6 @@
 //! Private offline P4 verification and microbenchmark CLI.
-use myth_contracts::checkpoint::Phase;
 use hiyal::storage::Durability;
+use myth_contracts::checkpoint::Phase;
 use myth_hiyal_adapter::orchestrator::{
     advance_slice, benchmark_sequential_cabinet, create, create_stress, inspect, resume,
     run_until_closed,
@@ -108,7 +108,7 @@ async fn benchmark(count: usize, stress: bool) -> Result<(), String> {
         trial.checkpoint()?;
         // Read the actual configured mode, and perform an independent
         // explicit fsync probe. This is not proof of every prior syscall.
-        if trial.store.durability()!=Durability::EveryEvent {
+        if trial.store.durability() != Durability::EveryEvent {
             return Err("EveryEvent durability was not configured".into());
         }
         trial.store.sync_log()?;

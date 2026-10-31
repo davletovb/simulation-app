@@ -3,9 +3,8 @@
 //! A tool receipt precedes a player-command action; no user data or provider
 //! connection is used here.
 use crate::{
-    ACTORS,ActionKind,GameAction,GameObservation,GameWorld,PERIOD,PLAYER,WORLD_KIND,
+    ACTORS, ActionKind, GameAction, GameObservation, GameWorld, PERIOD, PLAYER, WORLD_KIND,
 };
-use myth_contracts::checkpoint::Phase;
 use hiyal::{
     core::AgentId,
     effects::{EffectResult, Message, ModelRequest, Role, Sampling, Usage},
@@ -14,12 +13,16 @@ use hiyal::{
     scheduler::Scheduling,
     storage::Durability,
 };
+use myth_contracts::checkpoint::Phase;
 use serde_json::json;
 use std::{
     collections::BTreeSet,
-    ops::{Deref,DerefMut},
+    ops::{Deref, DerefMut},
     path::Path,
-    sync::{Arc, atomic::{AtomicBool, Ordering}},
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
 };
 
 #[derive(Default, Clone)]
@@ -44,7 +47,7 @@ impl GamePolicy {
                                 "q{} actor{} {} receipt{} v{}",
                                 obs.quarter,
                                 obs.actor,
-                                format!("{:?}",obs.phase),
+                                format!("{:?}", obs.phase),
                                 index,
                                 obs.expected_world_version
                             ),
@@ -228,45 +231,75 @@ impl Backend for PlayerCommandTool {
 /// process-global cache. Resume reconstructs it with one verified journal
 /// inspection outside any lock.
 pub struct GameTrial {
-    inner: Trial<GameWorld,GamePolicy>,
+    inner: Trial<GameWorld, GamePolicy>,
     paused: BTreeSet<AgentId>,
 }
 impl Deref for GameTrial {
-    type Target=Trial<GameWorld,GamePolicy>;
-    fn deref(&self)->&Self::Target {&self.inner}
+    type Target = Trial<GameWorld, GamePolicy>;
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
 }
 impl DerefMut for GameTrial {
-    fn deref_mut(&mut self)->&mut Self::Target {&mut self.inner}
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.inner
+    }
 }
-fn create_world(dir:&Path,name:&str,seed:u64,world:GameWorld)->Result<GameTrial,String>{
-    let mut inner=Trial::create(dir,name,seed,WORLD_KIND,world,GamePolicy::default(),
-        Arc::new(PlayerCommandTool),ACTORS.to_vec(),Scheduling::RoundRobin)?;
+fn create_world(dir: &Path, name: &str, seed: u64, world: GameWorld) -> Result<GameTrial, String> {
+    let mut inner = Trial::create(
+        dir,
+        name,
+        seed,
+        WORLD_KIND,
+        world,
+        GamePolicy::default(),
+        Arc::new(PlayerCommandTool),
+        ACTORS.to_vec(),
+        Scheduling::RoundRobin,
+    )?;
     inner.store.set_durability(Durability::EveryEvent)?;
-    Ok(GameTrial{inner,paused:BTreeSet::new()})
+    Ok(GameTrial {
+        inner,
+        paused: BTreeSet::new(),
+    })
 }
-pub fn create(dir:&Path,name:&str,seed:u64)->Result<GameTrial,String>{
-    create_world(dir,name,seed,GameWorld::initial("p4-pilot")?)
+pub fn create(dir: &Path, name: &str, seed: u64) -> Result<GameTrial, String> {
+    create_world(dir, name, seed, GameWorld::initial("p4-pilot")?)
 }
-pub fn create_stress(dir:&Path,name:&str,seed:u64)->Result<GameTrial,String>{
-    create_world(dir,name,seed,GameWorld::stress("p4-pilot")?)
+pub fn create_stress(dir: &Path, name: &str, seed: u64) -> Result<GameTrial, String> {
+    create_world(dir, name, seed, GameWorld::stress("p4-pilot")?)
 }
-pub fn resume(dir:&Path,replay_only:bool)->Result<GameTrial,String>{
-    let mut inner=Trial::resume(dir,WORLD_KIND,GamePolicy::default(),
-        Arc::new(PlayerCommandTool),replay_only)?;
+pub fn resume(dir: &Path, replay_only: bool) -> Result<GameTrial, String> {
+    let mut inner = Trial::resume(
+        dir,
+        WORLD_KIND,
+        GamePolicy::default(),
+        Arc::new(PlayerCommandTool),
+        replay_only,
+    )?;
     inner.store.set_durability(Durability::EveryEvent)?;
     inner.store.world().verify()?;
-    let persisted=hiyal::storage::Store::<GameWorld,GameAction>::inspect_read_only(dir)?;
-    Ok(GameTrial{inner,paused:persisted.schedule.paused})
+    let persisted = hiyal::storage::Store::<GameWorld, GameAction>::inspect_read_only(dir)?;
+    Ok(GameTrial {
+        inner,
+        paused: persisted.schedule.paused,
+    })
 }
-fn enable(trial:&mut GameTrial,allowed:&[AgentId])->Result<(),String>{
+fn enable(trial: &mut GameTrial, allowed: &[AgentId]) -> Result<(), String> {
     for actor in ACTORS {
-        let currently_paused=trial.paused.contains(&actor);
-        let should_pause=!allowed.contains(&actor);
-        if currently_paused!=should_pause {
-            if should_pause {trial.inner.pause_actor(actor)?;}
-            else {trial.inner.resume_actor(actor)?;}
-            if should_pause {trial.paused.insert(actor);}
-            else {trial.paused.remove(&actor);}
+        let currently_paused = trial.paused.contains(&actor);
+        let should_pause = !allowed.contains(&actor);
+        if currently_paused != should_pause {
+            if should_pause {
+                trial.inner.pause_actor(actor)?;
+            } else {
+                trial.inner.resume_actor(actor)?;
+            }
+            if should_pause {
+                trial.paused.insert(actor);
+            } else {
+                trial.paused.remove(&actor);
+            }
         }
     }
     Ok(())
@@ -280,44 +313,52 @@ fn check_step(step: Step<GameWorld>) -> Result<(), String> {
 }
 /// One explicitly chosen logical action or three frozen minister decisions.
 /// Scheduling changes are Hiyal durable control records, *not* calendar time.
-pub async fn advance_slice(trial:&mut GameTrial)->Result<bool,String>{
+pub async fn advance_slice(trial: &mut GameTrial) -> Result<bool, String> {
     // Hiyal persists a plan before dispatch and removes it *after* all
     // committed entries. A crash after the final commit can leave the plan
     // present even when the P3 phase has already advanced. Drain that plan
     // before pause/resume (which Hiyal correctly forbids while pending).
     if trial.store.dir.join("pending-round.json").exists() {
-        let steps=trial.run_round(3).await?;
-        for step in steps {check_step(step)?;}
+        let steps = trial.run_round(3).await?;
+        for step in steps {
+            check_step(step)?;
+        }
         trial.store.world().verify()?;
         return Ok(true);
     }
-    if trial.store.world().is_closed() {return Ok(false);}
-    let phase=trial.store.world().phase;
+    if trial.store.world().is_closed() {
+        return Ok(false);
+    }
+    let phase = trial.store.world().phase;
     match phase {
-        Phase::QuarterOpen|Phase::AmendmentWindow=>{
-            enable(trial,&[PLAYER])?;
+        Phase::QuarterOpen | Phase::AmendmentWindow => {
+            enable(trial, &[PLAYER])?;
             check_step(trial.step().await?)?;
         }
-        Phase::Resolved=>{
-            enable(trial,&[PERIOD])?;
+        Phase::Resolved => {
+            enable(trial, &[PERIOD])?;
             check_step(trial.step().await?)?;
             trial.checkpoint()?;
         }
-        Phase::FinalPositionsFrozen if trial.store.world().final_votes_this_meeting()==3=>{
-            enable(trial,&[PLAYER])?;
+        Phase::FinalPositionsFrozen if trial.store.world().final_votes_this_meeting() == 3 => {
+            enable(trial, &[PLAYER])?;
             check_step(trial.step().await?)?;
         }
-        Phase::FirstPositionsFrozen|Phase::FinalPositionsFrozen=>{
+        Phase::FirstPositionsFrozen | Phase::FinalPositionsFrozen => {
             // After a completed round with a rejected seat, only permit
             // unfinished seats. Otherwise already accepted ministers would
             // produce spurious Rejected records on retry.
-            let remaining=trial.store.world().remaining_ministers();
-            if remaining.is_empty(){return Err("cabinet has no remaining actions".into());}
-            enable(trial,&remaining)?;
-            let steps=trial.run_round(remaining.len()).await?;
-            for step in steps {check_step(step)?;}
+            let remaining = trial.store.world().remaining_ministers();
+            if remaining.is_empty() {
+                return Err("cabinet has no remaining actions".into());
+            }
+            enable(trial, &remaining)?;
+            let steps = trial.run_round(remaining.len()).await?;
+            for step in steps {
+                check_step(step)?;
+            }
         }
-        Phase::QuarterClosed=>return Ok(false),
+        Phase::QuarterClosed => return Ok(false),
     }
     trial.store.world().verify()?;
     Ok(true)
@@ -328,12 +369,15 @@ pub async fn advance_slice(trial:&mut GameTrial)->Result<bool,String>{
 /// verifies the production frozen run_round path, including crash suffixes.
 pub async fn benchmark_sequential_cabinet(trial: &mut GameTrial) -> Result<Vec<u128>, String> {
     let phase = trial.store.world().phase;
-    if !matches!(phase,Phase::FirstPositionsFrozen|Phase::FinalPositionsFrozen) {
+    if !matches!(
+        phase,
+        Phase::FirstPositionsFrozen | Phase::FinalPositionsFrozen
+    ) {
         return Err("not inside a cabinet phase".into());
     }
-    let remaining=trial.store.world().remaining_ministers();
-    enable(trial,&remaining)?;
-    let mut times=vec![];
+    let remaining = trial.store.world().remaining_ministers();
+    enable(trial, &remaining)?;
+    let mut times = vec![];
     for _ in 0..remaining.len() {
         let begin = std::time::Instant::now();
         check_step(trial.step().await?)?;
@@ -458,69 +502,103 @@ mod tests {
     }
     #[tokio::test]
     async fn recovered_finished_round_plan_is_unlinked_before_phase_transition() {
-        let path=temp("last-minister-crash");
-        let mut trial=create(&path,"last-minister",73).unwrap();
+        let path = temp("last-minister-crash");
+        let mut trial = create(&path, "last-minister", 73).unwrap();
         advance_slice(&mut trial).await.unwrap();
-        enable(&mut trial,&ACTORS[1..4]).unwrap();
-        trial.policy.fail_role_once=Some((crate::EDUCATION,Arc::new(AtomicBool::new(true))));
-        let task=tokio::spawn(async move {trial.run_round(3).await});
+        enable(&mut trial, &ACTORS[1..4]).unwrap();
+        trial.policy.fail_role_once = Some((crate::EDUCATION, Arc::new(AtomicBool::new(true))));
+        let task = tokio::spawn(async move { trial.run_round(3).await });
         assert!(task.await.unwrap_err().is_panic());
-        let saved=std::fs::read(path.join("pending-round.json")).unwrap();
-        let mut first=resume(&path,false).unwrap();
-        for step in first.run_round(3).await.unwrap(){check_step(step).unwrap();}
-        assert_eq!(first.store.world().phase,Phase::AmendmentWindow);
+        let saved = std::fs::read(path.join("pending-round.json")).unwrap();
+        let mut first = resume(&path, false).unwrap();
+        for step in first.run_round(3).await.unwrap() {
+            check_step(step).unwrap();
+        }
+        assert_eq!(first.store.world().phase, Phase::AmendmentWindow);
         drop(first);
         // Recreate the exact valid plan after the last action fsync to model
         // a crash immediately before the atomic cleanup of pending-round.
-        std::fs::write(path.join("pending-round.json"),saved).unwrap();
-        let mut resumed=resume(&path,false).unwrap();
+        std::fs::write(path.join("pending-round.json"), saved).unwrap();
+        let mut resumed = resume(&path, false).unwrap();
         advance_slice(&mut resumed).await.unwrap();
         assert!(!path.join("pending-round.json").exists());
-        assert_eq!(resumed.store.world().phase,Phase::AmendmentWindow);
+        assert_eq!(resumed.store.world().phase, Phase::AmendmentWindow);
         run_until_closed(&mut resumed).await.unwrap();
-        assert_eq!(resumed.store.world().actions.iter()
-            .filter(|a|a.kind==ActionKind::MinisterAction).count(),36);
+        assert_eq!(
+            resumed
+                .store
+                .world()
+                .actions
+                .iter()
+                .filter(|a| a.kind == ActionKind::MinisterAction)
+                .count(),
+            36
+        );
         drop(resumed);
         std::fs::remove_dir_all(path).unwrap();
     }
     struct SelectiveFailure;
     impl Backend for SelectiveFailure {
-        fn backend_id(&self)->&'static str {"p4-selective-failure-test"}
-        fn billing_disposition(&self,_:&EffectSpec,result:&EffectResult)->BillingDisposition{
-            if matches!(result,EffectResult::Failed{..}) {BillingDisposition::Unknown}
-            else {BillingDisposition::NotCharged}
+        fn backend_id(&self) -> &'static str {
+            "p4-selective-failure-test"
         }
-        fn resolve<'a>(&'a self,spec:&'a EffectSpec)->BoxResult<'a>{
+        fn billing_disposition(&self, _: &EffectSpec, result: &EffectResult) -> BillingDisposition {
+            if matches!(result, EffectResult::Failed { .. }) {
+                BillingDisposition::Unknown
+            } else {
+                BillingDisposition::NotCharged
+            }
+        }
+        fn resolve<'a>(&'a self, spec: &'a EffectSpec) -> BoxResult<'a> {
             Box::pin(async move {
-                if let EffectSpec::Model(m)=spec {
-                    if m.messages.iter().any(|x|x.content.contains("actor2")){
-                        return Ok(EffectResult::Failed{category:"synthetic".into(),
-                            message:"one seat failed".into()});
+                if let EffectSpec::Model(m) = spec {
+                    if m.messages.iter().any(|x| x.content.contains("actor2")) {
+                        return Ok(EffectResult::Failed {
+                            category: "synthetic".into(),
+                            message: "one seat failed".into(),
+                        });
                     }
                 }
-                let backend=PlayerCommandTool;
+                let backend = PlayerCommandTool;
                 backend.resolve(spec).await
             })
         }
     }
     #[tokio::test]
     async fn retry_partly_rejected_round_commits_only_missing_seat() {
-        let path=temp("partial-round");
-        let mut trial=create_stress(&path,"partial",75).unwrap();
+        let path = temp("partial-round");
+        let mut trial = create_stress(&path, "partial", 75).unwrap();
         advance_slice(&mut trial).await.unwrap();
-        enable(&mut trial,&ACTORS[1..4]).unwrap();
-        trial.backend=Arc::new(SelectiveFailure);
-        let steps=trial.run_round(3).await.unwrap();
-        assert_eq!(steps.len(),3);
-        assert_eq!(steps.iter().filter(|s|matches!(s,Step::Accepted(_))).count(),2);
-        assert_eq!(trial.store.world().remaining_ministers(),vec![crate::EDUCATION]);
-        let earlier=trial.store.world().actions.len();
-        trial.backend=Arc::new(PlayerCommandTool);
+        enable(&mut trial, &ACTORS[1..4]).unwrap();
+        trial.backend = Arc::new(SelectiveFailure);
+        let steps = trial.run_round(3).await.unwrap();
+        assert_eq!(steps.len(), 3);
+        assert_eq!(
+            steps
+                .iter()
+                .filter(|s| matches!(s, Step::Accepted(_)))
+                .count(),
+            2
+        );
+        assert_eq!(
+            trial.store.world().remaining_ministers(),
+            vec![crate::EDUCATION]
+        );
+        let earlier = trial.store.world().actions.len();
+        trial.backend = Arc::new(PlayerCommandTool);
         advance_slice(&mut trial).await.unwrap();
-        assert_eq!(trial.store.world().actions.len(),earlier+1);
-        assert_eq!(trial.store.world().phase,Phase::AmendmentWindow);
-        assert_eq!(trial.store.world().actions.iter()
-            .filter(|a|a.kind==ActionKind::MinisterAction).count(),3);
+        assert_eq!(trial.store.world().actions.len(), earlier + 1);
+        assert_eq!(trial.store.world().phase, Phase::AmendmentWindow);
+        assert_eq!(
+            trial
+                .store
+                .world()
+                .actions
+                .iter()
+                .filter(|a| a.kind == ActionKind::MinisterAction)
+                .count(),
+            3
+        );
         trial.store.world().verify().unwrap();
         drop(trial);
         std::fs::remove_dir_all(path).unwrap();
