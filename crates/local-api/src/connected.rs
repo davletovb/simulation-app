@@ -474,12 +474,17 @@ impl Connected {
         // File::try_lock is stable on the project's pinned Rust 1.99 toolchain.
         // Its advisory OS lock remains held until the *last* owner/worker
         // disappears, and is automatically released after a process crash.
-        let lock_file=OpenOptions::new().read(true).write(true).create(true)
-            .truncate(false).open(root.join(".p6-writer.lock"))
-            .map_err(|_|"cannot create local single-writer lock")?;
-        lock_file.try_lock().map_err(|_|
-            "another simulation API process already owns this save directory")?;
-        let _writer_lock=Arc::new(lock_file);
+        let lock_file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(root.join(".p6-writer.lock"))
+            .map_err(|_| "cannot create local single-writer lock")?;
+        lock_file
+            .try_lock()
+            .map_err(|_| "another simulation API process already owns this save directory")?;
+        let _writer_lock = Arc::new(lock_file);
         Ok(Arc::new(Self {
             root,
             owners: Mutex::new(BTreeMap::new()),
@@ -531,7 +536,7 @@ impl Connected {
             sender,
             log_path,
             id: id.to_owned(),
-            _writer_lock:self._writer_lock.clone(),
+            _writer_lock: self._writer_lock.clone(),
         });
         map.insert(id.into(), owner.clone());
         if owner.engine.try_lock().is_ok_and(|g| {
@@ -1059,11 +1064,11 @@ mod tests {
     }
     #[test]
     fn one_save_root_allows_only_one_os_writer() {
-        let path=root();
-        let first=Connected::new(path.clone()).unwrap();
+        let path = root();
+        let first = Connected::new(path.clone()).unwrap();
         assert!(Connected::new(path.clone()).is_err());
         drop(first);
-        let recovered=Connected::new(path.clone()).unwrap();
+        let recovered = Connected::new(path.clone()).unwrap();
         drop(recovered);
         fs::remove_dir_all(path).unwrap();
     }
