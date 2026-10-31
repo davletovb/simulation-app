@@ -495,38 +495,49 @@ mod tests {
     }
     #[tokio::test]
     async fn sequential_cabinet_timing_preserves_frozen_round_private_state() {
-        let frozen_dir=temp("frozen-baseline");
-        let sequential_dir=temp("sequential-measure");
-        let mut frozen=create(&frozen_dir,"same-model",77).unwrap();
+        let frozen_dir = temp("frozen-baseline");
+        let sequential_dir = temp("sequential-measure");
+        let mut frozen = create(&frozen_dir, "same-model", 77).unwrap();
         run_until_closed(&mut frozen).await.unwrap();
-        let baseline=frozen.store.world().private_state_sha256.clone();
+        let baseline = frozen.store.world().private_state_sha256.clone();
         drop(frozen);
-        let mut measured=create(&sequential_dir,"same-model",77).unwrap();
+        let mut measured = create(&sequential_dir, "same-model", 77).unwrap();
         for _ in 0..60 {
-            if measured.store.world().is_closed(){break;}
-            let phase=measured.store.world().phase.clone();
-            if phase=="first_positions_frozen"
-                || (phase=="final_positions_frozen"
-                    && measured.store.world().final_votes_this_meeting()<3) {
-                assert_eq!(benchmark_sequential_cabinet(&mut measured).await.unwrap().len(),3);
-            } else { advance_slice(&mut measured).await.unwrap(); }
+            if measured.store.world().is_closed() {
+                break;
+            }
+            let phase = measured.store.world().phase.clone();
+            if phase == "first_positions_frozen"
+                || (phase == "final_positions_frozen"
+                    && measured.store.world().final_votes_this_meeting() < 3)
+            {
+                assert_eq!(
+                    benchmark_sequential_cabinet(&mut measured)
+                        .await
+                        .unwrap()
+                        .len(),
+                    3
+                );
+            } else {
+                advance_slice(&mut measured).await.unwrap();
+            }
         }
         assert!(measured.store.world().is_closed());
-        assert_eq!(measured.store.world().private_state_sha256,baseline);
+        assert_eq!(measured.store.world().private_state_sha256, baseline);
         drop(measured);
         std::fs::remove_dir_all(frozen_dir).unwrap();
         std::fs::remove_dir_all(sequential_dir).unwrap();
     }
     #[test]
     fn altered_player_command_and_wrong_actor_fail_before_commit() {
-        let mut world=GameWorld::initial("p4-pilot").unwrap();
-        let planned=world.observe(PLAYER).unwrap().action;
-        let mut forged=planned.clone();
-        forged.payload["command"]["allocation"]["staff"]=json!(60);
-        assert!(world.apply(PLAYER,forged).is_err());
-        let mut wrong=planned.clone();
-        wrong.actor=FINANCE.0 as u8;
-        assert!(world.apply(PLAYER,wrong).is_err());
+        let mut world = GameWorld::initial("p4-pilot").unwrap();
+        let planned = world.observe(PLAYER).unwrap().action;
+        let mut forged = planned.clone();
+        forged.payload["command"]["allocation"]["staff"] = json!(60);
+        assert!(world.apply(PLAYER, forged).is_err());
+        let mut wrong = planned.clone();
+        wrong.actor = FINANCE.0 as u8;
+        assert!(world.apply(PLAYER, wrong).is_err());
         assert!(world.actions.is_empty());
         world.verify().unwrap();
     }
