@@ -44,10 +44,10 @@ impl GamePolicy {
                         messages: vec![Message {
                             role: Role::User,
                             content: format!(
-                                "q{} actor{} {} receipt{} v{}",
+                                "q{} actor{} {:?} receipt{} v{}",
                                 obs.quarter,
                                 obs.actor,
-                                format!("{:?}", obs.phase),
+                                obs.phase,
                                 index,
                                 obs.expected_world_version
                             ),
@@ -616,7 +616,7 @@ mod tests {
             if measured.store.world().is_closed() {
                 break;
             }
-            let phase = measured.store.world().phase.clone();
+            let phase = measured.store.world().phase;
             if phase == Phase::FirstPositionsFrozen
                 || (phase == Phase::FinalPositionsFrozen
                     && measured.store.world().final_votes_this_meeting() < 3)
