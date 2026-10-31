@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import {newer} from '../src/committedReducer.mjs'
+import {newer,validCommittedCursor} from '../src/committedReducer.mjs'
 
 const view = (cursor, version, operation=null) => ({
   snapshot:{cursor,view_version:version},operation,
@@ -42,4 +42,16 @@ test('Refetch with newer cursor preserves tracked operation when snapshot omits 
   const fallback=view('43','8',null)
   assert.equal(newer(tracked,fallback).operation.command_id,'op-a')
   assert.equal(newer(tracked,view('43','8',{command_id:'op-old',status:'completed',committed_cursor:'3'})).operation.command_id,'op-a')
+})
+
+test('completed SSE operation cursors accept decimal strings and reject malformed values',()=>{
+  assert.equal(validCommittedCursor('17'),true)
+  assert.equal(validCommittedCursor('0'),true)
+  assert.equal(validCommittedCursor('18446744073709551615'),true)
+  for (const bad of [null,undefined,17,'','17x','-1','1.5',' 17','1e3','\\d']) {
+    assert.equal(validCommittedCursor(bad),false)
+  }
+  const completed=view('17','5',{command_id:'op-a',status:'completed',committed_cursor:'17'})
+  assert.equal(validCommittedCursor(completed.operation.committed_cursor),true)
+  assert.equal(newer(view('12','4',{command_id:'op-a',status:'accepted',committed_cursor:null}),completed).operation.status,'completed')
 })

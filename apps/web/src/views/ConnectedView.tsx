@@ -1,4 +1,4 @@
-import {newer} from '../committedReducer.mjs'
+import {newer, validCommittedCursor} from '../committedReducer.mjs'
 import { useCallback, useEffect, useState } from 'react'
 import {useQuery,useQueryClient} from '@tanstack/react-query'
 import { draftStatus, type Allocation } from '../game'
@@ -84,7 +84,7 @@ function validSnapshot(raw: unknown): raw is Committed {
       !/^[a-z0-9_-]{1,64}$/.test(op.command_id) ||
       !['accepted', 'completed', 'failed'].includes(op.status) ||
       (op.committed_cursor !== null && (typeof op.committed_cursor !== 'string' ||
-        !/^\\d+$/.test(op.committed_cursor))) ||
+        !validCommittedCursor(op.committed_cursor))) ||
       (op.message !== null && typeof op.message !== 'string'))) return false
   return !!s && s.schema_version === 1 && s.campaign_id === CAMPAIGN &&
     typeof s.cursor === 'string' && /^\d+$/.test(s.cursor) &&

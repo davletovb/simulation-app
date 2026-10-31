@@ -35,3 +35,8 @@ export function newer(old, next) {
   if (b > a && operation === next.operation) return next
   return {snapshot:b === a ? old.snapshot : next.snapshot,operation}
 }
+
+/** Validate a server operation's decimal journal cursor without Number rounding. */
+export function validCommittedCursor(value) {
+  return typeof value === 'string' && /^\d+$/.test(value)
+}
