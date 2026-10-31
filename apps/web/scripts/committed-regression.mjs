@@ -30,3 +30,9 @@ test('SSE gap after disconnect uses verified fresh snapshot without rounding',()
   assert.equal(newer(current,fallback),fallback)
   assert.equal(newer(fallback,view('18446744073709551614','82')),fallback)
 })
+
+test('Delayed accepted status cannot reverse a completed operation at the same cursor',()=>{
+  const completed=view('12','13',{command_id:'op-a',status:'completed'})
+  const delayed=view('12','13',{command_id:'op-a',status:'accepted'})
+  assert.equal(newer(completed,delayed).operation.status,'completed')
+})
