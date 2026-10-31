@@ -36,6 +36,16 @@ use std::{
 use tokio::sync::{Mutex as AsyncMutex, broadcast};
 
 const MAX_COMMANDS: usize = 512;
+
+/// Removes uncommitted fork staging on *all* error paths. A published fork
+/// remains durable even if the following directory fsync fails.
+struct ForkStageGuard { path: PathBuf, active: bool }
+impl Drop for ForkStageGuard {
+    fn drop(&mut self) {
+        if self.active { let _ = fs::remove_dir_all(&self.path); }
+    }
+}
+
 const MAX_CACHED_CAMPAIGNS: usize = 128;
 const MAX_COMMAND_BYTES: usize = 1024 * 1024;
 fn valid_id(s: &str) -> bool {
@@ -955,8 +965,8 @@ async fn fork(
     {
         return Err(status(StatusCode::CONFLICT, "fork boundary is stale"));
     }
-    let source = &engine.trial.store.dir;
-    let source_hash = inspect(source)
+    let source = engine.trial.store.dir.clone();
+    let source_hash = inspect(&source)
         .map_err(|_| status(StatusCode::CONFLICT, "source journal invalid"))?
         .0;
     let meta = ForkMeta {
@@ -966,7 +976,14 @@ async fn fork(
         source_cursor: boundary.cursor,
         source_state_sha256: source_hash,
     };
-    let dst = service.root.join(&request.branch_id);
+    // Verified quiescent cursor/hash were captured under the campaign lock.
+    // The immutable copy and strict replay run outside Tokio and outside
+    // the live campaign lock; any concurrent append causes a digest/cursor
+    // mismatch and the uncommitted staging directory is cleaned up.
+    let root = service.root.clone();
+    drop(engine);
+    tokio::task::spawn_blocking(move || -> Result<_, Failure> {
+    let dst = root.join(&request.branch_id);
     if dst.exists() {
         let existing = read_fork_meta(&dst)
             .map_err(|_| status(StatusCode::CONFLICT, "existing branch invalid"))?;
@@ -995,6 +1012,7 @@ async fn fork(
             "fork staging exists or cannot be created",
         )
     })?;
+    let mut cleanup = ForkStageGuard { path: stage.clone(), active: true };
     for name in [
         "manifest.json",
         "events.jsonl",
@@ -1072,8 +1090,9 @@ async fn fork(
     }
     fs::rename(&stage, &dst)
         .map_err(|_| status(StatusCode::CONFLICT, "fork publication failed"))?;
+    cleanup.active = false;
     #[cfg(unix)]
-    File::open(&service.root)
+    File::open(&root)
         .and_then(|f| f.sync_all())
         .map_err(|_| {
             status(
@@ -1082,6 +1101,8 @@ async fn fork(
             )
         })?;
     Ok((StatusCode::CREATED, Json(fork_receipt(&meta))))
+    }).await.map_err(|_| status(StatusCode::INTERNAL_SERVER_ERROR, "fork task failed"))?
+
 }
 pub fn routes() -> Router<Arc<Connected>> {
     Router::new()
