@@ -1,6 +1,6 @@
 # P7 provisional implementation and acceptance boundary
 
-**Branch:** `feat/p7-six-quarter-history`, stacked on unmerged P6 draft PR #14. **Status:** offline implementation and verification are in progress; P7 and the first-playable acceptance gate are **not complete**.
+**Branch:** `feat/p7-six-quarter-history`, rebased onto merged P6 PR #14 (offline engineering only). **Status:** offline implementation and verification are in progress; P7 and the first-playable acceptance gate are **not complete**.
 
 ## Implemented in this slice
 
@@ -50,3 +50,6 @@ At a Q3 open boundary after the approved Q1 package and Q2 delivery, the first f
 - Normal primary campaigns are labelled primary (not replay). Frozen source metadata/news are validated once per server process; real-source dates are canonical Gregorian ISO dates.
 - Failure frames are separately admitted to the browser view and not silently discarded as old journal cursor 0; validation requires a failed operation and the expected IntegrityFailure shape.
 - The offline inspector holds the save root's exclusive OS writer lock and explicitly declares operator/debug privilege, not chair-role visibility.
+
+## Integration note (PR #14 merged)
+P6's reviewed offline work was merged in commit `b6ac3322392b201fddb6e1ea23a9b8b989494873`. This P7 candidate combines its own changes with that accepted P6 baseline, retaining P6's separate integrity-failure SSE handling, non-regressing public cache, safe campaign-open policy, and exclusive writer lock. P6-06 and P7's live evaluation/player study remain separate acceptance gates. The combined P7 code requires a new CI run on the final merge revision; previous green P6/P7 runs do not attest to the combined tree.
