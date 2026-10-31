@@ -633,7 +633,7 @@ fn retry_source(trial: &GameTrial, actor: AgentId) -> Result<Option<RetryAuthori
     let Some((key, receipt)) = prior else {
         // Invalid *typed* outputs require a separate per-action JSON repair
         // protocol, not an operational retry.
-        return Err("rejected minister has no operationally failed keyed receipt");
+        return Err("rejected minister has no operationally failed keyed receipt".into());
     };
     if *key
         != receipt.spec.key(
@@ -643,10 +643,10 @@ fn retry_source(trial: &GameTrial, actor: AgentId) -> Result<Option<RetryAuthori
             key.call_index,
         )?
     {
-        return Err("prior retry receipt key mismatch");
+        return Err("prior retry receipt key mismatch".into());
     }
     let EffectSpec::Model(model) = &receipt.spec else {
-        return Err("failed minister receipt was not a model request");
+        return Err("failed minister receipt was not a model request".into());
     };
     let source_request_sha256 = format!(
         "{:x}",
@@ -666,7 +666,7 @@ fn persist_retry_authorizations(dir: &Path, state: &RetryAuthorizations) -> Resu
     use std::io::Write;
     let bytes = serde_json::to_vec(state).map_err(|_| "cannot encode retry approvals")?;
     if bytes.len() > 65_536 {
-        return Err("retry approval history full");
+        return Err("retry approval history full".into());
     }
     let tmp = dir.join("p5-retry-authorizations.new");
     let mut file = std::fs::OpenOptions::new()
@@ -704,7 +704,7 @@ pub fn authorize_failed_minister_retry(trial: &GameTrial, actor: AgentId) -> Res
         .iter()
         .any(|e| e.actor == source.actor && e.source_event_hash == source.source_event_hash)
     {
-        return Err("retry for this failed receipt already authorized");
+        return Err("retry for this failed receipt already authorized".into());
     }
     if state
         .entries
@@ -713,7 +713,7 @@ pub fn authorize_failed_minister_retry(trial: &GameTrial, actor: AgentId) -> Res
         .count()
         >= 2
     {
-        return Err("quarterly manual operational retry cap reached");
+        return Err("quarterly manual operational retry cap reached".into());
     }
     state.entries.push(source);
     persist_retry_authorizations(&trial.store.dir, &state)
