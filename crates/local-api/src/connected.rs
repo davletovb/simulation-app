@@ -697,6 +697,23 @@ fn schedule(owner: Arc<Owner>) {
         }
     });
 }
+/// Campaign creation is an explicit POST, never a side effect of GET.
+async fn create(
+    State(service): State<Arc<Connected>>,
+    Path(id): Path<String>,
+) -> Result<(StatusCode, Json<Committed>), Failure> {
+    if !valid_id(&id) {
+        return Err(status(StatusCode::BAD_REQUEST, "invalid campaign id"));
+    }
+    let exists = service.root.join(&id).is_dir();
+    let owner = service.owner(&id, true).await
+        .map_err(|_| status(StatusCode::CONFLICT, "campaign could not be created"))?;
+    let engine = owner.engine.lock().await;
+    let view = capture_for(&engine.trial, &owner.id)
+        .map_err(|_| status(StatusCode::CONFLICT, "verification failed"))?;
+    Ok((if exists { StatusCode::OK } else { StatusCode::CREATED },
+        Json(Committed {snapshot:view,operation:None})))
+}
 async fn snapshot(
     State(service): State<Arc<Connected>>,
     Path(id): Path<String>,
@@ -1068,6 +1085,7 @@ async fn fork(
 }
 pub fn routes() -> Router<Arc<Connected>> {
     Router::new()
+        .route("/api/campaigns/{id}", post(create))
         .route("/api/campaigns/{id}/snapshot", get(snapshot))
         .route("/api/campaigns/{id}/commands", post(command))
         .route("/api/campaigns/{id}/commands/{command_id}", get(operation))
