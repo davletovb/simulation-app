@@ -3,12 +3,12 @@ import {useQuery,useQueryClient} from '@tanstack/react-query'
 import { draftStatus, type Allocation } from '../game'
 import { readStored, writeStored } from '../storage'
 
-interface Vote {
+export interface Vote {
   ministry: string
   stage: string
   position: string
 }
-interface Snapshot {
+export interface Snapshot {
   schema_version: number
   campaign_id: string
   cursor: string
@@ -26,6 +26,10 @@ interface Snapshot {
     service_spent:number
     audit_spent:number
   }
+  decisions: {quarter:number; outcome:string; allocation:{staff:number;repairs:number;access:number}|null;
+    final_support:number;final_votes:number}[]
+  evidence:{case_pack:string;source_cutoff_utc:string;evidence_pack_sha256:string;
+    scenario_sha256:string;attribution:string;scope:string}
   outcome: string | null
   assumption: string
   mode: 'offline_scripted'
@@ -37,14 +41,14 @@ interface Operation {
   committed_cursor: string | null
   message: string | null
 }
-interface Committed { snapshot: Snapshot; operation: Operation | null }
+export interface Committed { snapshot: Snapshot; operation: Operation | null }
 type Transport = 'connecting' | 'connected' | 'reconnecting' | 'unavailable'
 const requestedCampaign = new URLSearchParams(window.location.search).get('campaign')
-const CAMPAIGN = requestedCampaign && /^[a-z0-9_-]{1,64}$/.test(requestedCampaign)
+export const CAMPAIGN = requestedCampaign && /^[a-z0-9_-]{1,64}$/.test(requestedCampaign)
   ? requestedCampaign : 'demo-england'
-const root = '/api/campaigns/' + CAMPAIGN
+export const root = '/api/campaigns/' + CAMPAIGN
 const PENDING_KEY = 'myth-p6.pending-' + CAMPAIGN
-const CACHE_KEY = ['committed-campaign',CAMPAIGN] as const
+export const CACHE_KEY = ['committed-campaign',CAMPAIGN] as const
 
 function validSnapshot(raw: unknown): raw is Committed {
   if (typeof raw !== 'object' || raw === null) return false
@@ -56,6 +60,10 @@ function validSnapshot(raw: unknown): raw is Committed {
     Number.isInteger(s.quarter) && typeof s.phase === 'string' &&
     typeof s.closed === 'boolean' && s.mode === 'offline_scripted' &&
     Array.isArray(s.votes) && s.votes.length <= 36 &&
+    Array.isArray(s.decisions) && s.decisions.length<=6 &&
+    !!s.evidence && typeof s.evidence.case_pack==='string' &&
+    typeof s.evidence.source_cutoff_utc==='string' &&
+    typeof s.evidence.scope==='string' &&
     !!s.treasury && Object.values(s.treasury).every(n=>Number.isInteger(n) && n>=0 && n<=100)
 }
 function newer(old: Committed | null, next: Committed): Committed {
@@ -99,7 +107,7 @@ function readPending():Pending|null {
     return value as Pending
   }catch{return null}
 }
-async function loadSnapshot():Promise<Committed> {
+export async function loadSnapshot():Promise<Committed> {
   const response=await fetch(root+'/snapshot',{cache:'no-store'})
   if (!response.ok) throw new Error('Local Hiyal campaign unavailable')
   const raw=await response.json() as unknown
@@ -288,6 +296,7 @@ export function ConnectedView({allocation}:{allocation:Allocation}) {
             <div>
               <h3>Outcome</h3>
               <p>{snapshot.outcome ?? 'Awaiting a final decision'}</p>
+              {snapshot.decisions.length>0 && <p>Recorded decisions: {snapshot.decisions.length}</p>}
             </div>
             <div>
               <h3>Budget consequences · credits</h3>
@@ -299,6 +308,8 @@ export function ConnectedView({allocation}:{allocation:Allocation}) {
             </div>
           </div>
           <p className="connected-assumptions">{snapshot.assumption}</p>
+          <p className="connected-assumptions">Case evidence: {snapshot.evidence.case_pack},
+            source cutoff {snapshot.evidence.source_cutoff_utc}. {snapshot.evidence.scope}</p>
           <div className="connected-actions">
             {pending ? (
               <button type="button" onClick={() => void advance(pending.action)}
