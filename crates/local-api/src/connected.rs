@@ -2459,7 +2459,7 @@ mod tests {
                 let (kind, n) = step(CommandKind::AdvanceSlice);
                 accepted_step(&service, id, kind, n).await;
             }
-            let view = service.owner(id).unwrap();
+            let view = service.owner(id, false).await.unwrap();
             assert_eq!(
                 capture_for(&view.engine.lock().await.trial, id)
                     .unwrap()
@@ -2479,7 +2479,7 @@ mod tests {
                         inspected_quarter: 2,
                     });
                     let checked = accepted_step(&service, id, kind, n).await;
-                    let owner = service.owner(id).unwrap();
+                    let owner = service.owner(id, false).await.unwrap();
                     let audit_count = owner
                         .engine
                         .lock()
@@ -2503,7 +2503,7 @@ mod tests {
                 let chosen = accepted_step(&service, id, kind, n).await;
                 assert!(chosen.continuation_pending);
                 assert_eq!(chosen.delivery_history.len(), quarter as usize - 1);
-                let owner = service.owner(id).unwrap();
+                let owner = service.owner(id, false).await.unwrap();
                 let engine = owner.engine.lock().await;
                 let world = engine.trial.store.world();
                 assert!(world.continuation_pending());
@@ -2526,7 +2526,7 @@ mod tests {
                 assert!(!next.continuation_pending);
                 assert_eq!(next.delivery_history.len(), quarter as usize);
             }
-            let owner = service.owner(id).unwrap();
+            let owner = service.owner(id, false).await.unwrap();
             let snapshot = capture_for(&owner.engine.lock().await.trial, id).unwrap();
             assert!(snapshot.closed);
             assert_eq!(snapshot.delivery_history.len(), 6);
@@ -2544,7 +2544,7 @@ mod tests {
     async fn p7_complete_scripted_campaign_reports_exactly_six_quarters_and_replays() {
         let dir = root();
         let service = Connected::new(dir.clone()).unwrap();
-        let owner = service.owner("six-report").unwrap();
+        let owner = service.owner("six-report", true).await.unwrap();
         let final_view;
         let saved_hash;
         {
@@ -2580,7 +2580,7 @@ mod tests {
         drop(service);
         assert_eq!(inspect(&dir.join("six-report")).unwrap().0, saved_hash);
         let reopened = Connected::new(dir.clone()).unwrap();
-        let restored = reopened.owner("six-report").unwrap();
+        let restored = reopened.owner("six-report", false).await.unwrap();
         let view = capture_for(&restored.engine.lock().await.trial, "six-report").unwrap();
         assert_eq!(view.cursor, final_view.cursor);
         assert_eq!(view.view_version, final_view.view_version);
