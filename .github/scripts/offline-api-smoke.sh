@@ -69,6 +69,43 @@ status=$(curl -sS -o /dev/null -w '%{http_code}' \
   -H 'Content-Type: application/json' --data-binary "@$TMP/connected-command")
 test "$status" = 403
 
+# Independent OS-process stop/restart: the already committed command must
+# retain its identity and the exact public cursor, with no second execution.
+saved_cursor=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["snapshot"]["cursor"])' "$TMP/connected-saved")
+kill -9 "$PID"
+wait "$PID" 2>/dev/null || true
+PID=''
+MYTH_SAVE_DIR="$TMP/saves" MYTH_BIND="127.0.0.1:$PORT" MYTH_MODE=scripted \
+  target/debug/myth-local-api >"$TMP/restarted.log" 2>&1 &
+PID=$!
+READY=''
+for _ in $(seq 1 50); do
+  if curl -fsS "$BASE/api/health" >"$TMP/restart-health" 2>/dev/null; then READY=yes; break; fi
+  sleep 0.1
+done
+if [ -z "$READY" ]; then echo "Restart failed"; cat "$TMP/restarted.log"; exit 1; fi
+curl -fsS "$BASE/api/campaigns/demo-england/snapshot" >"$TMP/recovered"
+recovered_cursor=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["snapshot"]["cursor"])' "$TMP/recovered")
+test "$saved_cursor" = "$recovered_cursor"
+status=$(curl -sS -o "$TMP/recovered-op" -w '%{http_code}' \
+  "$BASE/api/campaigns/demo-england/commands" -H 'Content-Type: application/json' \
+  --data-binary "@$TMP/connected-command")
+test "$status" = 200
+grep -q '"status":"completed"' "$TMP/recovered-op"
+# A Last-Event-ID from before the committed command must receive a
+# same-boundary fallback snapshot rather than skip to unrelated progress.
+curl -sSN --max-time 2 -H 'Last-Event-ID: demo-england:0' \
+  "$BASE/api/campaigns/demo-england/events" >"$TMP/reconnected-sse" || test "$?" = 28
+grep -q 'event: snapshot_fallback' "$TMP/reconnected-sse"
+grep -q "id: demo-england:$saved_cursor" "$TMP/reconnected-sse"
+# Exact decimal strings are accepted as strings, not silently rounded by JS.
+test "$(python3 - <<'PY'
+import json
+obj={"expected_world_version":"9007199254740993"}
+print(json.loads(json.dumps(obj))["expected_world_version"])
+PY
+)" = 9007199254740993
+
 # Unfunded, over-budget packages are invalid requests, not three legitimate no-votes.
 status=$(curl -s -o /dev/null -w '%{http_code}' "$BASE/api/scripted/meeting" \
   -H 'Content-Type: application/json' \
