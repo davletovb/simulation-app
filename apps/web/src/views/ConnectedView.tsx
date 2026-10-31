@@ -56,6 +56,15 @@ function validSnapshot(raw: unknown): raw is Committed {
   if (typeof raw !== 'object' || raw === null) return false
   const obj = raw as Partial<Committed>
   const s = obj.snapshot
+  const op = obj.operation
+  if (op !== null && (typeof op !== 'object' || !op ||
+      op.campaign_id !== CAMPAIGN ||
+      typeof op.command_id !== 'string' ||
+      !/^[a-z0-9_-]{1,64}$/.test(op.command_id) ||
+      !['accepted', 'completed', 'failed'].includes(op.status) ||
+      (op.committed_cursor !== null && (typeof op.committed_cursor !== 'string' ||
+        !/^\\d+$/.test(op.committed_cursor))) ||
+      (op.message !== null && typeof op.message !== 'string'))) return false
   return !!s && s.schema_version === 1 && s.campaign_id === CAMPAIGN &&
     typeof s.cursor === 'string' && /^\d+$/.test(s.cursor) &&
     typeof s.view_version === 'string' && s.view_version.length > 0 &&
@@ -101,17 +110,24 @@ export async function loadSnapshot():Promise<Committed> {
   if (!validSnapshot(raw)) throw new Error('Invalid server snapshot')
   return raw
 }
+export async function fetchCommitted(cache: ReturnType<typeof useQueryClient>): Promise<Committed> {
+  const received = await loadSnapshot()
+  // Read after HTTP completes: SSE may have advanced the cache meanwhile.
+  return newer(cache.getQueryData<Committed>(CACHE_KEY) ?? null, received)
+}
+
 export function ConnectedView({allocation}:{allocation:Allocation}) {
   const cache=useQueryClient()
   const query=useQuery<Committed>({
     queryKey:CACHE_KEY,
-    queryFn:async()=>newer(cache.getQueryData<Committed>(CACHE_KEY)??null,await loadSnapshot()),
+    queryFn:()=>fetchCommitted(cache),
     staleTime:2000,
   })
   const current=query.data??null
   const [transport, setTransport] = useState<Transport>('connecting')
   const [pending, setPending] = useState<Pending | null>(readPending)
   const [error, setError] = useState<string | null>(null)
+  const [submitting, setSubmitting] = useState(false)
   const [forkId, setForkId] = useState<string|null>(null)
   const accept = useCallback((raw: unknown) => {
     if (!validSnapshot(raw)) throw new Error('Incorrect versioned server view')
@@ -158,6 +174,7 @@ export function ConnectedView({allocation}:{allocation:Allocation}) {
     setPending(operation)
     writeStored(PENDING_KEY,JSON.stringify(operation))
     setError(null)
+    setSubmitting(true)
     try {
       const response = await fetch(root + '/commands', {
         method: 'POST',
@@ -192,6 +209,8 @@ export function ConnectedView({allocation}:{allocation:Allocation}) {
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Unknown network error')
       // Retain original operation ID after a lost acknowledgment.
+    } finally {
+      setSubmitting(false)
     }
   }
 
@@ -204,7 +223,10 @@ export function ConnectedView({allocation}:{allocation:Allocation}) {
       try {
         const response = await fetch(root+'/commands/'+encodeURIComponent(pending.id), {cache:'no-store'})
         if (stopped) return
-        if (response.status === 404) return // dispatch may not have reached the server
+        if (response.status === 404) {
+          setError('This command was not found after reconnecting. Retry using the same ID; no new action will be created if it was admitted meanwhile.')
+          return
+        }
         if (!response.ok) return
         const status = await response.json() as Operation
         if (status.command_id!==pending.id) return
@@ -308,7 +330,7 @@ export function ConnectedView({allocation}:{allocation:Allocation}) {
             scope={snapshot.evidence.scope} attribution={snapshot.evidence.attribution}/>
           <div className="connected-actions">
             {pending ? (
-              <ActionButton onClick={() => void advance(pending.action)} disabled={!error}>
+              <ActionButton onClick={() => void advance(pending.action)} disabled={submitting}>
                 Retry existing command ID</ActionButton>
             ) : (
               <>
@@ -335,7 +357,7 @@ export function ConnectedView({allocation}:{allocation:Allocation}) {
             <a href={'?campaign='+encodeURIComponent(forkId)}>Open independent branch {forkId}</a>.
             Its journal retains the source shock schedule, and new decisions cannot alter the source campaign.
           </p>}
-          {pending && <p role="status">Operation {pending.id}: submitted or awaiting acknowledgment. Keep this ID for retries.</p>}
+          {pending && <p role="status">Operation {pending.id}: awaiting acknowledgment or retry. The same ID is preserved. Keep this ID for retries.</p>}
           {current?.operation && <p className="connected-assumptions">
             Last operation: {current.operation.command_id} · {current.operation.status}
           </p>}
