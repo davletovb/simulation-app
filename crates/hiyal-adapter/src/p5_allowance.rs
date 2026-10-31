@@ -101,6 +101,8 @@ pub struct Call {
     pub reservation_id: String,
     pub scope: Scope,
     pub epoch_id: u64,
+    #[serde(default)]
+    pub carried_epoch_id: Option<u64>,
     pub request_sha256: String,
     pub route: PinnedRoute,
     pub maximum_micro_usd: u64,
@@ -112,12 +114,20 @@ pub struct Call {
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+struct EpochRecord {
+    epoch_id: u64,
+    funded_micro_usd: u64,
+    carried_unresolved_micro_usd: u64,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct State {
     schema_version: u16,
     installation_id: String,
     application_allowance_id: String,
     epoch_id: u64,
     epoch_funded_micro_usd: u64,
+    epochs: Vec<EpochRecord>,
     calls: Vec<Call>,
 }
 #[derive(Serialize, Deserialize)]
@@ -186,6 +196,18 @@ impl Allowance {
                 || value.payload.epoch_id == 0
                 || value.payload.epoch_funded_micro_usd > INITIAL_MICRO_USD
                 || value.payload.calls.len() > MAX_RECORDS
+                || value.payload.epochs.is_empty()
+                || value.payload.epochs.len() > 32
+                || value.payload.epochs.last().is_none_or(|e| {
+                    e.epoch_id != value.payload.epoch_id
+                        || e.funded_micro_usd != value.payload.epoch_funded_micro_usd
+                })
+                || value.payload.epochs.iter().enumerate().any(|(i,e)| {
+                    e.epoch_id != i as u64 + 1
+                        || e.funded_micro_usd == 0
+                        || e.funded_micro_usd > INITIAL_MICRO_USD
+                        || e.carried_unresolved_micro_usd > e.funded_micro_usd
+                })
             {
                 return Err(reject(
                     "allowance recovery failed integrity or identity checks",
@@ -202,6 +224,9 @@ impl Allowance {
                     || !reservations.insert(&call.reservation_id)
                     || call.epoch_id == 0
                     || call.epoch_id > value.payload.epoch_id
+                    || call.carried_epoch_id.is_some_and(|e| {
+                        e <= call.epoch_id || e > value.payload.epoch_id
+                    })
                     || call.maximum_micro_usd == 0
                     || call.maximum_micro_usd > INITIAL_MICRO_USD
                     || call.request_sha256.len() != 64
@@ -231,6 +256,11 @@ impl Allowance {
                 application_allowance_id: format!("installation:{installation}"),
                 epoch_id: 1,
                 epoch_funded_micro_usd: INITIAL_MICRO_USD,
+                epochs: vec![EpochRecord {
+                    epoch_id: 1,
+                    funded_micro_usd: INITIAL_MICRO_USD,
+                    carried_unresolved_micro_usd: 0,
+                }],
                 calls: Vec::new(),
             }
         };
@@ -250,18 +280,23 @@ impl Allowance {
         Ok(ledger)
     }
 
-    fn chargeable_in_current_epoch(&self, call: &Call) -> bool {
-        call.epoch_id == self.state.epoch_id || call.status != Status::Verified
+    fn chargeable_in_current_epoch(&self, call: &Call) -> u64 {
+        if call.epoch_id == self.state.epoch_id {
+            // No in-epoch refund, even when provider tokens are reported.
+            call.maximum_micro_usd
+        } else if call.carried_epoch_id == Some(self.state.epoch_id) {
+            // If an old unresolved bill is verified during the new epoch,
+            // retain its actual verified charge rather than refunding all.
+            call.verified_charge_micro_usd.unwrap_or(call.maximum_micro_usd)
+        } else {
+            0
+        }
     }
     fn held(&self) -> Result<u64, String> {
-        self.state
-            .calls
-            .iter()
-            .filter(|c| self.chargeable_in_current_epoch(c))
-            .try_fold(0u64, |sum, c| {
-                sum.checked_add(c.maximum_micro_usd)
-                    .ok_or_else(|| reject("allowance overflow"))
-            })
+        self.state.calls.iter().try_fold(0u64, |sum, c| {
+            sum.checked_add(self.chargeable_in_current_epoch(c))
+                .ok_or_else(|| reject("allowance overflow"))
+        })
     }
     fn check_recovery(&self) -> Result<(), String> {
         if self.held()? > self.state.epoch_funded_micro_usd {
@@ -473,6 +508,7 @@ impl Allowance {
             reservation_id: format!("r-{}-{}", self.state.epoch_id, self.state.calls.len() + 1),
             scope,
             epoch_id: self.state.epoch_id,
+            carried_epoch_id: None,
             request_sha256: digest,
             route,
             maximum_micro_usd: maximum,
@@ -552,7 +588,23 @@ impl Allowance {
         if liability > funded_micro_usd {
             return Err(reject("new epoch cannot cover unresolved liabilities"));
         }
-        self.state.epoch_id = self.state.epoch_id.checked_add(1).ok_or("epoch overflow")?;
+        if self.state.epochs.len() >= 32 {
+            return Err(reject("funded epoch history capacity exhausted"));
+        }
+        let epoch = self.state.epoch_id.checked_add(1).ok_or("epoch overflow")?;
+        // The old epoch is retained as a distinct immutable funding record.
+        // Each unresolved attempt is an explicit liability in the new epoch.
+        for call in &mut self.state.calls {
+            if call.status != Status::Verified {
+                call.carried_epoch_id = Some(epoch);
+            }
+        }
+        self.state.epochs.push(EpochRecord {
+            epoch_id: epoch,
+            funded_micro_usd,
+            carried_unresolved_micro_usd: liability,
+        });
+        self.state.epoch_id = epoch;
         self.state.epoch_funded_micro_usd = funded_micro_usd;
         self.persist()?;
         Ok(self.state.epoch_id)
@@ -698,6 +750,28 @@ mod tests {
         fs::remove_file(path.join("application-allowance.json")).unwrap();
         assert!(Allowance::open(&path, "owner").is_err());
         let _ = fs::remove_dir_all(&path);
+    }
+    #[test]
+    fn verified_old_liability_keeps_its_real_charge_until_next_funded_epoch() {
+        let path = temporary().join("old-liability");
+        let mut ledger = Allowance::open(&path, "owner").unwrap();
+        ledger.reserve("old",scope(Purpose::Minister,Some("c"),Some(1)),route(),&request()).unwrap();
+        let maximum=ledger.calls()[0].maximum_micro_usd;
+        ledger.start_funded_epoch(INITIAL_MICRO_USD).unwrap();
+        assert_eq!(ledger.remaining_micro_usd().unwrap(),INITIAL_MICRO_USD-maximum);
+        ledger.mark_dispatched("old").unwrap();
+        ledger.record("old",Some(1),Some(1),None).unwrap();
+        ledger.verify_charge("old",7).unwrap();
+        assert_eq!(ledger.remaining_micro_usd().unwrap(),INITIAL_MICRO_USD-7);
+        ledger.start_funded_epoch(INITIAL_MICRO_USD).unwrap();
+        assert_eq!(ledger.remaining_micro_usd().unwrap(),INITIAL_MICRO_USD);
+        assert_eq!(ledger.state.epochs.len(),3);
+        drop(ledger);
+        let recovered=Allowance::open(&path,"owner").unwrap();
+        assert_eq!(recovered.state.epochs.len(),3);
+        assert_eq!(recovered.remaining_micro_usd().unwrap(),INITIAL_MICRO_USD);
+        drop(recovered);
+        std::fs::remove_dir_all(path).unwrap();
     }
     #[test]
     fn pre_dispatch_rejections_and_uncertain_across_resets() {

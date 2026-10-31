@@ -134,16 +134,20 @@ impl Backend for SharedAdmissionBackend {
     fn backend_id(&self) -> &'static str {
         "myth-openrouter-admission"
     }
-    fn permits_tools(&self) -> bool { self.inner.permits_tools() }
+    fn permits_tools(&self) -> bool {
+        self.inner.permits_tools()
+    }
     fn recover_admission(
-        &self, dir: &std::path::Path,
-        receipts: &std::collections::BTreeMap<EffectCallKey,hiyal::runtime::Receipt>,
-    ) -> Result<(),String> {
-        self.inner.recover_admission(dir,receipts)
+        &self,
+        dir: &std::path::Path,
+        receipts: &std::collections::BTreeMap<EffectCallKey, hiyal::runtime::Receipt>,
+    ) -> Result<(), String> {
+        self.inner.recover_admission(dir, receipts)
     }
     fn on_timeout<'a>(
-        &'a self, spec: &'a EffectSpec,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output=()> + Send + 'a>> {
+        &'a self,
+        spec: &'a EffectSpec,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + 'a>> {
         self.inner.on_timeout(spec)
     }
     fn billing_disposition(&self, _: &EffectSpec, result: &EffectResult) -> BillingDisposition {
@@ -163,7 +167,7 @@ impl Backend for SharedAdmissionBackend {
     fn resolve_keyed<'a>(&'a self, key: &'a EffectCallKey, spec: &'a EffectSpec) -> BoxResult<'a> {
         Box::pin(async move {
             let EffectSpec::Model(model) = spec else {
-                return self.inner.resolve_keyed(key,spec).await;
+                return self.inner.resolve_keyed(key, spec).await;
             };
             if spec.key(
                 &key.trial_id,
@@ -176,7 +180,7 @@ impl Backend for SharedAdmissionBackend {
             }
             let id = Self::call_id(key)?;
             self.admitted(&id, model)?;
-            let response = self.inner.resolve_keyed(key,spec).await;
+            let response = self.inner.resolve_keyed(key, spec).await;
             self.settled(&id, &response)?;
             Self::checked_response(response, &self.route)
         })
