@@ -76,7 +76,6 @@ MYTH_P5_RETRY_AUTHORIZATION=AUTHORIZE_FAILED_SEAT \
  authorize-retry <trial-dir> <ledger-dir> <installation-id> finance
 
 MYTH_P5_CERTIFY_SAVED=VERIFY_SAVED_COMPLETION \
- OPENROUTER_API_KEY=<provided-privately> \
  cargo +1.99.1 run --locked -p myth-hiyal-adapter --bin p5-pilot -- \
  certify-saved <trial-dir> <ledger-dir> <installation-id> finance
 ```
