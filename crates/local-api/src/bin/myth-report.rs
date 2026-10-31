@@ -1,4 +1,4 @@
-//! P7 local-only private chair inspection. Not an HTTP endpoint.
+//! P7 privileged operator-only offline debug report. Not a chair role view or HTTP endpoint.
 //! Read a stopped campaign from its exact Hiyal journal; no live backend or API key.
 use myth_hiyal_adapter::orchestrator::{inspect, resume};
 use serde_json::json;

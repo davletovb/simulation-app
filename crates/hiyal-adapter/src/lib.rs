@@ -421,8 +421,16 @@ impl GameWorld {
         }
         let kind = body["kind"].as_str().ok_or("missing typed command kind")?;
         let valid_phase = match (self.phase, kind) {
-            (Phase::QuarterOpen, "defer") if self.quarter > 1 && !self.continuation_pending() => true,
-            (Phase::QuarterOpen, "propose" | "order_audit") if !self.continuation_pending() => true,
+            (Phase::QuarterOpen, "defer")
+                if self.quarter > 1 && !self.continuation_pending() =>
+            {
+                true
+            }
+            (Phase::QuarterOpen, "propose" | "order_audit")
+                if !self.continuation_pending() =>
+            {
+                true
+            }
             (Phase::AmendmentWindow, "amend") => true,
             (Phase::FinalPositionsFrozen, "ratify" | "defer")
                 if self.final_votes_this_meeting() == 3 =>

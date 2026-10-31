@@ -2174,12 +2174,21 @@ mod tests {
     }
     #[test]
     fn p7_news_cutoff_rejects_noncanonical_and_impossible_dates() {
-        for bad in ["1 November 2026", "2026-10-30T12:00:00Z", "2026-02-29",
-            "2026-13-01", "2026-10-00", "2026-10-32", "2026-2-09"] {
+        for bad in [
+            "1 November 2026",
+            "2026-10-30T12:00:00Z",
+            "2026-02-29",
+            "2026-13-01",
+            "2026-10-00",
+            "2026-10-32",
+            "2026-2-09",
+        ] {
             assert!(!strict_iso_date(bad), "accepted non-ISO date {bad}");
         }
         assert!(strict_iso_date("2024-02-29"));
-        assert!(parse_news_bundle(&FROZEN_NEWS.replace("2026-08-17", "1 November 2026")).is_err());
+        assert!(
+            parse_news_bundle(&FROZEN_NEWS.replace("2026-08-17", "1 November 2026")).is_err()
+        );
         assert!(parse_news_bundle(&FROZEN_NEWS.replace("2026-08-17", "2026-11-01")).is_err());
     }
     #[test]
@@ -2200,9 +2209,14 @@ mod tests {
     #[test]
     fn p7_quarter_continuation_is_an_explicit_typed_player_action() {
         let world = GameWorld::initial("continue-wire").unwrap();
-        assert_eq!(CommandKind::ContinueQuarter.body(&world).unwrap(),
-            Some(json!({"kind":"defer"})));
-        assert_eq!(CommandKind::FinishContinuation.body(&world).unwrap(), None);
+        assert_eq!(
+            CommandKind::ContinueQuarter.body(&world).unwrap(),
+            Some(json!({"kind":"defer"}))
+        );
+        assert_eq!(
+            CommandKind::FinishContinuation.body(&world).unwrap(),
+            None
+        );
     }
     #[tokio::test]
     async fn p7_two_fundable_resolutions_remain_distinct_when_programmes_continue() {
