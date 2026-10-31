@@ -4,7 +4,7 @@
 use axum::{
     Json, Router,
     extract::{Path, State},
-    http::{HeaderMap, StatusCode, header},
+    http::{HeaderMap, StatusCode},
     response::{
         IntoResponse,
         sse::{Event, KeepAlive, Sse},
@@ -204,18 +204,18 @@ fn capture(trial: &GameTrial) -> Result<PublicView, String> {
                 Some("defer") => outcome = Some("deferred".into()),
                 _ => {}
             }
-        } else if action.kind == ActionKind::MinisterAction {
-            if let (Some(ministry), Some(stage), Some(position)) = (
+        } else if action.kind == ActionKind::MinisterAction
+            && let (Some(ministry), Some(stage), Some(position)) = (
                 action.payload["ministry"].as_str(),
                 action.payload["stage"].as_str(),
                 action.payload["position"].as_str(),
-            ) {
-                votes.push(PublicVote {
-                    ministry: ministry.into(),
-                    stage: stage.into(),
-                    position: position.into(),
-                });
-            }
+            )
+        {
+            votes.push(PublicVote {
+                ministry: ministry.into(),
+                stage: stage.into(),
+                position: position.into(),
+            });
         }
     }
     Ok(PublicView{
@@ -515,7 +515,7 @@ async fn stream_events(
         .owner(&id)
         .map_err(|_| status(StatusCode::CONFLICT, "campaign unavailable"))?;
     // Register for live events BEFORE taking the one-boundary snapshot.
-    let mut live = owner.sender.subscribe();
+    let live = owner.sender.subscribe();
     let engine = owner.engine.lock().await;
     let state =
         capture(&engine.trial).map_err(|_| status(StatusCode::CONFLICT, "verification failed"))?;
@@ -576,15 +576,14 @@ pub fn routes() -> Router<Arc<Connected>> {
 mod tests {
     use super::*;
     fn root() -> PathBuf {
-        let dir = std::env::temp_dir().join(format!(
+        std::env::temp_dir().join(format!(
             "p6-connected-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
                 .as_nanos()
-        ));
-        dir
+        ))
     }
     #[tokio::test]
     async fn durable_idempotency_and_scoped_recovery() {
