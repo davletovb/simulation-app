@@ -504,10 +504,15 @@ impl Connected {
             let entry = entry.map_err(|_| "cannot scan fork staging")?;
             let name = entry.file_name();
             let Some(name) = name.to_str() else { continue };
-            if name.starts_with('.') && name.ends_with(".fork-stage")
-                && entry.file_type().map_err(|_| "cannot inspect fork staging")?.is_dir()
+            if name.starts_with('.')
+                && name.ends_with(".fork-stage")
+                && entry
+                    .file_type()
+                    .map_err(|_| "cannot inspect fork staging")?
+                    .is_dir()
             {
-                fs::remove_dir_all(entry.path()).map_err(|_| "cannot clean interrupted fork staging")?;
+                fs::remove_dir_all(entry.path())
+                    .map_err(|_| "cannot clean interrupted fork staging")?;
             }
         }
         Ok(Arc::new(Self {
@@ -1202,7 +1207,10 @@ mod tests {
         let service = Connected::new(dir.clone()).unwrap();
         let stage = dir.join(".fork-test.fork-stage");
         fs::create_dir(&stage).unwrap();
-        let guard = ForkStageGuard { path: stage.clone(), active: true };
+        let guard = ForkStageGuard {
+            path: stage.clone(),
+            active: true,
+        };
         fs::write(stage.join("events.jsonl"), b"partial").unwrap();
         drop(guard);
         assert!(!stage.exists());
@@ -1225,7 +1233,9 @@ mod tests {
             Ok(_) => panic!("unknown read unexpectedly created a campaign"),
         }
         assert!(!dir.join("missing").exists());
-        let (code, Json(created)) = create(State(service.clone()), Path("missing".into())).await.unwrap();
+        let (code, Json(created)) = create(State(service.clone()), Path("missing".into()))
+            .await
+            .unwrap();
         assert_eq!(code, StatusCode::CREATED);
         assert_eq!(created.snapshot.cursor, "0");
         assert!(dir.join("missing").is_dir());
