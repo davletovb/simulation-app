@@ -421,8 +421,8 @@ impl GameWorld {
         }
         let kind = body["kind"].as_str().ok_or("missing typed command kind")?;
         let valid_phase = match (self.phase, kind) {
-            // Explicit continuation keeps the current funded programme intact.
-            // Audits retain P3's Q3+ historical and funding eligibility checks.
+            // Player-chosen audits retain P3 eligibility checks; quarter
+            // continuation is dispatched only by the authorized PERIOD actor.
             (Phase::QuarterOpen, "propose" | "order_audit") => true,
             (Phase::AmendmentWindow, "amend") => true,
             (Phase::FinalPositionsFrozen, "ratify" | "defer")

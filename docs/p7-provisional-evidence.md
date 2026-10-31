@@ -1,6 +1,6 @@
 # P7 provisional implementation and acceptance boundary
 
-**Branch:** `feat/p7-six-quarter-history`, stacked on the unmerged P6 draft PR #14. **Status:** implementation in progress; P7 and the full first-playable gate are **not complete**.
+**Branch:** `feat/p7-six-quarter-history`, stacked on unmerged P6 draft PR #14. **Status:** offline implementation and verification are in progress; P7 and the first-playable acceptance gate are **not complete**.
 
 ## Implemented in this slice
 
@@ -30,7 +30,7 @@ npm --prefix apps/web run test:connected
 npm --prefix apps/web run build
 ```
 
-The above are **commands to run**, not claimed test results. No Rust compiler is available in the current authoring container; rely on executed GitHub CI and independent review before accepting changes. Live calls and broad OS CI are intentionally excluded.
+The above commands can be rerun locally. The core P7 offline regression and P6 inherited tests **executed successfully in Linux CI** at [run #41214815520](https://github.com/davletovb/simulation-app/actions/runs/41214815520), commit `a55f47c0f5201309b1cb861c35998d899015c9f4`. This includes 20 contracts tests, 68 domain tests, 33 Hiyal-adapter tests and 29 local API tests, plus P3 sensitivity drift, keyless loopback/checkpoint smoke, generated contract drift, Node SSE reducer, React build and secret scans. A subsequent cleanup/audit test commit requires its **own** green CI; the above run is not evidence for later commits. No paid inference or broad cross-OS P7 replay was executed.
 
 ### Connected audit input (added)
 
@@ -39,3 +39,7 @@ The connected player may issue an idempotent `order_audit` command with a typed 
 ### Source-grounded country setup (added)
 
 The P7 public evidence projection now binds the eight frozen `country-pack.json` source descriptors to the eight frozen `values.json` recorded headlines by stable variable ID, with strict size, schema, cutoff, exact ID uniqueness and unit checks. Public output retains original displayed values and caveats/quality flags, not a fabricated conversion to pilot credits. UI shows source URL and period per indicator and labels the mixed measurement universes. This is **deterministic evidence display**, not the still-required OpenRouter assistant or independent revalidation of each original publication.
+
+### Additional connected public/private audit regression
+
+At a Q3 open boundary after the approved Q1 package and Q2 delivery, the first free staffing audit inspects Q2. The test checks that the committed private P3 audit ledger contains one audit and that the public snapshot does not expose `inspected_cumulative`. The later-quarter continuation still uses the single authorized PERIOD actor, not an arbitrary player clock action. See the current PR CI for executed status.

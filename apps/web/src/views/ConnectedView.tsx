@@ -292,7 +292,7 @@ export function ConnectedView({allocation}:{allocation:Allocation}) {
     <section className="connected-p6" aria-labelledby="connected-p6-title">
       <div className="connected-head">
         <div>
-          <p className="eyebrow">P6 · Connected pilot</p>
+          <p className="eyebrow">P7 · Connected offline case</p>
           <h2 id="connected-p6-title">The decision room</h2>
           <p>Local Hiyal journal · scripted ministers · no paid model calls</p>
         </div>

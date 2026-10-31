@@ -2191,6 +2191,20 @@ mod tests {
             let (kind, n) = step(CommandKind::AdvanceSlice);
             assert_eq!(accepted_step(&service, id, kind, n).await.quarter, 2);
             for quarter in 2..=6 {
+                if quarter == 3 {
+                    let (kind, n) = step(CommandKind::OrderAudit {
+                        family: myth_contracts::Family::Staffing,
+                        inspected_quarter: 2,
+                    });
+                    let checked = accepted_step(&service, id, kind, n).await;
+                    let owner = service.owner(id).unwrap();
+                    let audit_count = owner.engine.lock().await.trial.store.world()
+                        .fold().unwrap().player_audits().len();
+                    assert_eq!(audit_count, 1);
+                    assert!(!serde_json::to_string(&checked).unwrap()
+                        .contains("inspected_cumulative"));
+                    drop(owner);
+                }
                 let (kind, n) = step(CommandKind::ContinueQuarter);
                 let next = accepted_step(&service, id, kind, n).await;
                 assert_eq!(next.delivery_history.len(), quarter as usize);

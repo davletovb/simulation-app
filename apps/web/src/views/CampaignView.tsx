@@ -34,14 +34,14 @@ export function CampaignView() {
       <section className="panel" aria-labelledby="track-title">
         <div className="panel-head">
           <h2 id="track-title">Quarter track</h2>
-          <span className="tag">Not started</span>
+          <span className="tag">Illustrative plan</span>
         </div>
         <ol className="track">
           {QUARTERS.map((q, i) => (
             <li key={q.label} className={`track-node${i === 0 ? ' is-next' : ''}`}>
               <span className="track-dot" aria-hidden="true" />
               <strong>{q.short}<small>{q.year}</small></strong>
-              {i === 0 && <span className="track-now">Starts here</span>}
+              {i === 0 && <span className="track-now">Reference start</span>}
               <ul className="track-events">
                 {(QUARTER_EVENTS[i] ?? []).map(e => <li key={e}>{e}</li>)}
               </ul>
@@ -59,7 +59,7 @@ export function CampaignView() {
               <Icon name={a.icon} size={22} />
               <strong>{a.name}</strong>
               <span>{a.detail}</span>
-              <span className="action-lock"><Icon name="lock" size={13} />Once connected</span>
+              <span className="action-lock"><Icon name="lock" size={13} />Use enabled actions in Command; other actions remain planned</span>
             </div>
           ))}
         </div>
@@ -130,7 +130,7 @@ export function CampaignView() {
         <button type="button" className="btn btn-primary" disabled aria-describedby="advance-why">
           <Icon name="lock" size={18} />Advance quarter
         </button>
-        <p id="advance-why" className="cta-why">Advancing needs the simulation service.</p>
+        <p id="advance-why" className="cta-why">Advance the actual saved campaign in the Command tab.</p>
       </section>
     </>
   )

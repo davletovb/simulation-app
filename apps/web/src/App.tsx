@@ -85,7 +85,7 @@ export function App() {
             {view === 'intel' && <IntelView />}
           </div>
           <footer className="foot">
-            <span>Myth Maker · framework v0.8.1 · P6 connected offline prototype</span>
+            <span>Myth Maker · framework v0.8.1 · P7 connected offline candidate · P6 review pending</span>
             <span>{OFFLINE_PILOT.jurisdiction} is the education jurisdiction, not the whole {COUNTRY_NAME} · {OFFLINE_PILOT.locale}</span>
           </footer>
         </main>
