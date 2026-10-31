@@ -1,8 +1,6 @@
-name: P4 one-time Linux and macOS arm64 recovery gate
+name: P4 manually requested Linux/macOS arm64 replay and resource gate
 on:
-  push:
-    branches: [feat/p4-hiyal-recovery]
-    paths: [.github/workflows/p4-cross-os-gate-once.yml]
+  workflow_dispatch:
 permissions:
   contents: read
 jobs:
@@ -48,7 +46,9 @@ jobs:
             /usr/bin/time -l target/release/p4-trial benchmark-stress 3 >p4-evidence/stress.json 2>p4-evidence/stress-stderr.txt
             # macOS time -l reports maximum resident set size in bytes.
             awk '/maximum resident set size/{ print $1 }' p4-evidence/stress-stderr.txt | tail -n 1 >p4-evidence/macos-peak-rss-bytes.txt
+            awk '/maximum resident set size/{ print $1 }' p4-evidence/prototype-stderr.txt | tail -n 1 >p4-evidence/macos-peak-rss-prototype-bytes.txt
             test -s p4-evidence/macos-peak-rss-bytes.txt
+            test -s p4-evidence/macos-peak-rss-prototype-bytes.txt
           else
             target/release/p4-trial benchmark 3 >p4-evidence/prototype.json 2>p4-evidence/prototype-stderr.txt
             target/release/p4-trial benchmark-stress 3 >p4-evidence/stress.json 2>p4-evidence/stress-stderr.txt
@@ -93,13 +93,22 @@ jobs:
                   assert result["accepted_game_actions"] > 0
                   assert int(result["resume_full_validation"]["p95_us"]) <= (10 if kind=="stress" else 2)*1_000_000
                   assert int(result["independent_full_verify"]["p95_us"]) <= (30 if kind=="stress" else 5)*1_000_000
-                  assert int(result["quarter_advance_commit"]["p95_us"]) <= 250_000 if kind=="prototype" else True
+                  if kind=="prototype":
+                      assert int(result["quarter_advance_commit"]["p95_us"]) <= 250_000
+                      assert int(result["cabinet_action_commit"]["p95_us"]) <= 150_000
                   if kind=="stress":
                       assert result["synthetic_stress_records"] == 1024
                       assert result["fake_model_receipts"] == 96
               print(f"{kind} cross-OS private state SHA256: {a['case_sha256']}")
-          peak=int((dirs["macos-arm64"]/"macos-peak-rss-bytes.txt").read_text().strip())
+          mac=dirs["macos-arm64"]
+          peak=int((mac/"macos-peak-rss-bytes.txt").read_text().strip())
+          proto_peak=int((mac/"macos-peak-rss-prototype-bytes.txt").read_text().strip())
           assert peak <= 512*1024*1024, f"macOS arm64 stress peak RSS {peak}"
-          print(f"macOS arm64 stress peak RSS bytes: {peak}")
+          assert proto_peak <= 256*1024*1024, f"macOS arm64 prototype peak RSS {proto_peak}"
+          for kind in ("prototype","stress"):
+              linux_peak=j["linux-x64",kind]["peak_rss_bytes"]
+              assert linux_peak is not None
+              assert int(linux_peak) <= (512 if kind=="stress" else 256)*1024*1024
+          print(f"macOS arm64 prototype and stress peak RSS bytes: {proto_peak}, {peak}")
           print("P4 cross-OS deterministic replay and bounded resource gate PASSED")
           PY
