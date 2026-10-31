@@ -1,13 +1,32 @@
-import { useQuery } from '@tanstack/react-query'
-import { CACHE_KEY, CAMPAIGN, loadSnapshot, type Snapshot } from './ConnectedView'
+import { useQueryClient } from '@tanstack/react-query'
+import { useEffect, useState } from 'react'
+import { newer } from '../committedReducer.mjs'
+import { CACHE_KEY, CAMPAIGN, loadSnapshot, useCommittedCampaign, type Committed, type Snapshot } from './ConnectedView'
 
 function usePublicView() {
-  return useQuery({
-    queryKey: CACHE_KEY,
-    queryFn: loadSnapshot,
-    staleTime: 1000,
-    refetchInterval: 5000,
-  })
+  const cache = useQueryClient()
+  const {data} = useCommittedCampaign()
+  const [isError, setIsError] = useState(false)
+  useEffect(() => {
+    let active = true
+    // Other tabs are visible while the command room's SSE listener is
+    // unmounted. Poll them, but atomically reduce each HTTP result into
+    // the shared cache. A stale response cannot roll back an SSE boundary.
+    const update = async () => {
+      try {
+        const received = await loadSnapshot()
+        if (!active) return
+        cache.setQueryData<Committed>(CACHE_KEY,old=>newer(old??null,received))
+        setIsError(false)
+      } catch {
+        if (active) setIsError(true)
+      }
+    }
+    void update()
+    const interval = window.setInterval(() => { void update() }, 5000)
+    return () => { active = false; window.clearInterval(interval) }
+  }, [cache])
+  return {data,isError}
 }
 
 function Boundary({ snapshot }: {snapshot:Snapshot}) {
