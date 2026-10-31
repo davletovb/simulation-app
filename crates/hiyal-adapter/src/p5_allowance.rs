@@ -614,7 +614,7 @@ mod tests {
         ModelRequest {
             provider: "openrouter".into(),
             model: "test/model".into(),
-            resolved_model_version: Some("fixed".into()),
+            resolved_model_version: Some("pinned-provider".into()),
             messages: vec![Message {
                 role: Role::User,
                 content: "typed role-visible view".into(),
@@ -629,7 +629,7 @@ mod tests {
             tool_schemas: vec![],
             streaming: false,
             response_format: Some(
-                serde_json::json!({"type":"json_schema","json_schema":{"strict":true,"schema":{"type":"object"}}}),
+                serde_json::json!({"type":"json_schema","json_schema":{"strict":true,"name":"test","schema":{"type":"object"}}}),
             ),
         }
     }
@@ -640,6 +640,8 @@ mod tests {
             input_micro_usd_per_million: 1_000_000,
             output_micro_usd_per_million: 5_000_000,
             reasoning_disabled: true,
+            reasoning_parameter_supported: false,
+            response_model: None,
         }
     }
     fn scope(purpose: Purpose, campaign: Option<&str>, quarter: Option<u8>) -> Scope {
@@ -667,7 +669,7 @@ mod tests {
             let cases = [
                 ("c1", scope(Purpose::Minister, Some("campaign-a"), Some(1))),
                 ("c2", scope(Purpose::Minister, Some("campaign-b"), Some(1))),
-                ("asst", scope(Purpose::Assistant, None, None)),
+                ("asst", scope(Purpose::Assistant, Some("campaign-a"), Some(1))),
                 ("author", scope(Purpose::Authoring, None, None)),
             ];
             for (id, s) in cases {
@@ -822,6 +824,31 @@ mod tests {
         );
         drop(restarted);
         std::fs::remove_dir_all(path).unwrap();
+    }
+    #[test]
+    fn assistant_cannot_hide_behind_missing_campaign_or_quarter() {
+        let path=temporary().join("scoped-assistant");
+        let mut ledger=Allowance::open(&path,"owner").unwrap();
+        let bad=scope(Purpose::Assistant,None,None);
+        assert!(ledger.reserve("hidden",bad,route(),&request()).is_err());
+        let valid=scope(Purpose::Assistant,Some("campaign-a"),Some(1));
+        let result=ledger.reserve("visible",valid,route(),&request()).unwrap();
+        assert!(result.fresh);
+        assert_eq!(ledger.calls().len(),1);
+        drop(ledger);std::fs::remove_dir_all(path).unwrap();
+    }
+    #[test]
+    fn realistic_role_context_under_12288_bytes_is_accepted() {
+        let path=temporary().join("realistic-context");
+        let mut ledger=Allowance::open(&path,"owner").unwrap();
+        let mut req=request();
+        req.messages[0].content="x".repeat(5_500);
+        let bytes=serde_json::to_vec(&req).unwrap().len();
+        assert!(bytes>3_000 && bytes<MINISTER_REQUEST_BYTES);
+        assert!(ledger.reserve("realistic",scope(Purpose::Minister,Some("a"),Some(1)),route(),&req).is_ok());
+        req.messages[0].content="x".repeat(12_400);
+        assert!(ledger.reserve("oversize",scope(Purpose::Minister,Some("a"),Some(1)),route(),&req).is_err());
+        drop(ledger);std::fs::remove_dir_all(path).unwrap();
     }
     #[test]
     fn pre_dispatch_rejections_and_uncertain_across_resets() {
