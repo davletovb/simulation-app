@@ -65,27 +65,30 @@ pub enum CommandKind {
     Decide { ratify: bool },
 }
 impl CommandKind {
-    fn body(&self,world:&GameWorld)->Result<Option<Value>,String>{
-        let meeting=format!("q{}",world.quarter);
-        let proposal_version=||->Result<String,String>{
-            Ok(world.fold()?.proposal_version()
-                .ok_or("no frozen proposal version")?.to_decimal())
+    fn body(&self, world: &GameWorld) -> Result<Option<Value>, String> {
+        let meeting = format!("q{}", world.quarter);
+        let proposal_version = || -> Result<String, String> {
+            Ok(world
+                .fold()?
+                .proposal_version()
+                .ok_or("no frozen proposal version")?
+                .to_decimal())
         };
         Ok(match self {
-            Self::AdvanceSlice=>None,
-            Self::Propose{allocation}=>Some(json!({
+            Self::AdvanceSlice => None,
+            Self::Propose { allocation } => Some(json!({
                 "kind":"propose","meeting_id":meeting,"allocation":allocation,
             })),
-            Self::Amend{allocation}=>Some(json!({
+            Self::Amend { allocation } => Some(json!({
                 "kind":"amend","meeting_id":meeting,
                 "proposal_version":proposal_version()?,
                 "allocation":allocation,
             })),
-            Self::Decide{ratify:true}=>Some(json!({
+            Self::Decide { ratify: true } => Some(json!({
                 "kind":"ratify","meeting_id":meeting,
                 "proposal_version":proposal_version()?,
             })),
-            Self::Decide{ratify:false}=>Some(json!({"kind":"defer"})),
+            Self::Decide { ratify: false } => Some(json!({"kind":"defer"})),
         })
     }
 }
@@ -368,20 +371,23 @@ fn schedule(owner: Arc<Owner>) {
             let current = engine.trial.store.world().world_version.clone();
             // Accepted before dispatch; recovering after the Hiyal journal
             // committed but before command-log completion must not step twice.
-            let pending_round=engine.trial.store.dir.join("pending-round.json").exists();
+            let pending_round = engine.trial.store.dir.join("pending-round.json").exists();
             let result = if current != expected && !pending_round {
                 Ok(())
             } else {
-                let body=engine.log.records[pos].kind.body(engine.trial.store.world());
-                let prepared=match body {
-                    Ok(Some(payload))=>engine.trial.select_player_command(
-                        &engine.log.records[pos].command_id,payload),
-                    Ok(None)=>Ok(()),
-                    Err(error)=>Err(error),
+                let body = engine.log.records[pos]
+                    .kind
+                    .body(engine.trial.store.world());
+                let prepared = match body {
+                    Ok(Some(payload)) => engine
+                        .trial
+                        .select_player_command(&engine.log.records[pos].command_id, payload),
+                    Ok(None) => Ok(()),
+                    Err(error) => Err(error),
                 };
-                let applied=match prepared {
-                    Ok(())=>advance_slice(&mut engine.trial).await.map(|_|()),
-                    Err(error)=>Err(error),
+                let applied = match prepared {
+                    Ok(()) => advance_slice(&mut engine.trial).await.map(|_| ()),
+                    Err(error) => Err(error),
                 };
                 engine.trial.clear_player_command();
                 applied
@@ -437,8 +443,15 @@ fn schedule(owner: Arc<Owner>) {
         owner.inflight.store(false, Ordering::Release);
         // Close the acceptance/worker-exit race: a command may have been
         // fsynced while the previous worker still held inflight=true.
-        if owner.engine.lock().await.log.records.iter()
-            .any(|r|r.status==OperationStatus::Accepted) {
+        if owner
+            .engine
+            .lock()
+            .await
+            .log
+            .records
+            .iter()
+            .any(|r| r.status == OperationStatus::Accepted)
+        {
             schedule(owner);
         }
     });
@@ -531,10 +544,22 @@ async fn command(
     if engine.trial.store.world().is_closed() {
         return Err(status(StatusCode::CONFLICT, "campaign closed"));
     }
-    if let Some(body)=request.kind.body(engine.trial.store.world())
-        .map_err(|_|status(StatusCode::CONFLICT,"command lacks a frozen proposal"))? {
-        engine.trial.store.world().selected_player_command(&request.command_id,body)
-            .map_err(|_|status(StatusCode::CONFLICT,"typed player action invalid at this phase"))?;
+    if let Some(body) = request
+        .kind
+        .body(engine.trial.store.world())
+        .map_err(|_| status(StatusCode::CONFLICT, "command lacks a frozen proposal"))?
+    {
+        engine
+            .trial
+            .store
+            .world()
+            .selected_player_command(&request.command_id, body)
+            .map_err(|_| {
+                status(
+                    StatusCode::CONFLICT,
+                    "typed player action invalid at this phase",
+                )
+            })?;
     }
     let record = Operation {
         campaign_id: id,

@@ -42,14 +42,17 @@ pub struct GamePolicy {
     pub player_override: Option<GameAction>,
 }
 impl GamePolicy {
-    fn selected(&self, obs: &GameObservation) -> Result<GameAction,String> {
-        if obs.actor==PLAYER.0 as u8
-            && let Some(chosen)=&self.player_override {
-            if chosen.actor!=obs.actor
-                || chosen.observation_sha256!=obs.action.observation_sha256
-                || chosen.role_observation!=obs.action.role_observation
+    fn selected(&self, obs: &GameObservation) -> Result<GameAction, String> {
+        if obs.actor == PLAYER.0 as u8
+            && let Some(chosen) = &self.player_override
+        {
+            if chosen.actor != obs.actor
+                || chosen.observation_sha256 != obs.action.observation_sha256
+                || chosen.role_observation != obs.action.role_observation
                 || chosen.model_receipt_digest.is_some()
-            {return Err("player command does not match frozen observation".into());}
+            {
+                return Err("player command does not match frozen observation".into());
+            }
             return Ok(chosen.clone());
         }
         Ok(obs.action.clone())
@@ -93,7 +96,7 @@ impl GamePolicy {
                 })
                 .collect());
         }
-        let selected=self.selected(obs)?;
+        let selected = self.selected(obs)?;
         if selected.kind != ActionKind::PlayerCommand || obs.actor != PLAYER.0 as u8 {
             return Ok(vec![]);
         }
@@ -325,17 +328,22 @@ pub struct GameTrial {
 }
 impl GameTrial {
     pub fn select_player_command(
-        &mut self,command_id:&str,body:serde_json::Value,
-    )->Result<(),String>{
-        if self.live_admission.is_some(){
+        &mut self,
+        command_id: &str,
+        body: serde_json::Value,
+    ) -> Result<(), String> {
+        if self.live_admission.is_some() {
             return Err("P6 typed commands disabled on paid trials until C' authorization".into());
         }
-        let selected=self.store.world().selected_player_command(command_id,body)?;
-        self.policy.player_override=Some(selected);
+        let selected = self
+            .store
+            .world()
+            .selected_player_command(command_id, body)?;
+        self.policy.player_override = Some(selected);
         Ok(())
     }
-    pub fn clear_player_command(&mut self){
-        self.policy.player_override=None;
+    pub fn clear_player_command(&mut self) {
+        self.policy.player_override = None;
     }
     /// Keep the private scheduler mirror synchronized even when a caller
     /// invokes the public pause/resume methods outside `enable`.

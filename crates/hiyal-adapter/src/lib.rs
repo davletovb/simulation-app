@@ -407,28 +407,40 @@ impl GameWorld {
     /// This is validated again by the world reducer and the existing P3
     /// CommandEnvelope parser. It does not authorize minister actions.
     pub fn selected_player_command(
-        &self, command_id: &str, body: Value,
-    ) -> Result<GameAction,String> {
-        if command_id.is_empty() || command_id.len()>64
-            || !command_id.bytes().all(|b| b.is_ascii_lowercase()
-                || b.is_ascii_digit() || b==b'-' || b==b'_') {
+        &self,
+        command_id: &str,
+        body: Value,
+    ) -> Result<GameAction, String> {
+        if command_id.is_empty()
+            || command_id.len() > 64
+            || !command_id
+                .bytes()
+                .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-' || b == b'_')
+        {
             return Err("invalid connected command ID".into());
         }
-        let kind=body["kind"].as_str().ok_or("missing typed command kind")?;
-        let valid_phase=match (self.phase,kind) {
-            (Phase::QuarterOpen,"propose")=>true,
-            (Phase::AmendmentWindow,"amend")=>true,
-            (Phase::FinalPositionsFrozen,"ratify"|"defer") if self.final_votes_this_meeting()==3=>true,
-            _=>false,
+        let kind = body["kind"].as_str().ok_or("missing typed command kind")?;
+        let valid_phase = match (self.phase, kind) {
+            (Phase::QuarterOpen, "propose") => true,
+            (Phase::AmendmentWindow, "amend") => true,
+            (Phase::FinalPositionsFrozen, "ratify" | "defer")
+                if self.final_votes_this_meeting() == 3 =>
+            {
+                true
+            }
+            _ => false,
         };
-        if !valid_phase {return Err("player command not eligible at current phase".into());}
-        if let Some(meeting)=body["meeting_id"].as_str()
-            && meeting!=self.meeting_id() {
+        if !valid_phase {
+            return Err("player command not eligible at current phase".into());
+        }
+        if let Some(meeting) = body["meeting_id"].as_str()
+            && meeting != self.meeting_id()
+        {
             return Err("command meeting differs from active meeting".into());
         }
-        let mut selected=self.planned(PLAYER,&self.verified_campaign()?)?;
-        selected.kind=ActionKind::PlayerCommand;
-        selected.payload=json!({
+        let mut selected = self.planned(PLAYER, &self.verified_campaign()?)?;
+        selected.kind = ActionKind::PlayerCommand;
+        selected.payload = json!({
             "schema_version":1,
             "campaign_id":self.campaign_id,
             "command_id":command_id,
@@ -633,22 +645,26 @@ impl World for GameWorld {
         if action.model_receipt_digest.is_none() {
             if action != planned {
                 if actor != PLAYER
-                    || action.kind!=ActionKind::PlayerCommand
-                    || action.actor!=planned.actor
-                    || action.observation_sha256!=planned.observation_sha256
+                    || action.kind != ActionKind::PlayerCommand
+                    || action.actor != planned.actor
+                    || action.observation_sha256 != planned.observation_sha256
                     || action.role_observation.is_some()
-                    || action.payload["schema_version"]!=1
-                    || action.payload["campaign_id"]!=self.campaign_id
-                    || action.payload["expected_world_version"]!=self.world_version {
+                    || action.payload["schema_version"] != 1
+                    || action.payload["campaign_id"] != self.campaign_id
+                    || action.payload["expected_world_version"] != self.world_version
+                {
                     return Err("action differs from frozen typed observation".into());
                 }
                 // The game issues only a typed, phase-eligible player command;
                 // P3 will enforce budget, proposal version and funding rules.
-                let id=action.payload["command_id"].as_str()
+                let id = action.payload["command_id"]
+                    .as_str()
                     .ok_or("missing connected command id")?;
-                let candidate=self.selected_player_command(
-                    id,action.payload["command"].clone())?;
-                if candidate!=action {return Err("changed connected player command".into());}
+                let candidate =
+                    self.selected_player_command(id, action.payload["command"].clone())?;
+                if candidate != action {
+                    return Err("changed connected player command".into());
+                }
             }
         } else {
             let digest = action.model_receipt_digest.as_deref().unwrap_or_default();
