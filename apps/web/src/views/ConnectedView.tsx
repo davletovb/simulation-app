@@ -17,6 +17,14 @@ interface Snapshot {
   closed: boolean
   proposal: { staff: number; repairs: number; access: number } | null
   votes: Vote[]
+  treasury:{
+    available_credits:number
+    encumbered_staff:number
+    encumbered_repairs:number
+    encumbered_access:number
+    service_spent:number
+    audit_spent:number
+  }
   outcome: string | null
   assumption: string
   mode: 'offline_scripted'
@@ -43,7 +51,8 @@ function validSnapshot(raw: unknown): raw is Committed {
     typeof s.view_version === 'string' && s.view_version.length > 0 &&
     Number.isInteger(s.quarter) && typeof s.phase === 'string' &&
     typeof s.closed === 'boolean' && s.mode === 'offline_scripted' &&
-    Array.isArray(s.votes) && s.votes.length <= 36
+    Array.isArray(s.votes) && s.votes.length <= 36 &&
+    !!s.treasury && Object.values(s.treasury).every(n=>Number.isInteger(n) && n>=0 && n<=100)
 }
 function newer(old: Committed | null, next: Committed): Committed {
   // Backend SSE ID and view version are a single committed snapshot boundary.
@@ -194,6 +203,14 @@ export function ConnectedView({allocation}:{allocation:Allocation}) {
             <div>
               <h3>Outcome</h3>
               <p>{snapshot.outcome ?? 'Awaiting a final decision'}</p>
+            </div>
+            <div>
+              <h3>Budget consequences · credits</h3>
+              <p>Available: <strong>{snapshot.treasury.available_credits}</strong></p>
+              <p>Committed: <strong>{snapshot.treasury.encumbered_staff+
+                snapshot.treasury.encumbered_repairs+snapshot.treasury.encumbered_access}</strong></p>
+              <p>Delivered spending: <strong>{snapshot.treasury.service_spent}</strong></p>
+              <p>Audit spending: <strong>{snapshot.treasury.audit_spent}</strong></p>
             </div>
           </div>
           <p className="connected-assumptions">{snapshot.assumption}</p>

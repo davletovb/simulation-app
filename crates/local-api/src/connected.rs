@@ -13,6 +13,7 @@ use axum::{
 };
 use futures_util::stream;
 use myth_contracts::Allocation as WireAllocation;
+use myth_domain::PolicyFamily;
 use myth_hiyal_adapter::{
     ActionKind, GameWorld,
     orchestrator::{GameTrial, advance_slice, create_campaign, inspect, resume},
@@ -196,6 +197,15 @@ pub struct PublicVote {
     position: String,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct PublicTreasury {
+    pub available_credits:u16,
+    pub encumbered_staff:u16,
+    pub encumbered_repairs:u16,
+    pub encumbered_access:u16,
+    pub service_spent:u16,
+    pub audit_spent:u16,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct PublicView {
     pub schema_version: u16,
     pub campaign_id: String,
@@ -207,6 +217,7 @@ pub struct PublicView {
     pub closed: bool,
     pub proposal: Option<Value>,
     pub votes: Vec<PublicVote>,
+    pub treasury: PublicTreasury,
     pub outcome: Option<String>,
     pub assumption: String,
     pub mode: &'static str,
@@ -250,6 +261,16 @@ fn capture(trial: &GameTrial) -> Result<PublicView, String> {
             });
         }
     }
+    let campaign=world.fold()?;
+    let treasury=campaign.world().treasury();
+    let fiscal=PublicTreasury {
+        available_credits:treasury.available(),
+        encumbered_staff:treasury.encumbered(PolicyFamily::Staffing),
+        encumbered_repairs:treasury.encumbered(PolicyFamily::Repairs),
+        encumbered_access:treasury.encumbered(PolicyFamily::Access),
+        service_spent:treasury.service_spent(),
+        audit_spent:treasury.audit_spent(),
+    };
     Ok(PublicView{
         schema_version:1,
         campaign_id:world.campaign_id.clone(),
@@ -261,6 +282,7 @@ fn capture(trial: &GameTrial) -> Result<PublicView, String> {
         closed:world.is_closed(),
         proposal,
         votes,
+        treasury:fiscal,
         outcome,
         assumption:"Synthetic education-delivery rules; scripted cabinet, not live ministers or empirical predictions".into(),
         mode:"offline_scripted",
@@ -431,6 +453,11 @@ fn schedule(owner: Arc<Owner>) {
                         closed: false,
                         proposal: None,
                         votes: vec![],
+                        treasury: PublicTreasury {
+                            available_credits:0, encumbered_staff:0,
+                            encumbered_repairs:0, encumbered_access:0,
+                            service_spent:0,audit_spent:0,
+                        },
                         outcome: None,
                         assumption: "Offline verification failed".into(),
                         mode: "offline_scripted",
