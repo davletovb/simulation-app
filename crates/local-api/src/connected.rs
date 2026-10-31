@@ -36,6 +36,7 @@ use std::{
 use tokio::sync::{Mutex as AsyncMutex, broadcast};
 
 const MAX_COMMANDS: usize = 512;
+const FROZEN_NEWS: &str = include_str!("../../../data/england-school-pilot-v1/news-bundle.json");
 const MAX_COMMAND_BYTES: usize = 1024 * 1024;
 fn valid_id(s: &str) -> bool {
     !s.is_empty()
@@ -290,6 +291,43 @@ pub struct PublicDelivery {
 }
 /// Exact recorded-action replay is distinct from a new scripted fork.
 #[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct PublicNews {
+    pub date: String,
+    pub kind: String,
+    pub title: String,
+    pub summary: String,
+    pub url: Option<String>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct NewsBundle {
+    schema_version: u16,
+    cutoff_utc: String,
+    items: Vec<PublicNews>,
+    label: String,
+}
+fn frozen_news(cutoff: &str) -> Result<Vec<PublicNews>, String> {
+    let bundle: NewsBundle = serde_json::from_str(FROZEN_NEWS).map_err(|_| "invalid news bundle")?;
+    if bundle.schema_version != 1 || bundle.cutoff_utc != cutoff
+        || bundle.label.is_empty() || bundle.items.len() > 12
+    {
+        return Err("news bundle/country cutoff mismatch".into());
+    }
+    for item in &bundle.items {
+        let real = item.kind == "real_source_update";
+        let fiction = item.kind == "fictional_simulation_news";
+        if !(real || fiction)
+            || item.title.is_empty() || item.summary.is_empty()
+            || (real && (item.date.as_str() > cutoff.get(..10).unwrap_or("")
+                || !item.url.as_deref().is_some_and(|url| url.starts_with("https://"))))
+            || (fiction && item.url.is_some())
+        {
+            return Err("unsafe or unclassified archived news".into());
+        }
+    }
+    Ok(bundle.items)
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct PublicComparison {
     pub mode: String,
     pub source_campaign_id: Option<String>,
@@ -321,6 +359,7 @@ pub struct PublicView {
     pub treasury: PublicTreasury,
     pub decisions: Vec<PublicDecision>,
     pub delivery_history: Vec<PublicDelivery>,
+    pub news: Vec<PublicNews>,
     pub comparison: PublicComparison,
     pub evidence: PublicEvidence,
     pub outcome: Option<String>,
@@ -466,6 +505,7 @@ fn capture(trial: &GameTrial) -> Result<PublicView, String> {
         treasury:fiscal,
         decisions,
         delivery_history,
+        news: frozen_news(&world.source_cutoff_utc)?,
         comparison: PublicComparison {
             mode: "exact_recorded_actions".into(),
             source_campaign_id: None,
@@ -708,6 +748,7 @@ fn schedule(owner: Arc<Owner>) {
                         },
                         decisions: vec![],
                         delivery_history: vec![],
+                        news: vec![],
                         comparison: PublicComparison {
                             mode: "verification_failed".into(),
                             source_campaign_id: None,
@@ -1906,6 +1947,9 @@ mod tests {
         assert_eq!(later.decisions.len(), 1);
         assert_eq!(later.delivery_history.len(), 1);
         assert_eq!(later.delivery_history[0].quarter, 1);
+        assert_eq!(later.news.len(), 3);
+        assert_eq!(later.news[0].kind, "real_source_update");
+        assert_eq!(later.news[2].kind, "fictional_simulation_news");
         assert_eq!(later.comparison.mode, "exact_recorded_actions");
         assert!(later.comparison.post_fork_actor_actions_fixed);
         assert!(later.proposal.is_none());

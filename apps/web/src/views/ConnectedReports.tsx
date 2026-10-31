@@ -119,6 +119,14 @@ export function ConnectedEvidenceReport() {
     </dl>
     <p>{snapshot.evidence.attribution}</p>
     <p>{snapshot.evidence.scope}</p>
+    <h3>Frozen news and scenario markers</h3>
+    <ul className="connected-public-list">
+      {snapshot.news.map((item,i)=><li key={item.date+'-'+i}>
+        <strong>{item.kind==='real_source_update' ? 'Archived real-source update' : 'Fictional simulation event'} · {item.date}</strong>
+        {' '}{item.title}. {item.summary}
+        {item.url && <> · <a href={item.url} target="_blank" rel="noopener noreferrer">Original published source</a></>}
+      </li>)}
+    </ul>
     <p>Generated outcome reports are simulation outputs. News and country facts must be read
       from the frozen sourced archive; narrative changes are fictional, not factual updates.
       No LLM-authored briefing or news synthesis has been verified in this offline build.</p>

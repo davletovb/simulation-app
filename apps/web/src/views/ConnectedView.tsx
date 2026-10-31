@@ -30,6 +30,8 @@ export interface Snapshot {
   }
   decisions: {quarter:number; outcome:string; allocation:{staff:number;repairs:number;access:number}|null;
     final_support:number;final_votes:number}[]
+  news:{ date:string; kind:'real_source_update'|'fictional_simulation_news'; title:string;
+    summary:string; url:string|null }[]
   delivery_history: {
     quarter:number
     reported_cumulative:[number,number,number]
@@ -78,6 +80,10 @@ function validSnapshot(raw: unknown): raw is Committed {
     typeof s.closed === 'boolean' && s.mode === 'offline_scripted' &&
     Array.isArray(s.votes) && s.votes.length <= 36 &&
     Array.isArray(s.decisions) && s.decisions.length<=6 &&
+    Array.isArray(s.news) && s.news.length<=12 &&
+    s.news.every(n=>n && typeof n.title==='string' && typeof n.summary==='string' &&
+      (n.kind==='real_source_update' || n.kind==='fictional_simulation_news') &&
+      (n.url===null || typeof n.url==='string')) &&
     Array.isArray(s.delivery_history) && s.delivery_history.length<=6 &&
     s.delivery_history.every((r,i)=>r.quarter===i+1 &&
       Array.isArray(r.reported_cumulative) && r.reported_cumulative.length===3 &&
