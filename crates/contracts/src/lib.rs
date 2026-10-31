@@ -15,8 +15,9 @@ pub const VERSION: u16 = d::SCHEMA_VERSION;
 pub fn valid_public_id(value: &str) -> bool {
     !value.is_empty()
         && value.len() <= 64
-        && value.bytes().all(|c| c.is_ascii_lowercase()
-            || c.is_ascii_digit() || c == b'-' || c == b'_')
+        && value
+            .bytes()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == b'-' || c == b'_')
 }
 
 // Absence is allowed for Finance; explicitly sending null is not. This keeps
