@@ -411,11 +411,7 @@ impl GameWorld {
         command_id: &str,
         body: Value,
     ) -> Result<GameAction, String> {
-        if command_id.is_empty()
-            || command_id.len() > 64
-            || !command_id
-                .bytes()
-                .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-' || b == b'_')
+        if !myth_contracts::valid_public_id(command_id)
         {
             return Err("invalid connected command ID".into());
         }
