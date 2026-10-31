@@ -101,9 +101,6 @@ jobs:
           uv sync --project tools/p2 --offline --locked --no-install-project
           uv run --project tools/p2 --offline --locked python tools/p2/build_pack.py --check
           uv run --project tools/p2 --offline --locked python -m unittest discover -s tools/p2 -p "test_*.py" -v
-      - name: Temporary P6 evidence timing (offline, zero provider calls)
-        if: ${{ github.head_ref == 'feat/p6-connected-offline-service' }}
-        run: cargo test --locked -p myth-local-api p6_offline_metrics_without_model_calls -- --nocapture
       - name: Offline loopback API smoke
         if: steps.workspace.outputs.present == 'true'
         run: bash .github/scripts/offline-api-smoke.sh
