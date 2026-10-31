@@ -723,3 +723,24 @@ input[type="range"]:focus-visible::-moz-range-thumb { box-shadow: 0 0 0 3px var(
 .connected-public-fiscal dt {font-size:.8rem;opacity:.8;}
 .connected-public-fiscal dd {font-weight:600;margin:.25rem 0 0;}
 .connected-hash {font-family:ui-monospace,SFMono-Regular,monospace;font-size:.76rem;word-break:break-all;}
+
+/* P6-03: selective re-themed Base UI controls/dialog; local CSS only. */
+.p6-control {font:inherit;border:1px solid currentColor;border-radius:.65rem;
+  color:inherit;background:transparent;padding:.7rem 1rem;cursor:pointer;min-height:44px}
+.p6-control:hover {background:color-mix(in srgb,currentColor 8%,transparent)}
+.p6-control:focus-visible,.p6-exact-credit:focus-visible {outline:3px solid #8bc1ff;outline-offset:3px}
+.p6-control[data-disabled] {opacity:.55;cursor:not-allowed}
+.p6-control-primary {background:color-mix(in srgb, #3f89b4 55%, transparent);font-weight:650}
+.p6-dialog-backdrop {position:fixed;inset:0;background:#080e17c8;z-index:1100}
+.p6-dialog-popup {position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);
+  width:min(92vw,36rem);max-height:85vh;overflow:auto;padding:1.5rem;z-index:1101;
+  border:1px solid #8da5bd;border-radius:1rem;background:#1c2735;color:#f6f8fb;
+  box-shadow:0 1rem 3rem #0008}
+.p6-dialog-title {font-size:1.3rem;margin:.2rem 0 1rem}
+.p6-assumptions {display:grid;gap:.8rem;overflow-wrap:anywhere}
+.p6-assumptions dt {font-size:.83rem;color:#bbcedb}
+.p6-assumptions dd {margin:.2rem 0;font-weight:550}
+.p6-exact-credit {font:inherit;text-align:right;min-width:3.8rem;width:4.6rem;
+  border:1px solid #8095a7;border-radius:.4rem;color:inherit;background:transparent;padding:.25rem}
+.p6-exact-credit[aria-invalid="true"] {outline:2px solid #e58c8c}
+@media(prefers-reduced-motion:reduce){.p6-dialog-popup {scroll-behavior:auto}}

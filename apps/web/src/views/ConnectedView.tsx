@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from 'react'
 import {useQuery,useQueryClient} from '@tanstack/react-query'
 import { draftStatus, type Allocation } from '../game'
 import { readStored, writeStored } from '../storage'
+import {ActionButton, AssumptionsDialog} from '../components/ConnectedControls'
 
 export interface Vote {
   ministry: string
@@ -253,7 +254,7 @@ export function ConnectedView({allocation}:{allocation:Allocation}) {
       {query.isError && !snapshot && <p role="alert">The local campaign could not be loaded.</p>}
       {!snapshot ? (
         <div className="connected-grid"><p>Loading a verified committed boundary…</p>
-          <button type="button" onClick={refresh}>Retry</button></div>
+          <ActionButton onClick={refresh}>Retry</ActionButton></div>
       ) : (
         <>
           <div className="connected-grid">
@@ -294,33 +295,33 @@ export function ConnectedView({allocation}:{allocation:Allocation}) {
             </div>
           </div>
           <p className="connected-assumptions">{snapshot.assumption}</p>
-          <p className="connected-assumptions">Case evidence: {snapshot.evidence.case_pack},
-            source cutoff {snapshot.evidence.source_cutoff_utc}. {snapshot.evidence.scope}</p>
+          <AssumptionsDialog casePack={snapshot.evidence.case_pack}
+            cutoff={snapshot.evidence.source_cutoff_utc}
+            scope={snapshot.evidence.scope} attribution={snapshot.evidence.attribution}/>
           <div className="connected-actions">
             {pending ? (
-              <button type="button" onClick={() => void advance(pending.action)}
-                disabled={!error}>Retry existing command ID</button>
+              <ActionButton onClick={() => void advance(pending.action)} disabled={!error}>
+                Retry existing command ID</ActionButton>
             ) : (
               <>
-                {snapshot.phase === 'QuarterOpen' && <button type="button"
+                {snapshot.phase === 'QuarterOpen' && <ActionButton tone="primary"
                   disabled={draftStatus(allocation)!=='valid' || !exactAllocation(allocation,snapshot.treasury.available_credits)}
-                  onClick={() => void advance({kind:'propose',allocation})}>Submit draft proposal</button>}
-                {snapshot.phase === 'AmendmentWindow' && <button type="button"
-                  disabled={draftStatus(allocation)!=='valid'}
-                  onClick={() => void advance({kind:'amend',allocation})}>Submit amendment</button>}
+                  onClick={() => void advance({kind:'propose',allocation})}>Submit draft proposal</ActionButton>}
+                {snapshot.phase === 'AmendmentWindow' && <ActionButton tone="primary"
+                  disabled={draftStatus(allocation)!=='valid' || !exactAllocation(allocation,snapshot.treasury.available_credits)}
+                  onClick={() => void advance({kind:'amend',allocation})}>Submit amendment</ActionButton>}
                 {snapshot.phase === 'FinalPositionsFrozen' && snapshot.votes.filter(v=>v.stage==='final').length >= 3 && (
                   <>
-                    <button type="button" onClick={() => void advance({kind:'decide',ratify:true})}>Ratify proposal</button>
-                    <button type="button" onClick={() => void advance({kind:'decide',ratify:false})}>Defer proposal</button>
+                    <ActionButton tone="primary" onClick={() => void advance({kind:'decide',ratify:true})}>Ratify proposal</ActionButton>
+                    <ActionButton onClick={() => void advance({kind:'decide',ratify:false})}>Defer proposal</ActionButton>
                   </>
                 )}
-                {!snapshot.closed && <button type="button" onClick={() => void advance({kind:'advance_slice'})}>
-                  Continue scripted phase</button>}
+                {!snapshot.closed && <ActionButton onClick={() => void advance({kind:'advance_slice'})}>
+                  Continue scripted phase</ActionButton>}
               </>
             )}
-            {snapshot.phase==='Resolved' && !pending && <button type="button"
-              onClick={() => void createFork()}>Fork this verified decision</button>}
-            <button type="button" onClick={refresh}>Refresh committed view</button>
+            {snapshot.phase==='Resolved' && !pending && <ActionButton onClick={() => void createFork()}>Fork this verified decision</ActionButton>}
+            <ActionButton onClick={refresh}>Refresh committed view</ActionButton>
           </div>
           {forkId && <p role="status">Branch created at the committed decision boundary.
             <a href={'?campaign='+encodeURIComponent(forkId)}>Open independent branch {forkId}</a>.

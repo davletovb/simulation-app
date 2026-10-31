@@ -39,6 +39,10 @@ export function App() {
   }
 
   useEffect(() => {
+    document.documentElement.lang = OFFLINE_PILOT.locale
+  }, [])
+
+  useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey) return
       if (typingIn(event.target) || document.querySelector('dialog[open]')) return

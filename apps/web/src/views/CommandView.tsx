@@ -1,4 +1,4 @@
-import { useRef, useState, type CSSProperties, type KeyboardEvent } from 'react'
+import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent } from 'react'
 import { OFFLINE_PILOT } from '../contracts'
 import {
   DEFAULT_CARD, FACTIONS, FAMILIES, POLICY_CARDS, QUARTERS, committed, draftStatus,
@@ -9,6 +9,7 @@ import { DeliveryForecast } from '../components/DeliveryForecast'
 import { usePreview, type PreviewResult } from '../usePreview'
 import { Icon } from '../components/Icon'
 import { Mechanics } from '../components/Mechanics'
+import {parseExactBudget} from '../exactBudget.mjs'
 
 type CardChoice = PolicyCard | 'custom'
 
@@ -84,7 +85,19 @@ function FamilyControl({ family, value, onChange }: {
   onChange: (next: number) => void
 }) {
   const max = OFFLINE_PILOT.credits
-  const set = (next: number) => onChange(Math.min(max, Math.max(0, next)))
+  const [draft, setDraft] = useState(() => String(value))
+  const [invalid, setInvalid] = useState(false)
+  useEffect(() => { setDraft(String(value)); setInvalid(false) }, [value])
+  const set = (next: number) => {
+    if (!Number.isSafeInteger(next)) return
+    onChange(Math.min(max, Math.max(0, next)))
+  }
+  const acceptExact = () => {
+    const parsed = parseExactBudget(draft,max)
+    if (parsed === null) {setInvalid(true);return}
+    setInvalid(false)
+    set(parsed)
+  }
   const firstQuarter = QUARTERS[family.lag]?.label ?? 'later'
   return (
     <div className={`family family-${family.id}`}>
@@ -93,6 +106,14 @@ function FamilyControl({ family, value, onChange }: {
         <output htmlFor={`range-${family.id}`} className="family-value">{value}</output>
       </div>
       <div className="family-control">
+        <input type="text" inputMode="numeric" pattern="[0-9]{1,3}"
+          aria-label={`${family.label} exact whole-credit amount`}
+          aria-invalid={invalid} aria-describedby={`meta-${family.id}`}
+          className="p6-exact-credit" value={draft}
+          onChange={event => {setDraft(event.target.value);setInvalid(false)}}
+          onBlur={acceptExact}
+          onKeyDown={event => {if(event.key==='Enter') {event.preventDefault();acceptExact()}}}
+        />
         <button type="button" className="step" onClick={() => set(value - 1)} disabled={value === 0}
           aria-label={`One less ${family.label.toLowerCase()} credit`}><Icon name="minus" size={16} /></button>
         <input id={`range-${family.id}`} type="range" min={0} max={max} step={1} value={value}
@@ -101,6 +122,7 @@ function FamilyControl({ family, value, onChange }: {
         <button type="button" className="step" onClick={() => set(value + 1)} disabled={value === max}
           aria-label={`One more ${family.label.toLowerCase()} credit`}><Icon name="plus" size={16} /></button>
       </div>
+      {invalid && <p role="alert" className="connected-error">Use a whole credit amount from 0 to {max}; no decimals or symbols.</p>}
       <p id={`meta-${family.id}`} className="family-meta">
         1 credit = 1 {family.unit} · up to {family.quarterCap} per quarter · first delivery {firstQuarter}
       </p>
