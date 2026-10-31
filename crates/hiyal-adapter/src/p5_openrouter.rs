@@ -385,55 +385,77 @@ mod tests {
     #[test]
     fn optional_reasoning_parameter_and_exact_echo_are_pinned() {
         use hiyal::core::World;
-        let mut world=crate::GameWorld::initial("reasoning-test").unwrap();
-        let p=world.observe(crate::PLAYER).unwrap();
-        world.apply(crate::PLAYER,p.action).unwrap();
-        let role=world.observe(crate::FINANCE).unwrap();
-        let route=PinnedRoute {
-            model:"test/model".into(),provider:"test-provider".into(),
-            input_micro_usd_per_million:1_000_000,
-            output_micro_usd_per_million:5_000_000,
-            reasoning_disabled:true,reasoning_parameter_supported:false,
-            response_model:Some("test/resolved-model".into()),
+        let mut world = crate::GameWorld::initial("reasoning-test").unwrap();
+        let p = world.observe(crate::PLAYER).unwrap();
+        world.apply(crate::PLAYER, p.action).unwrap();
+        let role = world.observe(crate::FINANCE).unwrap();
+        let route = PinnedRoute {
+            model: "test/model".into(),
+            provider: "test-provider".into(),
+            input_micro_usd_per_million: 1_000_000,
+            output_micro_usd_per_million: 5_000_000,
+            reasoning_disabled: true,
+            reasoning_parameter_supported: false,
+            response_model: Some("test/resolved-model".into()),
         };
-        let EffectSpec::Model(req)=crate::p5_cabinet::request(&role,&route).unwrap() else { panic!() };
-        let mut backend=OpenRouterBackend{
-            client:Client::new(),secret:"not-real".into(),route,custody_dir:None
+        let EffectSpec::Model(req) = crate::p5_cabinet::request(&role, &route).unwrap() else {
+            panic!()
         };
-        let body=backend.request_body(&req).unwrap();
+        let mut backend = OpenRouterBackend {
+            client: Client::new(),
+            secret: "not-real".into(),
+            route,
+            custody_dir: None,
+        };
+        let body = backend.request_body(&req).unwrap();
         assert!(body.get("reasoning").is_none());
-        assert_eq!(backend.route.echoed_model(),"test/resolved-model");
-        backend.route.reasoning_parameter_supported=true;
-        assert_eq!(backend.request_body(&req).unwrap()["reasoning"]["effort"],"none");
-        let reply=json!({"model":"test/resolved-model","id":"gen",
+        assert_eq!(backend.route.echoed_model(), "test/resolved-model");
+        backend.route.reasoning_parameter_supported = true;
+        assert_eq!(
+            backend.request_body(&req).unwrap()["reasoning"]["effort"],
+            "none"
+        );
+        let reply = json!({"model":"test/resolved-model","id":"gen",
             "choices":[{"finish_reason":"stop","message":{"content":"{}"}}]});
-        assert!(parse_completion(&reply,backend.route.echoed_model()).is_ok());
-        assert!(parse_completion(&reply,&backend.route.model).is_err());
+        assert!(parse_completion(&reply, backend.route.echoed_model()).is_ok());
+        assert!(parse_completion(&reply, &backend.route.model).is_err());
     }
     #[test]
     fn captured_paid_response_is_fsynced_before_generation_identity_checks() {
-        let dir=std::env::temp_dir().join(format!("p5-custody-{}",std::process::id()));
-        let _=std::fs::remove_dir_all(&dir);
+        let dir = std::env::temp_dir().join(format!("p5-custody-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(dir.join("manifest.json"),b"private synthetic fixture").unwrap();
-        let route=PinnedRoute{
-            model:"test/model".into(),provider:"test-provider".into(),
-            input_micro_usd_per_million:1_000_000,
-            output_micro_usd_per_million:5_000_000,
-            reasoning_disabled:true,reasoning_parameter_supported:false,response_model:None,
+        std::fs::write(dir.join("manifest.json"), b"private synthetic fixture").unwrap();
+        let route = PinnedRoute {
+            model: "test/model".into(),
+            provider: "test-provider".into(),
+            input_micro_usd_per_million: 1_000_000,
+            output_micro_usd_per_million: 5_000_000,
+            reasoning_disabled: true,
+            reasoning_parameter_supported: false,
+            response_model: None,
         };
-        let backend=OpenRouterBackend {
-            client:Client::new(),secret:"sentinel-secret".into(),route,
-            custody_dir:Some(dir.join("p5-completion-custody"))
+        let backend = OpenRouterBackend {
+            client: Client::new(),
+            secret: "sentinel-secret".into(),
+            route,
+            custody_dir: Some(dir.join("p5-completion-custody")),
         };
-        let raw=serde_json::to_vec(&json!({"id":"gen-1","model":"test/model",
-            "choices":[{"message":{"content":"{}"}}]})).unwrap();
+        let raw = serde_json::to_vec(&json!({"id":"gen-1","model":"test/model",
+            "choices":[{"message":{"content":"{}"}}]}))
+        .unwrap();
         backend.preserve_completion(&raw).unwrap();
-        let files:Vec<_>=std::fs::read_dir(dir.join("p5-completion-custody"))
-            .unwrap().map(|f| f.unwrap().path()).collect();
-        assert_eq!(files.len(),1);
-        assert_eq!(std::fs::read(&files[0]).unwrap(),raw);
-        assert!(!std::fs::read_to_string(&files[0]).unwrap().contains("sentinel-secret"));
+        let files: Vec<_> = std::fs::read_dir(dir.join("p5-completion-custody"))
+            .unwrap()
+            .map(|f| f.unwrap().path())
+            .collect();
+        assert_eq!(files.len(), 1);
+        assert_eq!(std::fs::read(&files[0]).unwrap(), raw);
+        assert!(
+            !std::fs::read_to_string(&files[0])
+                .unwrap()
+                .contains("sentinel-secret")
+        );
         std::fs::remove_dir_all(dir).unwrap();
     }
     #[test]

@@ -1202,33 +1202,53 @@ mod tests {
     #[test]
     fn imaginary_receipt_digest_does_not_bypass_frozen_action_authority() {
         use hiyal::core::World;
-        let mut world=GameWorld::initial("digest-reject").unwrap();
-        let player=world.observe(PLAYER).unwrap();
-        world.apply(PLAYER,player.action).unwrap();
-        let mut forged=world.observe(crate::FINANCE).unwrap().action;
-        forged.model_receipt_digest=Some("a".repeat(64));
-        forged.payload["meeting_id"]=serde_json::json!("wrong-meeting");
-        assert!(world.apply(crate::FINANCE,forged).is_err());
-        assert_eq!(world.actions.iter().filter(|a| a.kind==ActionKind::MinisterAction).count(),0);
+        let mut world = GameWorld::initial("digest-reject").unwrap();
+        let player = world.observe(PLAYER).unwrap();
+        world.apply(PLAYER, player.action).unwrap();
+        let mut forged = world.observe(crate::FINANCE).unwrap().action;
+        forged.model_receipt_digest = Some("a".repeat(64));
+        forged.payload["meeting_id"] = serde_json::json!("wrong-meeting");
+        assert!(world.apply(crate::FINANCE, forged).is_err());
+        assert_eq!(
+            world
+                .actions
+                .iter()
+                .filter(|a| a.kind == ActionKind::MinisterAction)
+                .count(),
+            0
+        );
     }
     #[test]
     fn staged_route_recovers_only_before_any_journaled_action() {
-        let path=temp("staged-live-route");
-        let ledger_path=temp("staged-ledger");
-        let ledger=Arc::new(std::sync::Mutex::new(
-            crate::p5_allowance::Allowance::open(&ledger_path,"stage-owner").unwrap()));
-        let route=crate::p5_allowance::PinnedRoute{
-            model:"test/model".into(),provider:"test-provider".into(),
-            input_micro_usd_per_million:1_000_000,
-            output_micro_usd_per_million:5_000_000,
-            reasoning_disabled:true,reasoning_parameter_supported:false,response_model:None,
+        let path = temp("staged-live-route");
+        let ledger_path = temp("staged-ledger");
+        let ledger = Arc::new(std::sync::Mutex::new(
+            crate::p5_allowance::Allowance::open(&ledger_path, "stage-owner").unwrap(),
+        ));
+        let route = crate::p5_allowance::PinnedRoute {
+            model: "test/model".into(),
+            provider: "test-provider".into(),
+            input_micro_usd_per_million: 1_000_000,
+            output_micro_usd_per_million: 5_000_000,
+            reasoning_disabled: true,
+            reasoning_parameter_supported: false,
+            response_model: None,
         };
-        let backend:Arc<dyn Backend>=Arc::new(PlayerCommandTool);
-        let trial=create_live(&path,"stage-trial",11,"stage-campaign",
-            route.clone(),ledger.clone(),backend.clone()).unwrap();
+        let backend: Arc<dyn Backend> = Arc::new(PlayerCommandTool);
+        let trial = create_live(
+            &path,
+            "stage-trial",
+            11,
+            "stage-campaign",
+            route.clone(),
+            ledger.clone(),
+            backend.clone(),
+        )
+        .unwrap();
         drop(trial);
-        std::fs::rename(path.join("p5-route.json"),staged_route_path(&path)).unwrap();
-        let recovered=resume_live(&path,true,route.clone(),ledger.clone(),backend.clone()).unwrap();
+        std::fs::rename(path.join("p5-route.json"), staged_route_path(&path)).unwrap();
+        let recovered =
+            resume_live(&path, true, route.clone(), ledger.clone(), backend.clone()).unwrap();
         assert!(path.join("p5-route.json").is_file());
         drop(recovered);
         // Once a journaled action exists, a fabricated staged route is
@@ -1237,5 +1257,4 @@ mod tests {
         std::fs::remove_dir_all(path).unwrap();
         std::fs::remove_dir_all(ledger_path).unwrap();
     }
-
 }
