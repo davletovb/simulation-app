@@ -743,4 +743,56 @@ mod tests {
         drop(recovered);
         fs::remove_dir_all(dir).unwrap();
     }
+    async fn accepted_step(
+        service:&Arc<Connected>,campaign:&str,kind:CommandKind,serial:usize,
+    )->PublicView{
+        let owner=service.owner(campaign).unwrap();
+        let version=owner.engine.lock().await.trial.store.world().world_version.clone();
+        let request=Command{command_id:format!("step-{serial}"),
+            expected_world_version:version,kind};
+        let (status,Json(op))=command(State(service.clone()),
+            Path(campaign.to_owned()),Json(request)).await.unwrap();
+        assert_eq!(status,StatusCode::ACCEPTED);
+        for _ in 0..160 {
+            let status=owner.engine.lock().await.log.records.iter()
+                .find(|r|r.command_id==op.command_id).unwrap().status.clone();
+            if status==OperationStatus::Completed {break;}
+            if status==OperationStatus::Failed {panic!("Hiyal rejected P6 typed player step {serial}");}
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+        assert_eq!(owner.engine.lock().await.log.records.iter()
+            .find(|r|r.command_id==op.command_id).unwrap().status,OperationStatus::Completed);
+        capture(&owner.engine.lock().await.trial).unwrap()
+    }
+    #[tokio::test]
+    async fn one_connected_typed_decision_survives_strict_journal_restore(){
+        let dir=root();
+        let service=Connected::new(dir.clone()).unwrap();
+        let alloc=WireAllocation{staff:50,repairs:40,access:10};
+        let v1=accepted_step(&service,"decision",CommandKind::Propose{allocation:alloc.clone()},1).await;
+        assert_eq!(v1.phase,"FirstPositionsFrozen");
+        assert_eq!(v1.proposal,Some(json!({"staff":50,"repairs":40,"access":10})));
+        let first=accepted_step(&service,"decision",CommandKind::AdvanceSlice,2).await;
+        assert_eq!(first.phase,"AmendmentWindow");
+        assert_eq!(first.votes.len(),3);
+        let amended=accepted_step(&service,"decision",CommandKind::Amend{allocation:alloc},3).await;
+        assert_eq!(amended.phase,"FinalPositionsFrozen");
+        let final_votes=accepted_step(&service,"decision",CommandKind::AdvanceSlice,4).await;
+        assert_eq!(final_votes.votes.len(),6);
+        let result=accepted_step(&service,"decision",CommandKind::Decide{ratify:true},5).await;
+        assert_eq!(result.phase,"Resolved");
+        assert_eq!(result.outcome.as_deref(),Some("ratified"));
+        let saved=accepted_step(&service,"decision",CommandKind::AdvanceSlice,6).await;
+        assert_eq!(saved.quarter,2);
+        let before=inspect(&service.owner("decision").unwrap().engine.lock().await.trial.store.dir).unwrap();
+        drop(service);
+        let strict=inspect(&dir.join("decision")).unwrap();
+        assert_eq!(strict,before);
+        let recovered=Connected::new(dir.clone()).unwrap();
+        assert_eq!(capture(&recovered.owner("decision").unwrap().engine.lock().await.trial)
+            .unwrap().cursor,saved.cursor);
+        drop(recovered);
+        fs::remove_dir_all(dir).unwrap();
+    }
+
 }
