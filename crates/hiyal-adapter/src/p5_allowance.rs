@@ -133,6 +133,11 @@ pub struct Allowance {
     state: State,
     poisoned: bool,
 }
+fn lock_write_anchor(lock: &mut File, installation: &str) -> Result<(), String> {
+    lock.write_all(format!("myth-p5-allowance-v1:{installation}").as_bytes())
+        .map_err(|e| e.to_string())?;
+    lock.sync_all().map_err(|e| e.to_string())
+}
 impl Allowance {
     pub fn open(dir: &Path, installation: &str) -> Result<Self, String> {
         if !valid_id(installation) {
@@ -145,12 +150,17 @@ impl Allowance {
             fs::set_permissions(dir, fs::Permissions::from_mode(0o700))
                 .map_err(|e| e.to_string())?;
         }
-        let lock = OpenOptions::new().read(true).write(true).create(true)
+        let mut lock = OpenOptions::new().read(true).write(true).create(true)
             .truncate(false).open(dir.join("application-allowance.lock"))
             .map_err(|e| e.to_string())?;
         lock.try_lock().map_err(|_| reject("allowance already owned by a process"))?;
         let data = dir.join("application-allowance.json");
         let state = if data.exists() {
+            if fs::read(dir.join("application-allowance.lock")).map_err(|e| e.to_string())?
+                != format!("myth-p5-allowance-v1:{installation}").as_bytes()
+            {
+                return Err(reject("missing or mismatched installation anchor"));
+            }
             let bytes = fs::read(&data).map_err(|e| e.to_string())?;
             if bytes.len() as u64 > MAX_FILE_BYTES {
                 return Err(reject("allowance file too large"));
@@ -186,6 +196,9 @@ impl Allowance {
             }
             value.payload
         } else {
+            if lock.metadata().map_err(|e| e.to_string())?.len() != 0 {
+                return Err(reject("missing previously initialized allowance ledger"));
+            }
             // Never silently initialize a previously used installation: caller
             // must deliberately provision a fresh empty directory.
             if fs::read_dir(dir).map_err(|e| e.to_string())?
@@ -205,6 +218,9 @@ impl Allowance {
         let mut ledger = Self { dir: dir.into(), _lock: lock, state, poisoned: false };
         ledger.check_recovery()?;
         if !data.exists() {
+            // Persist the installation marker before the ledger; a crash in
+            // between makes subsequent opens fail closed, not re-fund.
+            lock_write_anchor(&mut ledger._lock, installation)?;
             ledger.persist()?;
         }
         Ok(ledger)
@@ -512,6 +528,8 @@ mod tests {
         assert!(Allowance::open(&path, "owner").is_err());
         fs::write(path.join("application-allowance.json"), saved).unwrap();
         assert!(Allowance::open(&path, "owner").is_ok());
+        fs::remove_file(path.join("application-allowance.json")).unwrap();
+        assert!(Allowance::open(&path, "owner").is_err());
         let _ = fs::remove_dir_all(&path);
     }
     #[test]
