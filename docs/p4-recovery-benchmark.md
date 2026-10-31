@@ -16,7 +16,7 @@ All time entries are **milliseconds**, shown **median / p95**, not just a best-c
 | Independent full verification (median / p95, ms) | 109.976 / 115.312 | 250.026 / 294.530 | 141.977 / 143.656 | 293.941 / 301.647 |
 | Maximum checkpoint size (bytes) | 34,197 | 34,197 | 82,237 | 82,237 |
 | Maximum full trial directory size (bytes) | 206,526 | 206,522 | 399,592 | 399,588 |
-| Process high-water RSS (bytes) | 6,627,328 | not independently retained | 6,881,280 | 28,229,632 |
+| Process high-water RSS (bytes) | 6,627,328 | 28,246,016 | 6,881,280 | 28,229,632 |
 | Model receipts (offline simulated, cost $0) | 0 | 0 | 96 | 96 |
 | Total Hiyal effect receipts (model + player tool) | 12 | 12 | 108 | 108 |
 | Accepted logical game actions | 60 | 60 | 60 | 60 |
@@ -37,9 +37,9 @@ Hiyal's entire journal-chain head was *not* compared cross-OS because genesis pr
 ### Resource and hardware provenance
 
 - **Linux:** `ubuntu-24.04` GitHub-hosted x86_64; **4 logical CPUs reported by the program**, Rust 1.99.1, process memory peak read from Linux `/proc/self/status:VmHWM`.
-- **macOS:** `macos-15` GitHub-hosted **Apple Silicon arm64**, **3 logical CPUs reported by the program**, Rust 1.99.1. The CLI deliberately reports `peak_rss_bytes: null` on non-Linux platforms rather than mislabel current memory as peak. The **28,229,632-byte stress high-water mark** was measured separately by `/usr/bin/time -l` and checked in the compare job.
+- **macOS:** `macos-15` GitHub-hosted **Apple Silicon arm64**, **3 logical CPUs reported by the program**, Rust 1.99.1. The CLI deliberately reports `peak_rss_bytes: null` on non-Linux platforms rather than mislabel current memory as peak. The **28,246,016-byte prototype and 28,229,632-byte stress high-water marks** were measured separately by `/usr/bin/time -l`; the stress result was checked by the executed compare job, and the prototype result was subsequently read directly from the retained [macOS workflow artifact](https://github.com/davletovb/simulation-app/actions/runs/41157622619) without another runner or an estimate.
 - Nominal runner memory/disk capacity is controlled by GitHub images and is **not independently benchmarked** here; refer to [GitHub's hosted-runner hardware specifications](https://docs.github.com/en/actions/how-tos/write-workflows/choose-where-workflows-run/choose-the-runner-for-a-job) (the cited public hosted runners list Linux 4 CPU / 16 GB and macOS M1 3 CPU / 7 GB, with 14 GB SSD). The **actual trial storage** and peak memory above are independently measured, not those host capacities.
-- No absolute performance generalization is implied from n=3 or GitHub's ephemeral shared runner load. For the **declared first-case P0-04 targets**, the observed cabinet p95 was below 150 ms, quarter p95 below 250 ms, prototype restore below 2 s, independent verification below 5 s, prototype storage below 10 MiB, stress storage below 64 MiB, stress restore below 10 s, stress verification below 30 s, and the observed prototype Linux/stress Linux/macOS memory below their applicable 256/512 MiB thresholds. The macOS prototype peak was not saved separately; this does not change the independently verified macOS stress peak.
+- No absolute performance generalization is implied from n=3 or GitHub's ephemeral shared runner load. For the **declared first-case P0-04 targets**, the observed cabinet p95 was below 150 ms, quarter p95 below 250 ms, prototype restore below 2 s, independent verification below 5 s, prototype storage below 10 MiB, stress storage below 64 MiB, stress restore below 10 s, stress verification below 30 s, and the measured prototype/stress Linux/macOS memory below their applicable 256/512 MiB thresholds. macOS prototype high-water memory was reconstructed from the saved `prototype-stderr.txt` in the executed artifact. Both memory measurements are direct `/usr/bin/time -l` observations, not an inferred ordering between prototype and stress.
 
 ## P4-B′ acceptance and inference boundaries
 
