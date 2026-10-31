@@ -905,11 +905,15 @@ async fn stream_events(
         match receiver.recv().await {
             Ok(event) => {
                 let id = format!("{}:{}", event.snapshot.campaign_id, event.snapshot.cursor);
-                let frame = Event::default()
-                    .event("committed")
-                    .id(id)
-                    .json_data(event)
-                    .ok()?;
+                // An unverified boundary is a notification, NOT a cursor-0
+                // commit. Never feed it through monotonic state reduction.
+                let frame = if event.snapshot.phase == "IntegrityFailure" {
+                    Event::default().event("integrity_failure")
+                        .json_data(event).ok()?
+                } else {
+                    Event::default().event("committed").id(id)
+                        .json_data(event).ok()?
+                };
                 Some((Ok(frame), (None, receiver)))
             }
             Err(broadcast::error::RecvError::Lagged(_)) => {
@@ -966,9 +970,9 @@ async fn fork(
         return Err(status(StatusCode::CONFLICT, "fork boundary is stale"));
     }
     let source = engine.trial.store.dir.clone();
-    let source_hash = inspect(&source)
-        .map_err(|_| status(StatusCode::CONFLICT, "source journal invalid"))?
-        .0;
+    // capture_for already strictly verified the journal against the frozen
+    // committed checkpoint at this boundary.
+    let source_hash = engine.trial.store.world().private_state_sha256.clone();
     let meta = ForkMeta {
         schema_version: 1,
         branch_id: request.branch_id.clone(),
