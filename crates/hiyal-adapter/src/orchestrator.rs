@@ -6,7 +6,7 @@ use crate::{
     ACTORS, ActionKind, GameAction, GameObservation, GameWorld, PERIOD, PLAYER, WORLD_KIND,
 };
 use hiyal::{
-    core::{AgentId, World},
+    core::AgentId,
     effects::{EffectResult, Message, ModelRequest, Role, Sampling, Usage},
     experiment::{EffectPolicy, Step, Trial},
     runtime::{Backend, BillingDisposition, BoxResult, EffectSpec, Receipt},
@@ -410,6 +410,7 @@ pub fn final_private_hash(dir: &Path) -> Result<String, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use hiyal::core::World;
     use hiyal::runtime::EffectJournal;
     use std::time::{SystemTime, UNIX_EPOCH};
     fn temp(name: &str) -> std::path::PathBuf {
