@@ -130,7 +130,6 @@ export function ConnectedView({allocation}:{allocation:Allocation}) {
   const accept = useCallback((raw: unknown) => {
     if (!validSnapshot(raw)) throw new Error('Incorrect versioned server view')
     cache.setQueryData<Committed>(CACHE_KEY,old=>newer(old??null,raw))
-    setIntegrityFailure(false)
     if (raw.operation && raw.operation.status !== 'accepted') {
       setPending(old => {
         if (old && old.id === raw.operation?.command_id) {
