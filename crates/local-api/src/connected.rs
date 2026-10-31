@@ -1248,6 +1248,49 @@ mod tests {
         fs::remove_dir_all(dir).unwrap();
     }
     #[tokio::test]
+    async fn p6_offline_metrics_without_model_calls(){
+        let dir=root();
+        let started=std::time::Instant::now();
+        let service=Connected::new(dir.clone()).unwrap();
+        let owner=service.owner("metrics").unwrap();
+        let create_ms=started.elapsed().as_millis();
+        let preview_started=std::time::Instant::now();
+        let allocation=WireAllocation{staff:50,repairs:40,access:10};
+        let forecast=crate::forecast(crate::AllocationRequest{
+            allocation:allocation.clone(),
+        }).unwrap();
+        assert_eq!(forecast.calculator,"myth_domain");
+        let preview_ms=preview_started.elapsed().as_millis();
+        let commit_started=std::time::Instant::now();
+        let result=accepted_step(&service,"metrics",
+            CommandKind::Propose{allocation},1).await;
+        let commit_ms=commit_started.elapsed().as_millis();
+        assert_eq!(result.phase,"FirstPositionsFrozen");
+        let replay_started=std::time::Instant::now();
+        let verified=inspect(&owner.engine.lock().await.trial.store.dir).unwrap();
+        let full_verification_ms=replay_started.elapsed().as_millis();
+        assert_eq!(verified.2.to_string(),result.cursor);
+        drop(owner);drop(service);
+        let restore_started=std::time::Instant::now();
+        let recovered=Connected::new(dir.clone()).unwrap();
+        let reopened=recovered.owner("metrics").unwrap();
+        let saved=capture(&reopened.engine.lock().await.trial).unwrap();
+        let restore_ms=restore_started.elapsed().as_millis();
+        assert_eq!(saved.cursor,result.cursor);
+        println!("{}",serde_json::json!({
+            "gate":"P6 offline performance (not live Experiment C-prime)",
+            "create_ms":create_ms,
+            "preview_ms":preview_ms,
+            "command_accept_commit_wait_ms":commit_ms,
+            "strict_full_verification_ms":full_verification_ms,
+            "restore_and_snapshot_ms":restore_ms,
+            "actual_model_calls":0,
+            "model_usage_or_billing_measured":false,
+            "local_external_infrastructure_cost_usd":0,
+        }));
+        drop(reopened);drop(recovered);fs::remove_dir_all(dir).unwrap();
+    }
+    #[tokio::test]
     async fn mid_round_receipt_panic_restarts_without_duplicate_minister_actions(){
         let dir=root();
         let service=Connected::new(dir.clone()).unwrap();
@@ -1260,47 +1303,94 @@ mod tests {
             myth_hiyal_adapter::EDUCATION,
             Arc::new(AtomicBool::new(true)),
         ));
-        let version=owner.engine.lock().await.trial.store.world().world_version.clone();
-        let request=Command{
-            command_id:"failed-frozen-meeting".into(),
-            expected_world_version:version,
-            kind:CommandKind::AdvanceSlice,
+        let version = owner
+            .engine
+            .lock()
+            .await
+            .trial
+            .store
+            .world()
+            .world_version
+            .clone();
+        let request = Command {
+            command_id: "failed-frozen-meeting".into(),
+            expected_world_version: version,
+            kind: CommandKind::AdvanceSlice,
         };
-        let (_,Json(accepted))=command(State(service.clone()),
-            Path("mid-round".into()),Json(request)).await.unwrap();
-        assert_eq!(accepted.status,OperationStatus::Accepted);
+        let (_, Json(accepted)) = command(
+            State(service.clone()),
+            Path("mid-round".into()),
+            Json(request),
+        )
+        .await
+        .unwrap();
+        assert_eq!(accepted.status, OperationStatus::Accepted);
         // The intentional Hiyal test panic occurs after some receipts have
         // been fsynced but before the complete frozen round commits.
-        for _ in 0..120{
-            if owner.engine.lock().await.trial.store.dir.join("pending-round.json").exists()
-                && owner.inflight.load(Ordering::Acquire) {
+        for _ in 0..120 {
+            if owner
+                .engine
+                .lock()
+                .await
+                .trial
+                .store
+                .dir
+                .join("pending-round.json")
+                .exists()
+                && owner.inflight.load(Ordering::Acquire)
+            {
                 break;
             }
             tokio::time::sleep(Duration::from_millis(25)).await;
         }
-        assert!(owner.engine.lock().await.trial.store.dir.join("pending-round.json").exists());
+        assert!(
+            owner
+                .engine
+                .lock()
+                .await
+                .trial
+                .store
+                .dir
+                .join("pending-round.json")
+                .exists()
+        );
         // Let the deliberately panicking background task release the OS
         // writer locks before reopening this directory in the test process.
         tokio::time::sleep(Duration::from_millis(100)).await;
         // Simulate process disposal; the new owner must recover journal and
         // the durable accepted command without duplicating any seat.
-        drop(owner);drop(service);
-        let restored=Connected::new(dir.clone()).unwrap();
-        let live=restored.owner("mid-round").unwrap();
+        drop(owner);
+        drop(service);
+        let restored = Connected::new(dir.clone()).unwrap();
+        let live = restored.owner("mid-round").unwrap();
         for _ in 0..160 {
-            if live.engine.lock().await.log.records.iter().any(|r|
-                r.command_id=="failed-frozen-meeting"
-                    && r.status==OperationStatus::Completed) {
+            if live.engine.lock().await.log.records.iter().any(|r| {
+                r.command_id == "failed-frozen-meeting" && r.status == OperationStatus::Completed
+            }) {
                 break;
             }
             tokio::time::sleep(Duration::from_millis(25)).await;
         }
-        let world=live.engine.lock().await;
-        assert_eq!(world.log.records.last().unwrap().status,OperationStatus::Completed);
-        assert_eq!(world.trial.store.world().actions.iter().filter(|a|
-            a.kind==ActionKind::MinisterAction).count(),3);
-        assert_eq!(capture(&world.trial).unwrap().votes.len(),3);
-        drop(world);drop(live);drop(restored);
+        let world = live.engine.lock().await;
+        assert_eq!(
+            world.log.records.last().unwrap().status,
+            OperationStatus::Completed
+        );
+        assert_eq!(
+            world
+                .trial
+                .store
+                .world()
+                .actions
+                .iter()
+                .filter(|a| a.kind == ActionKind::MinisterAction)
+                .count(),
+            3
+        );
+        assert_eq!(capture(&world.trial).unwrap().votes.len(), 3);
+        drop(world);
+        drop(live);
+        drop(restored);
         fs::remove_dir_all(dir).unwrap();
     }
     #[tokio::test]
