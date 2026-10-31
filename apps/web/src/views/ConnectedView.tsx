@@ -95,8 +95,13 @@ export function ConnectedView({allocation}:{allocation:Allocation}) {
     if (!validSnapshot(raw)) throw new Error('Incorrect versioned server view')
     setCurrent(old => newer(old, raw))
     if (raw.operation && raw.operation.status !== 'accepted') {
-      setPending(null)
-      writeStored(PENDING_KEY,'')
+      setPending(old => {
+        if (old && old.id === raw.operation?.command_id) {
+          writeStored(PENDING_KEY,'')
+          return null
+        }
+        return old
+      })
     }
   }, [])
 
@@ -135,7 +140,7 @@ export function ConnectedView({allocation}:{allocation:Allocation}) {
         body: JSON.stringify({
           command_id: operation.id,
           expected_world_version: operation.version,
-          ...operation.action,
+          kind: operation.action,
         }),
       })
       if (!response.ok) {
@@ -156,6 +161,33 @@ export function ConnectedView({allocation}:{allocation:Allocation}) {
       // Retain original operation ID after a lost acknowledgment.
     }
   }
+
+  // A lost 202/SSE acknowledgement must be recovered from the server's
+  // durable command lookup. Never substitute a new command ID.
+  useEffect(() => {
+    if (!pending) return
+    let stopped = false
+    const probe = async () => {
+      try {
+        const response = await fetch(root+'/commands/'+encodeURIComponent(pending.id), {cache:'no-store'})
+        if (stopped) return
+        if (response.status === 404) return // dispatch may not have reached the server
+        if (!response.ok) return
+        const status = await response.json() as Operation
+        if (status.command_id!==pending.id) return
+        if (status.status !== 'accepted') {
+          await load()
+          if (stopped) return
+          setPending(null)
+          writeStored(PENDING_KEY,'')
+          if (status.status==='failed') setError(status.message || 'The command failed; inspect the saved journal.')
+        }
+      }catch { /* keep the same command ID until explicit retry */ }
+    }
+    void probe()
+    const timer=window.setInterval(() => {void probe()}, 1800)
+    return () => {stopped=true;window.clearInterval(timer)}
+  },[pending,load])
 
   const refresh = () => {
     setError(null)
