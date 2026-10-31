@@ -45,7 +45,7 @@ export function App() {
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey) return
-      if (typingIn(event.target) || document.querySelector('dialog[open]')) return
+      if (typingIn(event.target) || document.querySelector('dialog[open], [role="dialog"]')) return
       if (event.key === '?') {
         event.preventDefault()
         setBriefingOpen(true)
