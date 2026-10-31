@@ -37,7 +37,8 @@ use tokio::sync::{Mutex as AsyncMutex, broadcast};
 
 const MAX_COMMANDS: usize = 512;
 const FROZEN_NEWS: &str = include_str!("../../../data/england-school-pilot-v1/news-bundle.json");
-const FROZEN_COUNTRY: &str = include_str!("../../../data/england-school-pilot-v1/country-pack.json");
+const FROZEN_COUNTRY: &str =
+    include_str!("../../../data/england-school-pilot-v1/country-pack.json");
 const FROZEN_VALUES: &str = include_str!("../../../data/england-school-pilot-v1/values.json");
 const MAX_COMMAND_BYTES: usize = 1024 * 1024;
 fn valid_id(s: &str) -> bool {
@@ -407,28 +408,36 @@ struct SourceValue {
     quality_flags: Vec<String>,
 }
 fn source_indicators(cutoff: &str) -> Result<Vec<PublicIndicator>, String> {
-    let pack: SourcePack = serde_json::from_str(FROZEN_COUNTRY)
-        .map_err(|_| "cannot parse frozen country source")?;
-    let values: SourceValues = serde_json::from_str(FROZEN_VALUES)
-        .map_err(|_| "cannot parse frozen source values")?;
-    if pack.schema_version != 1 || values.schema_version != 1
-        || pack.cutoff_utc != cutoff || values.cutoff_utc != cutoff
-        || pack.evidence.len() != 8 || values.records.len() != 8
+    let pack: SourcePack =
+        serde_json::from_str(FROZEN_COUNTRY).map_err(|_| "cannot parse frozen country source")?;
+    let values: SourceValues =
+        serde_json::from_str(FROZEN_VALUES).map_err(|_| "cannot parse frozen source values")?;
+    if pack.schema_version != 1
+        || values.schema_version != 1
+        || pack.cutoff_utc != cutoff
+        || values.cutoff_utc != cutoff
+        || pack.evidence.len() != 8
+        || values.records.len() != 8
     {
         return Err("country evidence contract mismatch".into());
     }
-    let indexed: BTreeMap<&str, &SourceValue> = values.records.iter()
-        .map(|entry| (entry.stable_variable_id.as_str(), entry)).collect();
+    let indexed: BTreeMap<&str, &SourceValue> = values
+        .records
+        .iter()
+        .map(|entry| (entry.stable_variable_id.as_str(), entry))
+        .collect();
     if indexed.len() != 8 {
         return Err("duplicate frozen source value IDs".into());
     }
     let mut indicators = Vec::new();
     for source in pack.evidence {
-        let v = indexed.get(source.stable_variable_id.as_str())
+        let v = indexed
+            .get(source.stable_variable_id.as_str())
             .ok_or("missing matching frozen source value")?;
         if source.normalized_unit != v.normalized_unit
             || !source.source_url.starts_with("https://")
-            || source.definition.is_empty() || source.geographic_scope.is_empty()
+            || source.definition.is_empty()
+            || source.geographic_scope.is_empty()
             || v.raw_value.is_empty()
         {
             return Err("unverified frozen evidence metadata".into());
@@ -445,7 +454,13 @@ fn source_indicators(cutoff: &str) -> Result<Vec<PublicIndicator>, String> {
             quality_flags: v.quality_flags.clone(),
         });
     }
-    if indicators.iter().map(|v| v.variable_id.as_str()).collect::<std::collections::BTreeSet<_>>().len() != 8 {
+    if indicators
+        .iter()
+        .map(|v| v.variable_id.as_str())
+        .collect::<std::collections::BTreeSet<_>>()
+        .len()
+        != 8
+    {
         return Err("duplicate frozen source IDs".into());
     }
     Ok(indicators)
@@ -2067,8 +2082,13 @@ mod tests {
         assert_eq!(later.delivery_history.len(), 1);
         assert_eq!(later.delivery_history[0].quarter, 1);
         assert_eq!(later.evidence.indicators.len(), 8);
-        assert!(later.evidence.indicators.iter().any(|item|
-            item.variable_id == "teacher_fte" && item.display_value == "466,372"));
+        assert!(
+            later
+                .evidence
+                .indicators
+                .iter()
+                .any(|item| item.variable_id == "teacher_fte" && item.display_value == "466,372")
+        );
         assert_eq!(later.news.len(), 3);
         assert_eq!(later.news[0].kind, "real_source_update");
         assert_eq!(later.news[2].kind, "fictional_simulation_news");
@@ -2119,8 +2139,22 @@ mod tests {
         let service = Connected::new(dir.clone()).unwrap();
         let mut outcomes = Vec::new();
         for (id, allocation) in [
-            ("balanced-campaign", WireAllocation { staff: 50, repairs: 40, access: 10 }),
-            ("staff-campaign", WireAllocation { staff: 60, repairs: 30, access: 10 }),
+            (
+                "balanced-campaign",
+                WireAllocation {
+                    staff: 50,
+                    repairs: 40,
+                    access: 10,
+                },
+            ),
+            (
+                "staff-campaign",
+                WireAllocation {
+                    staff: 60,
+                    repairs: 30,
+                    access: 10,
+                },
+            ),
         ] {
             let mut serial = 0usize;
             let mut step = |kind| {
@@ -2135,7 +2169,9 @@ mod tests {
             }
             let view = service.owner(id).unwrap();
             assert_eq!(
-                capture_for(&view.engine.lock().await.trial, id).unwrap().phase,
+                capture_for(&view.engine.lock().await.trial, id)
+                    .unwrap()
+                    .phase,
                 "FinalPositionsFrozen"
             );
             drop(view);
@@ -2156,8 +2192,10 @@ mod tests {
             outcomes.push(snapshot.delivery_history[5].reported_cumulative);
             drop(owner);
         }
-        assert_ne!(outcomes[0], outcomes[1],
-            "distinct authorised policy allocations must give distinguishable public histories");
+        assert_ne!(
+            outcomes[0], outcomes[1],
+            "distinct authorised policy allocations must give distinguishable public histories"
+        );
         drop(service);
         fs::remove_dir_all(dir).unwrap();
     }

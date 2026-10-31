@@ -88,8 +88,11 @@ fn run() -> Result<(), String> {
         "public_quarterly_reports": reports,
         "warning": "Private game report: do not publish in browser, SSE or public artefacts; simulated mechanisms are not evidence of real human behaviour.",
     });
-    println!("{}", serde_json::to_string_pretty(&output)
-        .map_err(|_| "cannot serialize private local report")?);
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&output)
+            .map_err(|_| "cannot serialize private local report")?
+    );
     Ok(())
 }
 fn main() {
