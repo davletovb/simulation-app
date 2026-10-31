@@ -30,7 +30,7 @@ pub struct SharedAdmissionBackend {
     ledger: Arc<Mutex<Allowance>>,
     inner: Arc<dyn Backend>,
     route: PinnedRoute,
-    scope: Scope,
+    scope: Mutex<Scope>,
 }
 impl SharedAdmissionBackend {
     pub fn new(
@@ -42,7 +42,12 @@ impl SharedAdmissionBackend {
         if inner.permits_tools() {
             return Err("tool-capable backend forbidden behind model admission".into());
         }
-        Ok(Self { ledger, inner, route, scope })
+        Ok(Self { ledger, inner, route, scope: Mutex::new(scope) })
+    }
+    pub fn set_scope(&self, scope: Scope) -> Result<(), String> {
+        scope.validate_for_backend()?;
+        *self.scope.lock().map_err(|_| "scope lock poisoned")? = scope;
+        Ok(())
     }
     fn call_id(key: &EffectCallKey) -> Result<String, String> {
         let hash = Sha256::digest(to_vec(key).map_err(|e| e.to_string())?);
@@ -50,7 +55,7 @@ impl SharedAdmissionBackend {
     }
     fn admitted(&self, call_id: &str, model: &ModelRequest) -> Result<(), String> {
         let mut locked = self.ledger.lock().map_err(|_| "shared allowance poisoned")?;
-        let result = locked.reserve(call_id, self.scope.clone(), self.route.clone(), model)?;
+        let result = locked.reserve(call_id, self.scope.lock().map_err(|_| "scope lock poisoned")?.clone(), self.route.clone(), model)?;
         if !result.fresh {
             return Err("existing attempt requires receipt reconciliation; redispatch forbidden".into());
         }
@@ -69,7 +74,7 @@ impl SharedAdmissionBackend {
     pub async fn invoke_outside(
         &self, call_id: &str, request: &ModelRequest,
     ) -> Result<EffectResult, String> {
-        if matches!(self.scope.purpose, Purpose::Minister) {
+        if matches!(self.scope.lock().map_err(|_| "scope lock poisoned")?.purpose, Purpose::Minister) {
             return Err("minister must be invoked through a trial".into());
         }
         self.admitted(call_id, request)?;

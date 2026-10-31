@@ -14,6 +14,7 @@ use hiyal::{
     storage::Durability,
 };
 use myth_contracts::checkpoint::Phase;
+use crate::{p5_allowance::PinnedRoute, p5_cabinet};
 use serde_json::json;
 use std::{
     collections::BTreeSet,
@@ -30,9 +31,15 @@ pub struct GamePolicy {
     /// Test-only interrupted-after-receipt injection, never configured for live.
     pub fail_once_after_receipt: Option<Arc<AtomicBool>>,
     pub fail_role_once: Option<(AgentId, Arc<AtomicBool>)>,
+    pub live_route: Option<PinnedRoute>,
 }
 impl GamePolicy {
-    fn specification(obs: &GameObservation) -> Result<Vec<EffectSpec>, String> {
+    fn specification(&self, obs: &GameObservation) -> Result<Vec<EffectSpec>, String> {
+        if let Some(route) = &self.live_route
+            && (1..=3).contains(&obs.actor)
+        {
+            return Ok(vec![p5_cabinet::request(obs, route)?]);
+        }
         if obs.synthetic_receipts && (1..=3).contains(&obs.actor) {
             let count = if obs.actor <= 2 { 3 } else { 2 };
             return Ok((0..count)
@@ -91,7 +98,7 @@ impl EffectPolicy<GameWorld> for GamePolicy {
         if actor.0 != u64::from(obs.actor) {
             return Err("observation actor mismatch".into());
         }
-        Self::specification(obs)
+        self.specification(obs)
     }
     fn decide(
         &self,
@@ -102,7 +109,26 @@ impl EffectPolicy<GameWorld> for GamePolicy {
         if actor.0 != u64::from(obs.actor) {
             return Err("forged minister id".into());
         }
-        let expected = Self::specification(obs)?;
+        let expected = self.specification(obs)?;
+        if self.live_route.is_some() && (1..=3).contains(&obs.actor) {
+            if expected.len() != 1 || receipts.len() != 1
+                || receipts[0].spec != expected[0]
+                || receipts[0].billing == BillingDisposition::NotCharged
+            {
+                return Err("minister inference receipt missing or mismatched".into());
+            }
+            let (content, effective_model) = match &receipts[0].result {
+                EffectResult::Model { content, effective_model, .. } => (content, effective_model),
+                _ => return Err("minister inference failed; explicit retry required".into()),
+            };
+            if self.live_route.as_ref().is_none_or(|route| effective_model != &route.model) {
+                return Err("unapproved response model".into());
+            }
+            let mut action = obs.action.clone();
+            action.payload = p5_cabinet::checked_action(obs, content)?;
+            action.model_receipt_digest = Some(receipts[0].content_hash.clone());
+            return Ok(action);
+        }
         if expected.len() != receipts.len() {
             return Err("effect receipt count mismatch".into());
         }

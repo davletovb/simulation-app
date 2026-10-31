@@ -9,6 +9,7 @@
 pub mod orchestrator;
 pub mod p5_allowance;
 pub mod p5_backend;
+pub mod p5_cabinet;
 use hiyal::core::{AgentId, World};
 use myth_contracts::{
     PublicPosition,
@@ -123,6 +124,9 @@ pub struct GameAction {
     /// Versioned role-visible typed evidence supplied to the actor. Unlike
     /// a free-text transcript, this is the exact permitted action context.
     pub role_observation: Option<Value>,
+    /// Added only after a checked charged model receipt; absent in P4 scripts.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_receipt_digest: Option<String>,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -451,6 +455,7 @@ impl GameWorld {
                     payload: json!({"command_id":format!("{meeting}-freeze")}),
                     observation_sha256: self.private_state_sha256.clone(),
                     role_observation: None,
+                    model_receipt_digest: None,
                 });
             }
             let body = match self.phase {
@@ -560,6 +565,7 @@ impl GameWorld {
                 self.private_state_sha256.clone()
             },
             role_observation,
+            model_receipt_digest: None,
         })
     }
 }
@@ -587,8 +593,23 @@ impl World for GameWorld {
         if u64::from(action.actor) != actor.0 {
             return Err("actor mismatch".into());
         }
-        if action != self.planned(actor, &campaign)? {
-            return Err("action differs from frozen typed observation".into());
+        let planned = self.planned(actor, &campaign)?;
+        if action.model_receipt_digest.is_none() {
+            if action != planned {
+                return Err("action differs from frozen typed observation".into());
+            }
+        } else {
+            let digest = action.model_receipt_digest.as_deref().unwrap_or_default();
+            if action.kind != ActionKind::MinisterAction
+                || actor_role(actor).is_none()
+                || digest.len() != 64
+                || !digest.bytes().all(|b| b.is_ascii_hexdigit())
+                || action.actor != planned.actor
+                || action.observation_sha256 != planned.observation_sha256
+                || action.role_observation != planned.role_observation
+            {
+                return Err("model action lacked matching frozen role receipt".into());
+            }
         }
         if self.actions.len() >= MAX_ACCEPTED_ACTIONS {
             return Err("action cap exceeded".into());

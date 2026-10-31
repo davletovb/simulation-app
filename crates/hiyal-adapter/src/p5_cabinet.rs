@@ -117,7 +117,8 @@ mod tests {
         let player = world.observe(crate::PLAYER).unwrap();
         world.apply(crate::PLAYER,player.action).unwrap();
         let obs = world.observe(FINANCE).unwrap();
-        let base=obs.action.payload.clone();
+        let mut base=obs.action.payload.clone();
+        base["counterproposal_source"]=json!({"kind":"new_typed"});
         let good=base.to_string();
         assert!(checked_action(&obs,&good).is_ok());
         let mut swapped=base.clone();
