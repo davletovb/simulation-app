@@ -112,7 +112,7 @@ function FamilyControl({ family, value, budget, onChange }: {
         <input type="text" inputMode="numeric" pattern="[0-9]{1,3}"
           aria-label={`${family.label} exact whole-credit amount`}
           aria-invalid={invalid} aria-describedby={`meta-${family.id}`}
-          className="p6-exact-credit" value={draft}
+          className="credit-input" value={draft}
           onChange={event => {setDraft(event.target.value);setInvalid(false)}}
           onBlur={acceptExact}
           onKeyDown={event => {if(event.key==='Enter') {event.preventDefault();acceptExact()}}}
@@ -121,11 +121,11 @@ function FamilyControl({ family, value, budget, onChange }: {
           aria-label={`One less ${family.label.toLowerCase()} credit`}><Icon name="minus" size={16} /></button>
         <input id={`range-${family.id}`} type="range" min={0} max={max} step={1} value={value}
           onChange={event => set(Number(event.target.value))} aria-describedby={`meta-${family.id}`}
-          style={{ '--fill': `${(value / max) * 100}%` } as CSSProperties} />
+          style={{ '--fill': `${max > 0 ? (value / max) * 100 : 0}%` } as CSSProperties} />
         <button type="button" className="step" onClick={() => set(value + 1)} disabled={value === max}
           aria-label={`One more ${family.label.toLowerCase()} credit`}><Icon name="plus" size={16} /></button>
       </div>
-      {invalid && <p role="alert" className="connected-error">Use a whole credit amount from 0 to {max}; no decimals or symbols.</p>}
+      {invalid && <p role="alert" className="field-error">Use a whole credit amount from 0 to {max}; no decimals or symbols.</p>}
       <p id={`meta-${family.id}`} className="family-meta">
         1 credit = 1 {family.unit} · up to {family.quarterCap} per quarter · first delivery {firstQuarter}
       </p>

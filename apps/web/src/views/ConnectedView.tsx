@@ -1,9 +1,15 @@
 import {newer} from '../committedReducer.mjs'
 import { useCallback, useEffect, useState } from 'react'
 import {useQuery,useQueryClient} from '@tanstack/react-query'
-import { draftStatus, type Allocation } from '../game'
+import { FAMILIES, committed, draftStatus, type Allocation } from '../game'
+import { OFFLINE_PILOT } from '../contracts'
+import { humanPhase, humanize, pillTone, seatFor } from '../format'
+import { answeredMinistries, positionsFor } from '../positions.mjs'
 import { readStored, writeStored } from '../storage'
 import {ActionButton, AssumptionsDialog} from '../components/ConnectedControls'
+import { BudgetFigures } from '../components/BudgetFigures'
+import { Icon } from '../components/Icon'
+import { JournalStamp } from '../components/JournalStamp'
 
 export interface Vote {
   ministry: string
@@ -347,150 +353,285 @@ export function ConnectedView({allocation}:{allocation:Allocation}) {
     void load().catch(() => setError('Verified campaign snapshot unavailable'))
   }
   const snapshot = current?.snapshot
+  const available = snapshot?.treasury.available_credits ?? 0
+  const draftFits = draftStatus(allocation) === 'valid' && exactAllocation(allocation, available)
+  const needsDraft = !!snapshot && (snapshot.phase === 'AmendmentWindow' ||
+    (snapshot.phase === 'QuarterOpen' && !snapshot.continuation_pending))
+  const finalCount = snapshot ? snapshot.votes.filter(v => v.stage === 'final').length : 0
+  const latestReport = snapshot?.delivery_history.at(-1)
+  const auditOpen = !!snapshot && !snapshot.closed && snapshot.phase === 'QuarterOpen' &&
+    !snapshot.continuation_pending && snapshot.quarter >= 3 &&
+    snapshot.delivery_history.length > 0 && !pending
+  const auditQuarterShown = snapshot ? Math.min(auditQuarter, snapshot.delivery_history.length) : 1
+  const submitBlocked = needsDraft && !pending && !integrityFailure && !draftFits
+    ? draftBlockReason(allocation, available) : null
   return (
-    <section className="connected-p6" aria-labelledby="connected-p6-title">
-      <div className="connected-head">
+    <section className="panel panel-live room" aria-labelledby="connected-p6-title">
+      <div className="room-head">
         <div>
-          <p className="eyebrow">P7 · Connected offline case</p>
+          <p className="kicker">Live campaign · P7 offline case</p>
           <h2 id="connected-p6-title">The decision room</h2>
-          <p>Local Hiyal journal · scripted ministers · no paid model calls</p>
+          <p className="room-sub">Saved in the local Hiyal journal · scripted ministers · no paid model calls</p>
         </div>
-        <span role="status" className="connected-status">{transport}</span>
+        <div className="room-head-side">
+          <span role="status" className={`link-chip link-${transport}`}>
+            <span className="link-dot" aria-hidden="true" />{transport}
+          </span>
+          {snapshot && <AssumptionsDialog casePack={snapshot.evidence.case_pack}
+            cutoff={snapshot.evidence.source_cutoff_utc}
+            scope={snapshot.evidence.scope} attribution={snapshot.evidence.attribution}/>}
+        </div>
       </div>
-      {error && <p role="alert" className="connected-error">{error}</p>}
-      {error && !snapshot && <p role="alert">The local campaign could not be loaded.</p>}
+
+      {error && <p role="alert" className="alert alert-danger"><Icon name="alert" size={16} /><span>{error}</span></p>}
+      {error && !snapshot && <p role="alert" className="alert alert-danger">
+        <Icon name="alert" size={16} /><span>The local campaign could not be loaded.</span></p>}
+
       {!snapshot ? (
-        <div className="connected-grid"><p>Loading a verified committed boundary…</p>
-          <ActionButton onClick={() => void createCampaign()}>Start or open this campaign</ActionButton>
-          <ActionButton onClick={refresh}>Retry loading</ActionButton></div>
+        <div className="room-empty">
+          <Icon name="hourglass" size={22} />
+          <p>Loading a verified committed boundary…</p>
+          <div className="room-buttons">
+            <ActionButton tone="primary" onClick={() => void createCampaign()}>Start or open this campaign</ActionButton>
+            <ActionButton onClick={refresh}>Retry loading</ActionButton>
+          </div>
+        </div>
       ) : (
         <>
-          <div className="connected-grid">
-            <div><small>Local campaign</small><strong>{CAMPAIGN}</strong></div>
-            <div><small>Quarter</small><strong>{snapshot.quarter} / 6{snapshot.closed ? ' · complete' : ''}</strong></div>
-            <div><small>Current phase</small><strong>{snapshot.phase}</strong></div>
-            <div><small>Committed cursor</small><strong>{snapshot.cursor}</strong></div>
-            <div><small>State version</small><strong>{snapshot.view_version}</strong></div>
-          </div>
-          <div className="connected-summary">
-            <div>
-              <h3>Proposal</h3>
-              {snapshot.proposal ? <p>
-                Staff: <strong>{snapshot.proposal.staff}</strong> · Repairs: <strong>{snapshot.proposal.repairs}</strong> ·
-                Access: <strong>{snapshot.proposal.access}</strong>
-              </p> : <p>Awaiting the proposal in this quarter.</p>}
+          <div className="room-tiles">
+            <div className="room-tile">
+              <span className="room-label">Local campaign</span>
+              <strong className="room-value room-mono">{CAMPAIGN}</strong>
             </div>
-            <div>
-              <h3>Cabinet positions</h3>
+            <div className="room-tile">
+              <span className="room-label">Quarter</span>
+              <strong className="room-value">{snapshot.quarter}
+                <small> of {OFFLINE_PILOT.total_quarters}{snapshot.closed ? ' · complete' : ''}</small></strong>
+              <span className="q-pips" aria-hidden="true">
+                {Array.from({ length: OFFLINE_PILOT.total_quarters }, (_, i) => (
+                  <span key={i} className={`q-pip${snapshot.closed || i < snapshot.quarter - 1 ? ' is-done' : i === snapshot.quarter - 1 ? ' is-now' : ''}`} />
+                ))}
+              </span>
+            </div>
+            <div className="room-tile">
+              <span className="room-label">Phase</span>
+              <strong className="room-value">{humanPhase(snapshot.phase)}</strong>
+            </div>
+          </div>
+
+          <div className="room-facts">
+            <div className="room-fact">
+              <h3 className="room-label">Proposal</h3>
+              {snapshot.proposal ? (
+                <div className="card-stats room-stats">
+                  {FAMILIES.map(f => (
+                    <span key={f.id} className={`stat stat-${f.id}`}>
+                      <Icon name={f.id} size={14} /><span className="sr-only">{f.label}</span>{snapshot.proposal?.[f.id]}
+                    </span>
+                  ))}
+                </div>
+              ) : <p className="room-muted">No proposal yet this quarter.</p>}
+            </div>
+            <div className="room-fact">
+              <h3 className="room-label">Cabinet positions</h3>
               {snapshot.votes.length ? (
-                <ul>{snapshot.votes.slice(-6).map((vote, i) => <li key={i}>
-                  {vote.ministry} · {vote.stage}: <strong>{vote.position}</strong>
-                </li>)}</ul>
-              ) : <p>No committed positions yet.</p>}
+                <ul className="vote-lines">{answeredMinistries(snapshot.votes).map(ministry => {
+                  const seat = seatFor(ministry)
+                  return <li key={ministry}>
+                    <span className="vote-seat">
+                      <span className={`seat-dot seat-${seat.tone}`} aria-hidden="true" />{seat.name}
+                    </span>
+                    {positionsFor(snapshot.votes, ministry).map(vote => <span key={vote.stage} className="vote-stage">
+                      {humanize(vote.stage)}
+                      <span className={`pill pill-${pillTone(vote.position)}`}>{vote.position}</span>
+                    </span>)}
+                  </li>
+                })}</ul>
+              ) : <p className="room-muted">No positions recorded yet.</p>}
             </div>
-            <div>
-              <h3>Outcome</h3>
-              <p>{snapshot.outcome ?? 'Awaiting a final decision'}</p>
-              {snapshot.decisions.length>0 && <p>Recorded decisions: {snapshot.decisions.length}</p>}
-            </div>
-            <div>
-              <h3>Budget consequences · credits</h3>
-              <p>Available: <strong>{snapshot.treasury.available_credits}</strong></p>
-              <p>Committed: <strong>{snapshot.treasury.encumbered_staff+
-                snapshot.treasury.encumbered_repairs+snapshot.treasury.encumbered_access}</strong></p>
-              <p>Delivered spending: <strong>{snapshot.treasury.service_spent}</strong></p>
-              <p>Audit spending: <strong>{snapshot.treasury.audit_spent}</strong></p>
+            <div className="room-fact">
+              <h3 className="room-label">Outcome</h3>
+              {snapshot.outcome
+                ? <p><span className={`pill pill-${pillTone(snapshot.outcome)}`}>{snapshot.outcome}</span></p>
+                : <p className="room-muted">Awaiting a final decision.</p>}
+              {snapshot.decisions.length > 0 && <p className="room-muted">
+                {snapshot.decisions.length} decision{snapshot.decisions.length === 1 ? '' : 's'} on record</p>}
             </div>
           </div>
-          {snapshot.delivery_history.length>0 && <p className="connected-assumptions">
-            Latest public delivery report: Q{snapshot.delivery_history.at(-1)?.quarter} ·
-            staffing/repair/access reported cumulative:
-            {' '}{snapshot.delivery_history.at(-1)?.reported_cumulative.join(' / ')}.
-            These are reported units, not audited true delivery.
-          </p>}
-          <p className="connected-assumptions">{snapshot.assumption}</p>
-          <AssumptionsDialog casePack={snapshot.evidence.case_pack}
-            cutoff={snapshot.evidence.source_cutoff_utc}
-            scope={snapshot.evidence.scope} attribution={snapshot.evidence.attribution}/>
-          <div className="connected-actions">
-            {integrityFailure ? <p role="alert">Command controls suspended pending a verified recovery.</p> : pending ? (
-              <ActionButton onClick={() => void advance(pending.action)} disabled={submitting}>
-                Retry existing command ID</ActionButton>
-            ) : (
-              <>
-                {snapshot.phase === 'QuarterOpen' && snapshot.quarter > 1 &&
-                  (snapshot.continuation_pending
-                    ? <ActionButton tone="primary" onClick={() => void advance({kind:'finish_continuation'})}>
-                        Advance authorized quarter (decision journaled)</ActionButton>
-                    : <ActionButton onClick={() => void advance({kind:'continue_quarter'})}>
-                        Keep programme: record decision to skip new meeting</ActionButton>)}
-                {snapshot.phase === 'QuarterOpen' && !snapshot.continuation_pending && <ActionButton tone="primary"
-                  disabled={draftStatus(allocation)!=='valid' || !exactAllocation(allocation,snapshot.treasury.available_credits)}
-                  onClick={() => void advance({kind:'propose',allocation})}>Submit draft proposal</ActionButton>}
-                {snapshot.phase === 'AmendmentWindow' && <ActionButton tone="primary"
-                  disabled={draftStatus(allocation)!=='valid' || !exactAllocation(allocation,snapshot.treasury.available_credits)}
-                  onClick={() => void advance({kind:'amend',allocation})}>Submit amendment</ActionButton>}
-                {snapshot.phase === 'FinalPositionsFrozen' && snapshot.votes.filter(v=>v.stage==='final').length >= 3 && (
-                  <>
-                    <ActionButton tone="primary" onClick={() => void advance({kind:'decide',ratify:true})}>Ratify proposal</ActionButton>
-                    <ActionButton onClick={() => void advance({kind:'decide',ratify:false})}>Defer proposal</ActionButton>
-                  </>
-                )}
-                {!snapshot.closed && !snapshot.continuation_pending &&
-                  <ActionButton onClick={() => void advance({kind:'advance_slice'})}>
-                  Continue scripted phase</ActionButton>}
-              </>
-            )}
-            {!snapshot.closed && snapshot.phase === 'QuarterOpen' &&
-              !snapshot.continuation_pending && snapshot.quarter >= 3 &&
-              snapshot.delivery_history.length > 0 && !pending && (
-              <div className="connected-audit">
-                <label>Audit family <select value={auditFamily}
-                  onChange={e=>setAuditFamily(e.target.value as typeof auditFamily)}>
-                  <option value="staffing">Staffing</option><option value="repairs">Repairs</option>
-                  <option value="access">Access</option>
-                </select></label>
-                <label>Completed quarter <select value={Math.min(auditQuarter,snapshot.delivery_history.length)}
-                  onChange={e=>setAuditQuarter(Number(e.target.value))}>
-                  {snapshot.delivery_history.map(r=><option key={r.quarter} value={r.quarter}>
-                    Q{r.quarter}
-                  </option>)}
-                </select></label>
-                <label><input type="checkbox" checked={auditAcknowledged}
-                  onChange={e=>setAuditAcknowledged(e.target.checked)}/>
-                  I understand that the first audit costs 0 credits and later audits cost
-                  2 credits each; full findings are available only in the offline
-                  private operator report after stopping the API.</label>
+
+          <div className="room-block">
+            <h3 className="room-label">Budget · credits</h3>
+            <BudgetFigures treasury={snapshot.treasury} />
+          </div>
+
+          {latestReport && (
+            <div className="room-report">
+              <span className="room-label">Public report · Q{latestReport.quarter}</span>
+              {FAMILIES.map((f, i) => (
+                <span key={f.id} className={`stat stat-${f.id}`}>
+                  <Icon name={f.id} size={14} /><span className="sr-only">{f.label}</span>{latestReport.reported_cumulative[i] ?? 0}
+                </span>
+              ))}
+              <span className="hint">Cumulative units as reported, not audited delivery.</span>
+            </div>
+          )}
+
+          <div className="room-move">
+            <h3 className="section-label">Your move</h3>
+            <p className="room-hint">{phaseHint(snapshot, finalCount)}</p>
+            <div className="room-buttons">
+              {integrityFailure ? <p role="alert" className="alert alert-danger">
+                <Icon name="alert" size={16} /><span>Command controls suspended pending a verified recovery.</span></p> : pending ? (
+                <ActionButton onClick={() => void advance(pending.action)} disabled={submitting}>
+                  Retry existing command ID</ActionButton>
+              ) : (
+                <>
+                  {snapshot.phase === 'QuarterOpen' && snapshot.quarter > 1 &&
+                    (snapshot.continuation_pending
+                      ? <ActionButton tone="primary" onClick={() => void advance({kind:'finish_continuation'})}>
+                          Advance the quarter</ActionButton>
+                      : <ActionButton onClick={() => void advance({kind:'continue_quarter'})}>
+                          Keep programme · skip new meeting</ActionButton>)}
+                  {snapshot.phase === 'QuarterOpen' && !snapshot.continuation_pending && <ActionButton tone="primary"
+                    disabled={!draftFits} describedBy={submitBlocked ? 'submit-why' : undefined}
+                    onClick={() => void advance({kind:'propose',allocation})}>Submit draft proposal</ActionButton>}
+                  {snapshot.phase === 'AmendmentWindow' && <ActionButton tone="primary"
+                    disabled={!draftFits} describedBy={submitBlocked ? 'submit-why' : undefined}
+                    onClick={() => void advance({kind:'amend',allocation})}>Submit amendment</ActionButton>}
+                  {snapshot.phase === 'FinalPositionsFrozen' && finalCount >= 3 && (
+                    <>
+                      <ActionButton tone="primary" onClick={() => void advance({kind:'decide',ratify:true})}>Ratify proposal</ActionButton>
+                      <ActionButton onClick={() => void advance({kind:'decide',ratify:false})}>Defer proposal</ActionButton>
+                    </>
+                  )}
+                  {!snapshot.closed && !snapshot.continuation_pending &&
+                    <ActionButton onClick={() => void advance({kind:'advance_slice'})}>
+                    Continue scripted phase</ActionButton>}
+                </>
+              )}
+              {snapshot.phase === 'Resolved' && !pending && <ActionButton onClick={() => void createFork()}>
+                Fork this verified decision</ActionButton>}
+            </div>
+            {submitBlocked && <p id="submit-why" className="cta-why">
+              <Icon name="lock" size={13} /> {submitBlocked}</p>}
+          </div>
+
+          {auditOpen && (
+            <div className="room-audit">
+              <div className="room-audit-head">
+                <h3><Icon name="audit" size={18} />Order an audit</h3>
+                <span className="hint">From Q3, for completed periods with scheduled work.</span>
+              </div>
+              <ul className="chips" aria-label="Audit terms">
+                <li className="chip">First audit · 0 credits</li>
+                <li className="chip">Later audits · 2 credits each</li>
+                <li className="chip chip-private"><Icon name="eye-off" size={14} />Findings stay offline</li>
+              </ul>
+              <div className="audit-fields">
+                <label className="field"><span>Audit family</span>
+                  <select className="select" value={auditFamily}
+                    onChange={e=>setAuditFamily(e.target.value as typeof auditFamily)}>
+                    <option value="staffing">Staffing</option><option value="repairs">Repairs</option>
+                    <option value="access">Access</option>
+                  </select></label>
+                <label className="field"><span>Completed quarter</span>
+                  <select className="select" value={auditQuarterShown}
+                    onChange={e=>setAuditQuarter(Number(e.target.value))}>
+                    {snapshot.delivery_history.map(r=><option key={r.quarter} value={r.quarter}>
+                      Q{r.quarter}
+                    </option>)}
+                  </select></label>
+              </div>
+              <label className="check"><input type="checkbox" checked={auditAcknowledged}
+                onChange={e=>setAuditAcknowledged(e.target.checked)}/>
+                <span>I understand that the first audit costs 0 credits and later audits cost 2 credits each,
+                  and that full findings are available only in the offline private operator report after
+                  stopping the API.</span></label>
+              <div className="room-buttons">
                 <ActionButton disabled={!auditAcknowledged} onClick={() => void advance({
                   kind:'order_audit', family:auditFamily,
-                  inspected_quarter:Math.min(auditQuarter,snapshot.delivery_history.length)
-                })}>Request audit (offline report only; up to 2 credits)</ActionButton>
-                <small>Q3 onward, for completed periods with scheduled work. No private
-                  findings appear in the browser or SSE. Stop the local API and run
-                  myth-report to inspect the result; this is an operator debugging
-                  tool, not a role-scoped chair interface.</small>
+                  inspected_quarter:auditQuarterShown,
+                })}>Request audit · up to 2 credits</ActionButton>
               </div>
-            )}
-            {snapshot.phase==='Resolved' && !pending && <ActionButton onClick={() => void createFork()}>Fork this verified decision</ActionButton>}
-            <ActionButton onClick={refresh}>Refresh committed view</ActionButton>
+              <details className="mechanics">
+                <summary>Where do the findings appear?</summary>
+                <div className="mechanics-body">
+                  <p>No private findings appear in the browser or SSE. Stop the local API and run{' '}
+                    <code>myth-report</code> to inspect the result.</p>
+                  <p>This is an operator debugging tool, not a role-scoped chair interface.</p>
+                </div>
+              </details>
+            </div>
+          )}
+
+          {forkId && <p role="status" className="alert alert-ok">
+            <Icon name="check" size={16} />
+            <span>Branch created at the committed decision boundary.{' '}
+              <a className="link" href={'?campaign='+encodeURIComponent(forkId)}>Open independent branch {forkId}</a>.
+              Its journal retains the source shock schedule, and new decisions cannot alter the source campaign.</span>
+          </p>}
+          {pending && <p role="status" className="alert alert-warn">
+            <Icon name="hourglass" size={16} />
+            <span>Command <code className="op-id">{pending.id}</code> is awaiting acknowledgement.
+              Retrying reuses this same ID, so nothing is applied twice.</span>
+          </p>}
+
+          <details className="mechanics room-guide">
+            <summary>How quarters work</summary>
+            <div className="mechanics-body">
+              <p>In Q2–Q6, choose either a new funded proposal (with a fresh vote) or continue the existing
+                programme unchanged. Continuing records your skip-meeting choice first; then explicitly
+                advance the quarter. The two journaled steps survive restarts.</p>
+              <p>That advances delivery and deadlines without a new meeting; approved but undelivered
+                allocations do not reset each quarter.</p>
+              <p>Only the Rust service can commit actions. This scripted path does not yet accept custom
+                policy cards or run Experiment C′.</p>
+            </div>
+          </details>
+
+          <div className="room-foot">
+            <div className="room-foot-main">
+              <JournalStamp campaign={CAMPAIGN} cursor={snapshot.cursor} version={snapshot.view_version} note={false} />
+              {current?.operation && <p className="hint">
+                Last operation <code className="op-id" title={current.operation.command_id}>
+                  {shortOperation(current.operation.command_id)}</code> · {current.operation.status}</p>}
+              <p className="hint">{snapshot.assumption}</p>
+            </div>
+            <ActionButton size="sm" onClick={refresh}><Icon name="reset" size={16} />Refresh view</ActionButton>
           </div>
-          {forkId && <p role="status">Branch created at the committed decision boundary.
-            <a href={'?campaign='+encodeURIComponent(forkId)}>Open independent branch {forkId}</a>.
-            Its journal retains the source shock schedule, and new decisions cannot alter the source campaign.
-          </p>}
-          {pending && <p role="status">Operation {pending.id}: awaiting acknowledgment or retry. The same ID is preserved. Keep this ID for retries.</p>}
-          {current?.operation && <p className="connected-assumptions">
-            Last operation: {current.operation.command_id} · {current.operation.status}
-          </p>}
-          <p className="connected-assumptions">In Q2–Q6, choose either a new funded proposal
-            (with a fresh vote) or continue the existing programme unchanged.
-            Continuing records your skip-meeting choice first; then explicitly
-            advance the quarter. The two journaled steps survive restarts.
-            That advances delivery and deadlines without a new meeting;
-            approved but undelivered allocations do not reset each quarter.</p>
-          <p className="connected-assumptions">Only the Rust service can commit actions. This scripted path does not yet accept custom policy cards or run Experiment C′.</p>
         </>
       )}
     </section>
   )
 }
+
+/** Why the draft cannot be submitted, in words; shown beside the disabled button. */
+function draftBlockReason(allocation: Allocation, available: number): string {
+  const total = committed(allocation)
+  if (available === 0) return 'No credits are available to fund a new package.'
+  if (total === 0) return 'Your draft is empty. Build one in the Draft package below.'
+  if (total > available) return `Your draft spends ${total} credits but only ${available} are available. Adjust it in the Draft package below.`
+  return 'Your draft cannot be submitted yet. Adjust it in the Draft package below.'
+}
+
+/** One line of guidance for the current phase, derived from the controls already offered. */
+function phaseHint(snapshot: Snapshot, finalCount: number): string {
+  if (snapshot.closed) return 'The campaign is complete. Nothing further can be submitted.'
+  switch (snapshot.phase) {
+    case 'QuarterOpen':
+      if (snapshot.continuation_pending) return 'Programme kept for this quarter. Advance the quarter to apply delivery and deadlines.'
+      return snapshot.quarter > 1
+        ? 'Fund a new package (the board votes again) or keep the current programme unchanged.'
+        : 'Submit a package to open this quarter’s board meeting.'
+    case 'AmendmentWindow': return 'Change the package once, or keep it as it is.'
+    case 'FinalPositionsFrozen':
+      return finalCount >= 3
+        ? 'Final votes are in. Ratify the proposal or defer it.'
+        : 'Waiting for the remaining final votes. Continue the scripted phase.'
+    case 'Resolved': return 'This decision is recorded. Fork it to try a different path, or continue the scripted phase.'
+    default: return 'Continue the scripted phase to move the meeting along.'
+  }
+}
+
+/** `op-1b9d…` style abbreviation; the full ID stays in the tooltip. */
+const shortOperation = (id: string): string => id.length > 16 ? `${id.slice(0, 11)}…${id.slice(-4)}` : id
