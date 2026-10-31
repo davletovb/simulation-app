@@ -1191,6 +1191,69 @@ mod tests {
         fs::remove_dir_all(dir).unwrap();
     }
     #[tokio::test]
+    async fn crash_after_hiyal_commit_before_command_status_rebuilds_once() {
+        let dir=root();
+        let service=Connected::new(dir.clone()).unwrap();
+        let owner=service.owner("interrupted").unwrap();
+        let (original,next_cursor)={
+            let mut engine=owner.engine.lock().await;
+            let world_version=engine.trial.store.world().world_version.clone();
+            let command=Command{
+                command_id:"durable-interrupted".into(),
+                expected_world_version:world_version.clone(),
+                kind:CommandKind::AdvanceSlice,
+            };
+            let encoded=serde_json::to_vec(&command).unwrap();
+            engine.log.records.push(Operation {
+                campaign_id:"interrupted".into(),command_id:command.command_id,
+                request_sha256:digest(&encoded),expected_world_version:world_version,
+                kind:command.kind,status:OperationStatus::Accepted,
+                committed_cursor:None,message:None,
+            });
+            persist_log(&owner.log_path,&engine.log).unwrap();
+            // Hiyal committed and synced, but the command's Completed status
+            // has not been persisted. This models the crash boundary.
+            advance_slice(&mut engine.trial).await.unwrap();
+            let cursor=capture(&engine.trial).unwrap().cursor;
+            (engine.trial.store.world().private_state_sha256.clone(),cursor)
+        };
+        drop(owner);drop(service);
+        let restarted=Connected::new(dir.clone()).unwrap();
+        let recovered=restarted.owner("interrupted").unwrap();
+        for _ in 0..120 {
+            if recovered.engine.lock().await.log.records[0].status==OperationStatus::Completed {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+        let engine=recovered.engine.lock().await;
+        assert_eq!(engine.log.records[0].status,OperationStatus::Completed);
+        assert_eq!(engine.log.records[0].committed_cursor.as_deref(),Some(next_cursor.as_str()));
+        assert_eq!(engine.trial.store.world().private_state_sha256,original);
+        assert_eq!(capture(&engine.trial).unwrap().cursor,next_cursor);
+        drop(engine);drop(recovered);drop(restarted);
+        fs::remove_dir_all(dir).unwrap();
+    }
+    #[tokio::test]
+    async fn distinct_campaign_sse_and_command_namespaces_never_cross() {
+        let dir=root();
+        let service=Connected::new(dir.clone()).unwrap();
+        let alpha=service.owner("alpha").unwrap();
+        let beta=service.owner("beta").unwrap();
+        let (_alpha_before,mut alpha_rx)=subscribed_boundary(&alpha).await.unwrap();
+        let (_beta_before,mut beta_rx)=subscribed_boundary(&beta).await.unwrap();
+        let committed=accepted_step(&service,"beta",CommandKind::AdvanceSlice,1).await;
+        let beta_event=tokio::time::timeout(Duration::from_secs(3),beta_rx.recv())
+            .await.unwrap().unwrap();
+        assert_eq!(beta_event.snapshot.campaign_id,"beta");
+        assert_eq!(beta_event.snapshot.cursor,committed.cursor);
+        assert!(matches!(alpha_rx.try_recv(),Err(broadcast::error::TryRecvError::Empty)));
+        assert_eq!(capture(&alpha.engine.lock().await.trial).unwrap().cursor,"0");
+        assert_eq!(capture(&beta.engine.lock().await.trial).unwrap().cursor,committed.cursor);
+        drop(alpha_rx);drop(beta_rx);drop(alpha);drop(beta);drop(service);
+        fs::remove_dir_all(dir).unwrap();
+    }
+    #[tokio::test]
     async fn command_identity_persists_through_lost_ack_and_restart() {
         let dir = root();
         let service = Connected::new(dir.clone()).unwrap();
