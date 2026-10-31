@@ -24,6 +24,16 @@ grep -q '"network_calls":false' "$TMP/health"
 grep -q '"authoritative_simulation":false' "$TMP/health"
 grep -q '"connected_authoritative_simulation":true' "$TMP/health"
 
+# Even on a different TCP port, a second process sharing the *same* private
+# Hiyal root must refuse to start before writing a single journal record.
+if MYTH_SAVE_DIR="$TMP/saves" MYTH_BIND="127.0.0.1:$((PORT+1))" MYTH_MODE=scripted \
+    target/debug/myth-local-api >"$TMP/duplicate-writer.log" 2>&1; then
+  echo "Second API writer unexpectedly started on the same save root" >&2
+  exit 1
+fi
+grep -q 'another simulation API process already owns this save directory' "$TMP/duplicate-writer.log"
+
+
 curl -fsS "$BASE/api/preview" -H 'Content-Type: application/json' \
   -d '{"allocation":{"staff":0,"repairs":0,"access":25}}' >"$TMP/forecast"
 grep -q '"calculator":"myth_domain"' "$TMP/forecast"
