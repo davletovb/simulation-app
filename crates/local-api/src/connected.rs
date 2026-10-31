@@ -613,6 +613,20 @@ async fn command(
     schedule(owner);
     Ok((StatusCode::ACCEPTED, Json(record)))
 }
+/// Subscribe first, then capture the verified world and operation while
+/// holding the one-writer lock. Any concurrent commit is either included
+/// in this snapshot, or queued in the receiver as a subsequent frame.
+async fn subscribed_boundary(
+    owner:&Arc<Owner>,
+)->Result<(Committed,broadcast::Receiver<Committed>),String>{
+    let receiver=owner.sender.subscribe();
+    let engine=owner.engine.lock().await;
+    let committed=Committed{
+        snapshot:capture(&engine.trial)?,
+        operation:engine.log.records.last().cloned(),
+    };
+    Ok((committed,receiver))
+}
 async fn stream_events(
     State(service): State<Arc<Connected>>,
     Path(id): Path<String>,
@@ -621,15 +635,11 @@ async fn stream_events(
     let owner = service
         .owner(&id)
         .map_err(|_| status(StatusCode::CONFLICT, "campaign unavailable"))?;
-    // Register for live events BEFORE taking the one-boundary snapshot.
-    let live = owner.sender.subscribe();
-    let engine = owner.engine.lock().await;
-    let state =
-        capture(&engine.trial).map_err(|_| status(StatusCode::CONFLICT, "verification failed"))?;
-    let operation = engine.log.records.last().cloned();
-    drop(engine);
-    let last = headers.get("last-event-id").and_then(|h| h.to_str().ok());
-    let id_value = format!("{}:{}", state.campaign_id, state.cursor);
+    // The same tested join is used for initial and Last-Event-ID fallback.
+    let (committed,live)=subscribed_boundary(&owner).await
+        .map_err(|_|status(StatusCode::CONFLICT,"verification failed"))?;
+    let last = headers.get("last-event-id").and_then(|h|h.to_str().ok());
+    let id_value=format!("{}:{}",committed.snapshot.campaign_id,committed.snapshot.cursor);
     // Always send a same-boundary snapshot. Duplicate cursor is harmless and
     // client-side reducer explicitly ignores older/duplicate versions.
     let first = Event::default()
@@ -639,10 +649,7 @@ async fn stream_events(
             "snapshot_fallback"
         })
         .id(id_value)
-        .json_data(Committed {
-            snapshot: state,
-            operation,
-        })
+        .json_data(committed)
         .map_err(|_| status(StatusCode::INTERNAL_SERVER_ERROR, "cannot encode snapshot"))?;
     let joined = stream::unfold((Some(first), live), |(initial, mut receiver)| async move {
         if let Some(e) = initial {
@@ -772,6 +779,79 @@ mod tests {
         drop(owner);
         drop(recovered);
         fs::remove_dir_all(dir).unwrap();
+    }
+    #[tokio::test]
+    async fn initial_and_fallback_join_never_skip_a_concurrent_commit() {
+        let dir=root();
+        let service=Connected::new(dir.clone()).unwrap();
+        let owner=service.owner("race").unwrap();
+        // Commit holds the writer lock when the subscriber attaches: the
+        // subscriber registers immediately, and captures after the commit.
+        let guard=owner.engine.lock().await;
+        let joining={
+            let owner=owner.clone();
+            tokio::spawn(async move {subscribed_boundary(&owner).await.unwrap()})
+        };
+        tokio::task::yield_now().await;
+        drop(guard);
+        let after=accepted_step(&service,"race",CommandKind::AdvanceSlice,1).await;
+        let (joined,mut live)=joining.await.unwrap();
+        let joined_cursor=joined.snapshot.cursor.parse::<u64>().unwrap();
+        let after_cursor=after.cursor.parse::<u64>().unwrap();
+        assert!(joined_cursor<=after_cursor);
+        if joined_cursor<after_cursor {
+            // A commit after capture must be present in the subscribed feed.
+            let update=tokio::time::timeout(Duration::from_secs(3),live.recv())
+                .await.unwrap().unwrap();
+            assert_eq!(update.snapshot.cursor,after.cursor);
+            assert_eq!(update.snapshot.view_version,after.view_version);
+        } else {
+            assert_eq!(joined.snapshot.view_version,after.view_version);
+        }
+        // Simulate Last-Event-ID falling behind: connection always starts
+        // with a committed snapshot at one verified boundary.
+        let (fallback,mut subsequent)=subscribed_boundary(&owner).await.unwrap();
+        assert_eq!(fallback.snapshot.cursor,after.cursor);
+        let next=accepted_step(&service,"race",CommandKind::AdvanceSlice,2).await;
+        let event=tokio::time::timeout(Duration::from_secs(3),subsequent.recv())
+            .await.unwrap().unwrap();
+        assert_eq!(event.snapshot.cursor,next.cursor);
+        assert_eq!(event.snapshot.view_version,next.view_version);
+        drop(live);drop(subsequent);drop(joined);drop(owner);drop(service);
+        fs::remove_dir_all(dir).unwrap();
+    }
+    #[tokio::test]
+    async fn command_identity_persists_through_lost_ack_and_restart() {
+        let dir=root();
+        let service=Connected::new(dir.clone()).unwrap();
+        let owner=service.owner("lost-ack").unwrap();
+        let version=owner.engine.lock().await.trial.store.world().world_version.clone();
+        let request=Command{command_id:"stable-ack".into(),
+            expected_world_version:version,kind:CommandKind::AdvanceSlice};
+        let (_,Json(first))=command(State(service.clone()),Path("lost-ack".into()),
+            Json(request.clone())).await.unwrap();
+        let (status,Json(second))=command(State(service.clone()),Path("lost-ack".into()),
+            Json(request.clone())).await.unwrap();
+        assert_eq!(status,StatusCode::OK);
+        assert_eq!(first.request_sha256,second.request_sha256);
+        for _ in 0..120 {
+            if owner.engine.lock().await.log.records[0].status==OperationStatus::Completed {break;}
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        let before=capture(&owner.engine.lock().await.trial).unwrap().cursor;
+        drop(owner);drop(service);
+        let restarted=Connected::new(dir.clone()).unwrap();
+        let reopened=restarted.owner("lost-ack").unwrap();
+        let (status,Json(replayed))=command(State(restarted.clone()),Path("lost-ack".into()),
+            Json(request.clone())).await.unwrap();
+        assert_eq!(status,StatusCode::OK);
+        assert_eq!(replayed.status,OperationStatus::Completed);
+        assert_eq!(capture(&reopened.engine.lock().await.trial).unwrap().cursor,before);
+        let mut conflict=request;
+        conflict.kind=CommandKind::Decide{ratify:false};
+        assert!(command(State(restarted.clone()),Path("lost-ack".into()),
+            Json(conflict)).await.is_err());
+        drop(reopened);drop(restarted);fs::remove_dir_all(dir).unwrap();
     }
     async fn accepted_step(
         service: &Arc<Connected>,
