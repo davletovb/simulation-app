@@ -62,6 +62,7 @@ export function pillTone(word: string): PillTone {
     case 'support': case 'ratified': return 'ok'
     case 'conditional': case 'deferred': return 'warn'
     case 'oppose': return 'bad'
+    case 'continued': return 'calm' // programme kept without a board vote
     default: return 'calm'
   }
 }

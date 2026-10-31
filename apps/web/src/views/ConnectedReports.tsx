@@ -164,16 +164,19 @@ export function ConnectedCampaignReport() {
           <div className="ledger-title">
             <strong>Decision {i + 1}</strong>
             <span className={`pill pill-${pillTone(decision.outcome)}`}>{decision.outcome}</span>
-            <span className="hint">Q{decision.quarter} meeting</span>
+            <span className="hint">Q{decision.quarter}{decision.outcome === 'continued' ? '' : ' meeting'}</span>
           </div>
-          <p className="ledger-votes">{decision.final_support} of {decision.final_votes} final votes in support</p>
+          <p className="ledger-votes">{decision.outcome === 'continued'
+            ? 'No board vote held. The existing programme continued unchanged.'
+            : `${decision.final_support} of ${decision.final_votes} final votes in support`}</p>
           {decision.allocation
             ? <div className="card-stats room-stats" aria-label="Allocation">
               {FAMILIES.map(f => <span key={f.id} className={`stat stat-${f.id}`}>
                 <Icon name={f.id} size={14} /><span className="sr-only">{f.label}</span>{decision.allocation?.[f.id]}
               </span>)}
             </div>
-            : <p className="room-muted">No allocation recorded.</p>}
+            : <p className="room-muted">{decision.outcome === 'continued'
+              ? 'No funded programme was in place.' : 'No allocation recorded.'}</p>}
         </div>
       </li>)}
     </ol> : <p className="forecast-empty"><Icon name="banner" size={20} />
