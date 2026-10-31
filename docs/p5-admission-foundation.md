@@ -32,6 +32,20 @@ cargo +1.99.1 run --locked -p myth-hiyal-adapter --bin p5-pilot -- pilot <new-tr
 
 **Do not run this command as CI.** Operator authorization, key provisioning, price/schema/route research, sufficient OpenRouter credits and a review of the conservative reservation assumptions are prerequisites; no secrets should appear in terminal history, shell scripts, commits or browser bundles. The CLI never automatically retries, never selects a model or paid alternative, and pauses on a failed seat; the originally planned 34-attempt envelope includes optional repair/manual retry allowances that are *not* yet orchestrated. The pilot can report the resulting authoritative state/receipt counters and exact keyless journal hash, but it does **not** automatically declare that P0-05 behavior criteria pass. A positive Experiment A decision still requires predeclared denominator/latency/privacy/commitment/feasibility and baseline comparisons.
 
+## Verified billing and currently unsupported same-key retry
+
+A previously dispatched call retains its full allowance reservation after errors, missing metadata, or a timeout. The raw successful HTTP response (when received) is fsynced in the trial's owner-private `p5-completion-custody/` directory before model/metadata verification; inspect it only on a trusted computer. Metadata GETs retry a few times with bounded backoff; paid completion POSTs **never** retry automatically.
+
+An operator who has independently verified a provider bill can enter a charge without any model request:
+
+```sh
+MYTH_P5_VERIFIED_PROVIDER_INVOICE=yes cargo +1.99.1 run --locked -p myth-hiyal-adapter --bin p5-pilot -- verify-charge <allowance-dir> <installation-id> <call-id> <actual-micro-usd>
+```
+
+This records a verified bill, but does **not** manufacture a missing successful Hiyal receipt or turn a failed typed action into support. Hiyal's pinned effect journal deduplicates by logical effect key; **restarting the same failed slot does not create a new billable attempt**. Consequently, same-quarter paid minister retries remain disabled pending an explicit, receipt-safe key-version/authorisation protocol. The pilot fails closed and its message no longer implies that a same-key retry works.
+
+Historical verified calls are compacted only on a deliberately funded new epoch to scope/maximum/verified-amount fingerprints and a SHA-256 of the original full call; archived call IDs remain blocked, and their original campaign/quarter/batch usage remains counted. Unverified calls are never compacted, and ledger capacity remains bounded and fails closed if exhausted. Verified reconciliation is necessary to clear long-lived unknown liabilities; never infer that a timeout cost zero.
+
 ## Executed offline evidence and limitations
 
 - The earlier admission foundation passed full essential CI [run 41182729532](https://github.com/davletovb/simulation-app/actions/runs/41182729532).

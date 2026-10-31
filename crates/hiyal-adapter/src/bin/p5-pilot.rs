@@ -75,7 +75,7 @@ async fn run(trial_dir: &Path, ledger_dir: &Path, installation: &str) -> Result<
         }
         if let Err(e) = advance_slice(&mut trial).await {
             return Err(format!(
-                "pilot paused at quarter {}; reconcile allowance and inspect receipts before a manual retry: {e}",
+                "pilot paused at quarter {}; inspect saved completion custody and reconcile charges; Hiyal does not yet support retrying the same failed effect key: {e}",
                 trial.store.world().quarter,
             ));
         }
@@ -136,6 +136,20 @@ async fn run(trial_dir: &Path, ledger_dir: &Path, installation: &str) -> Result<
 async fn entry() -> Result<(), String> {
     let args: Vec<String> = env::args().skip(1).collect();
     match args.first().map(String::as_str) {
+        // Reconciliation never calls OpenRouter. An operator must compare
+        // the provider's actual invoice before recording a verified charge.
+        Some("verify-charge") if args.len()==5 => {
+            if env::var("MYTH_P5_VERIFIED_PROVIDER_INVOICE").ok().as_deref()!=Some("yes") {
+                return Err("provider invoice verification authorization absent".into());
+            }
+            let amount=args[4].parse::<u64>().map_err(|_| "invalid micro-USD charge")?;
+            let mut ledger=Allowance::open(Path::new(&args[1]),&args[2])?;
+            ledger.verify_charge(&args[3],amount)?;
+            println!("{}",json!({"operation":"verified_charge_recorded",
+                "call_id":args[3],"amount_micro_usd":amount.to_string(),
+                "remaining_micro_usd":ledger.remaining_micro_usd()?.to_string()}));
+            Ok(())
+        }
         Some("inspect") if args.len()==2 => {
             let (hash,chain,sequence)=inspect(Path::new(&args[1]))?;
             println!("{}",json!({
@@ -150,7 +164,7 @@ async fn entry() -> Result<(), String> {
         Some("pilot") if args.len()==4 => {
             run(Path::new(&args[1]),Path::new(&args[2]),&args[3]).await
         }
-        _ => Err("usage: p5-pilot inspect <trial-dir> | pilot <trial-dir> <ledger-dir> <installation-id>".into()),
+        _ => Err("usage: p5-pilot inspect <trial-dir> | pilot <trial-dir> <ledger-dir> <installation-id> | verify-charge <ledger-dir> <installation-id> <call-id> <micro-usd>".into()),
     }
 }
 #[tokio::main]

@@ -563,7 +563,7 @@ impl Allowance {
                 .iter()
                 .filter(|c| c.scope.campaign_id.as_ref() == Some(campaign))
                 .collect();
-            let historical = self
+            let mut historical = self
                 .state
                 .archived
                 .iter()
