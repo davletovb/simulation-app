@@ -36,3 +36,10 @@ test('Delayed accepted status cannot reverse a completed operation at the same c
   const delayed=view('12','13',{command_id:'op-a',status:'accepted'})
   assert.equal(newer(completed,delayed).operation.status,'completed')
 })
+
+test('Refetch with newer cursor preserves tracked operation when snapshot omits it',()=>{
+  const tracked=view('42','7',{command_id:'op-a',status:'accepted',committed_cursor:null})
+  const fallback=view('43','8',null)
+  assert.equal(newer(tracked,fallback).operation.command_id,'op-a')
+  assert.equal(newer(tracked,view('43','8',{command_id:'op-old',status:'completed',committed_cursor:'3'})).operation.command_id,'op-a')
+})
