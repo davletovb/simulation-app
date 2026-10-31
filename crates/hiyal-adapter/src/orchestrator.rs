@@ -1366,6 +1366,63 @@ mod tests {
         std::fs::remove_dir_all(path).unwrap();
         std::fs::remove_dir_all(ledger_dir).unwrap();
     }
+    struct FailFinanceOnce(std::sync::atomic::AtomicBool);
+    impl Backend for FailFinanceOnce {
+        fn resolve<'a>(&'a self,spec:&'a EffectSpec)->BoxResult<'a>{
+            Box::pin(async move {
+                if let EffectSpec::Model(model)=spec {
+                    let content=model.messages.last().map(|x|x.content.as_str()).unwrap_or("");
+                    if content.contains(r#""ministry":"finance""#)
+                        && self.0.swap(false,Ordering::SeqCst) {
+                        return Err("fixture network timeout after potential billing".into());
+                    }
+                }
+                FakeDisagreeingCabinet.resolve(spec).await
+            })
+        }
+    }
+    #[tokio::test]
+    async fn failed_seat_requires_manual_durable_authorization_and_new_key() {
+        let path=temp("p5-manual-retry");
+        let allowance_path=temp("p5-retry-allowance");
+        let ledger=Arc::new(std::sync::Mutex::new(
+            Allowance::open(&allowance_path,"retry-owner").unwrap()));
+        let provider:Arc<dyn Backend>=Arc::new(FailFinanceOnce(
+            std::sync::atomic::AtomicBool::new(true)));
+        let route=PinnedRoute{
+            model:"test/model".into(),provider:"test-provider".into(),
+            input_micro_usd_per_million:1_000_000,
+            output_micro_usd_per_million:5_000_000,
+            reasoning_disabled:true,reasoning_parameter_supported:false,response_model:None,
+        };
+        let mut trial=create_live(&path,"retry",31,"retry-campaign",route.clone(),
+            ledger.clone(),provider.clone()).unwrap();
+        advance_slice(&mut trial).await.unwrap(); // first frozen observation
+        assert!(advance_slice(&mut trial).await.is_err()); // three minister effects; one fails
+        let old_receipts=trial.effects.receipts().len();
+        let old_reservations=ledger.lock().unwrap().calls().len();
+        assert_eq!(old_reservations,3);
+        assert!(advance_slice(&mut trial).await.is_err()); // no operator authorization; no dispatch
+        assert_eq!(old_receipts,trial.effects.receipts().len());
+        assert_eq!(old_reservations,ledger.lock().unwrap().calls().len());
+        assert!(authorize_failed_minister_retry(&trial,crate::EDUCATION).is_err());
+        authorize_failed_minister_retry(&trial,crate::FINANCE).unwrap();
+        assert!(authorize_failed_minister_retry(&trial,crate::FINANCE).is_err());
+        drop(trial);
+        let mut reopened=resume_live(&path,false,route,ledger.clone(),provider).unwrap();
+        assert_eq!(old_reservations,ledger.lock().unwrap().calls().len());
+        advance_slice(&mut reopened).await.unwrap();
+        assert_eq!(reopened.store.world().phase,Phase::AmendmentWindow);
+        assert_eq!(ledger.lock().unwrap().calls().len(),old_reservations+1);
+        let finance_receipts:Vec<_>=reopened.effects.receipts().keys()
+            .filter(|k|k.agent_id==crate::FINANCE).collect();
+        assert_eq!(finance_receipts.len(),2);
+        assert_ne!(finance_receipts[0].logical_step,finance_receipts[1].logical_step);
+        drop(reopened);drop(ledger);
+        assert!(inspect(&path).is_ok());
+        std::fs::remove_dir_all(path).unwrap();
+        std::fs::remove_dir_all(allowance_path).unwrap();
+    }
     #[test]
     fn imaginary_receipt_digest_does_not_bypass_frozen_action_authority() {
         use hiyal::core::World;
