@@ -1,4 +1,6 @@
 //! Private offline P4 verification and microbenchmark CLI.
+use myth_contracts::checkpoint::Phase;
+use hiyal::storage::Durability;
 use myth_hiyal_adapter::orchestrator::{
     advance_slice, benchmark_sequential_cabinet, create, create_stress, inspect, resume,
     run_until_closed,
@@ -84,8 +86,8 @@ async fn benchmark(count: usize, stress: bool) -> Result<(), String> {
                 break;
             }
             let phase = trial.store.world().phase.clone();
-            if phase == "first_positions_frozen"
-                || (phase == "final_positions_frozen"
+            if phase == Phase::FirstPositionsFrozen
+                || (phase == Phase::FinalPositionsFrozen
                     && trial.store.world().final_votes_this_meeting() < 3)
             {
                 for committed_us in benchmark_sequential_cabinet(&mut trial).await? {
@@ -95,7 +97,7 @@ async fn benchmark(count: usize, stress: bool) -> Result<(), String> {
                 let now = Instant::now();
                 advance_slice(&mut trial).await?;
                 let us = now.elapsed().as_micros();
-                if phase == "resolved" {
+                if phase == Phase::Resolved {
                     advances.push(us);
                 }
             }
@@ -104,6 +106,12 @@ async fn benchmark(count: usize, stress: bool) -> Result<(), String> {
             return Err("benchmark trial did not close".into());
         }
         trial.checkpoint()?;
+        // Read the actual configured mode, and perform an independent
+        // explicit fsync probe. This is not proof of every prior syscall.
+        if trial.store.durability()!=Durability::EveryEvent {
+            return Err("EveryEvent durability was not configured".into());
+        }
+        trial.store.sync_log()?;
         let elapsed = start.elapsed();
         let hash = trial.store.world().private_state_sha256.clone();
         if verified_hash.as_ref().is_some_and(|known| known != &hash) {
@@ -152,7 +160,8 @@ async fn benchmark(count: usize, stress: bool) -> Result<(), String> {
             "schema_version":1,"experiment":"P4-B-prime",
             "target_os":env::consts::OS,"target_arch":env::consts::ARCH,
             "logical_cpus":hardware,"rustc":toolchain,
-            "durability":"every_event","fsync":true,
+            "durability":"every_event",
+            "explicit_sync_probe":"succeeded",
             "synthetic_stress_records":if stress{1024}else{0},
             "model_receipts_are_zero_cost_synthetic":true,
             "fake_model_receipts":if stress{96}else{0},
