@@ -733,10 +733,10 @@ name = "myth-local-api"
 version = "0.1.0"
 dependencies = [
  "axum",
+ "futures-util",
  "myth-contracts",
  "myth-domain",
  "myth-hiyal-adapter",
- "futures-util",
  "serde",
  "serde_json",
  "sha2",
