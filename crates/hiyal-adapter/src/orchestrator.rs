@@ -498,7 +498,8 @@ mod tests {
                             message:"one seat failed".into()});
                     }
                 }
-                PlayerCommandTool.resolve(spec).await
+                let backend=PlayerCommandTool;
+                backend.resolve(spec).await
             })
         }
     }
