@@ -421,9 +421,8 @@ impl GameWorld {
         }
         let kind = body["kind"].as_str().ok_or("missing typed command kind")?;
         let valid_phase = match (self.phase, kind) {
-            // Player-chosen audits retain P3 eligibility checks; quarter
-            // continuation is dispatched only by the authorized PERIOD actor.
-            (Phase::QuarterOpen, "propose" | "order_audit") => true,
+            (Phase::QuarterOpen, "defer") if self.quarter > 1 && !self.continuation_pending() => true,
+            (Phase::QuarterOpen, "propose" | "order_audit") if !self.continuation_pending() => true,
             (Phase::AmendmentWindow, "amend") => true,
             (Phase::FinalPositionsFrozen, "ratify" | "defer")
                 if self.final_votes_this_meeting() == 3 =>
@@ -451,6 +450,15 @@ impl GameWorld {
         });
         parse_command(&selected.payload.to_string()).map_err(error)?;
         Ok(selected)
+    }
+    /// Only a recorded Q2+ Defer at QuarterOpen authorizes PERIOD to skip a meeting.
+    pub fn continuation_pending(&self) -> bool {
+        self.phase == Phase::QuarterOpen
+            && self.actions.last().is_some_and(|record| {
+                record.actor == PLAYER.0 as u8
+                    && record.kind == ActionKind::PlayerCommand
+                    && record.payload["command"]["kind"] == "defer"
+            })
     }
     pub fn is_closed(&self) -> bool {
         self.phase == Phase::QuarterClosed
@@ -497,6 +505,9 @@ impl GameWorld {
         let payload: Value;
         let mut role_observation = None;
         if actor == PLAYER {
+            if self.continuation_pending() {
+                return Err("continuation already chosen; only PERIOD may advance".into());
+            }
             kind = ActionKind::PlayerCommand;
             if self.phase == Phase::AmendmentWindow {
                 return Ok(GameAction {
@@ -539,8 +550,8 @@ impl GameWorld {
                 "command_id":format!("{meeting}-player-{}",self.world_version),
                 "expected_world_version":self.world_version,"command":body});
         } else if actor == PERIOD {
-            if !matches!(self.phase, Phase::Resolved | Phase::QuarterOpen) {
-                return Err("period actor not eligible".into());
+            if self.phase != Phase::Resolved && !self.continuation_pending() {
+                return Err("period actor requires resolved meeting or journaled continuation".into());
             }
             kind = ActionKind::PlayerCommand;
             payload = json!({"schema_version":1,"campaign_id":self.campaign_id,

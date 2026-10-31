@@ -929,8 +929,8 @@ pub async fn advance_slice(trial: &mut GameTrial) -> Result<bool, String> {
 /// programme. The PERIOD actor alone advances time; the player never
 /// impersonates the clock. No cabinet meeting is generated or re-ratified.
 pub async fn advance_unmodified_quarter(trial: &mut GameTrial) -> Result<(), String> {
-    if trial.store.world().phase != Phase::QuarterOpen {
-        return Err("unchanged-quarter advance requires an open quarter".into());
+    if !trial.store.world().continuation_pending() {
+        return Err("unchanged-quarter advance requires a committed player choice".into());
     }
     enable(trial, &[PERIOD])?;
     check_step(trial.step().await?)?;

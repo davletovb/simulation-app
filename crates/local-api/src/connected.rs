@@ -68,6 +68,7 @@ pub struct Command {
 pub enum CommandKind {
     AdvanceSlice,
     ContinueQuarter,
+    FinishContinuation,
     Propose {
         allocation: WireAllocation,
     },
@@ -94,7 +95,8 @@ impl CommandKind {
         };
         Ok(match self {
             Self::AdvanceSlice => None,
-            Self::ContinueQuarter => None,
+            Self::ContinueQuarter => Some(json!({"kind":"defer"})),
+            Self::FinishContinuation => None,
             Self::Propose { allocation } => Some(json!({
                 "kind":"propose","meeting_id":meeting,"allocation":allocation,
             })),
@@ -487,6 +489,7 @@ pub struct PublicView {
     pub quarter: u8,
     pub phase: String,
     pub closed: bool,
+    pub continuation_pending: bool,
     pub proposal: Option<Value>,
     pub votes: Vec<PublicVote>,
     pub treasury: PublicTreasury,
@@ -634,6 +637,7 @@ fn capture(trial: &GameTrial) -> Result<PublicView, String> {
         quarter:world.quarter,
         phase:format!("{:?}",world.phase),
         closed:world.is_closed(),
+        continuation_pending:world.continuation_pending(),
         proposal,
         votes,
         treasury:fiscal,
@@ -826,7 +830,7 @@ fn schedule(owner: Arc<Owner>) {
                     Err(error) => Err(error),
                 };
                 let applied = match prepared {
-                    Ok(()) if engine.log.records[pos].kind == CommandKind::ContinueQuarter => {
+                    Ok(()) if engine.log.records[pos].kind == CommandKind::FinishContinuation => {
                         advance_unmodified_quarter(&mut engine.trial).await
                     }
                     Ok(()) => advance_slice(&mut engine.trial).await.map(|_| ()),
@@ -873,6 +877,7 @@ fn schedule(owner: Arc<Owner>) {
                         quarter: 0,
                         phase: "IntegrityFailure".into(),
                         closed: false,
+                        continuation_pending: false,
                         proposal: None,
                         votes: vec![],
                         treasury: PublicTreasury {
@@ -1014,13 +1019,21 @@ async fn command(
     if engine.trial.store.world().is_closed() {
         return Err(status(StatusCode::CONFLICT, "campaign closed"));
     }
-    if request.kind == CommandKind::ContinueQuarter
+    if matches!(request.kind, CommandKind::ContinueQuarter | CommandKind::FinishContinuation)
         && engine.trial.store.world().phase != myth_contracts::checkpoint::Phase::QuarterOpen
     {
-        return Err(status(
-            StatusCode::CONFLICT,
-            "cannot continue an active cabinet meeting",
-        ));
+        return Err(status(StatusCode::CONFLICT, "cannot continue an active cabinet meeting"));
+    }
+    if request.kind == CommandKind::FinishContinuation
+        && !engine.trial.store.world().continuation_pending()
+    {
+        return Err(status(StatusCode::CONFLICT, "no journaled continuation choice"));
+    }
+    if request.kind == CommandKind::ContinueQuarter
+        && (engine.trial.store.world().quarter < 2
+            || engine.trial.store.world().continuation_pending())
+    {
+        return Err(status(StatusCode::CONFLICT, "cannot repeat continuation choice"));
     }
     if let Some(body) = request
         .kind
@@ -2141,7 +2154,9 @@ mod tests {
     #[test]
     fn p7_quarter_continuation_is_an_explicit_typed_player_action() {
         let world = GameWorld::initial("continue-wire").unwrap();
-        assert_eq!(CommandKind::ContinueQuarter.body(&world).unwrap(), None);
+        assert_eq!(CommandKind::ContinueQuarter.body(&world).unwrap(),
+            Some(json!({"kind":"defer"})));
+        assert_eq!(CommandKind::FinishContinuation.body(&world).unwrap(), None);
     }
     #[tokio::test]
     async fn p7_two_fundable_resolutions_remain_distinct_when_programmes_continue() {
@@ -2218,7 +2233,12 @@ mod tests {
                     drop(owner);
                 }
                 let (kind, n) = step(CommandKind::ContinueQuarter);
+                let chosen = accepted_step(&service, id, kind, n).await;
+                assert!(chosen.continuation_pending);
+                assert_eq!(chosen.delivery_history.len(), quarter as usize - 1);
+                let (kind, n) = step(CommandKind::FinishContinuation);
                 let next = accepted_step(&service, id, kind, n).await;
+                assert!(!next.continuation_pending);
                 assert_eq!(next.delivery_history.len(), quarter as usize);
             }
             let owner = service.owner(id).unwrap();
