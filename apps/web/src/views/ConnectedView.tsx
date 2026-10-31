@@ -111,7 +111,7 @@ function makeCommandId(): string {
 
 /** Connected P6 panel. Rust alone owns all world changes and committed reports.
  * This preview cannot dispatch OpenRouter calls and cannot interpret rules. */
-type PlayerCommand = { kind: 'advance_slice' } | { kind:'propose' | 'amend'; allocation:Allocation } |
+type PlayerCommand = { kind: 'advance_slice' | 'continue_quarter' } | { kind:'propose' | 'amend'; allocation:Allocation } |
   {kind:'decide';ratify:boolean} |
   {kind:'order_audit';family:'staffing'|'repairs'|'access';inspected_quarter:number}
 interface Pending {id:string;version:string;action:PlayerCommand}
@@ -351,6 +351,9 @@ export function ConnectedView({allocation}:{allocation:Allocation}) {
                 Retry existing command ID</ActionButton>
             ) : (
               <>
+                {snapshot.phase === 'QuarterOpen' && snapshot.quarter > 1 &&
+                  <ActionButton onClick={() => void advance({kind:'continue_quarter'})}>
+                    Continue existing programme; advance quarter</ActionButton>}
                 {snapshot.phase === 'QuarterOpen' && <ActionButton tone="primary"
                   disabled={draftStatus(allocation)!=='valid' || !exactAllocation(allocation,snapshot.treasury.available_credits)}
                   onClick={() => void advance({kind:'propose',allocation})}>Submit draft proposal</ActionButton>}
@@ -400,6 +403,10 @@ export function ConnectedView({allocation}:{allocation:Allocation}) {
           {current?.operation && <p className="connected-assumptions">
             Last operation: {current.operation.command_id} · {current.operation.status}
           </p>}
+          <p className="connected-assumptions">In Q2–Q6, choose either a new funded proposal
+            (with a fresh vote) or continue the existing programme unchanged.
+            Continuing advances delivery and deadlines without a new meeting;
+            approved but undelivered allocations do not reset each quarter.</p>
           <p className="connected-assumptions">Only the Rust service can commit actions. This scripted path does not yet accept custom policy cards or run Experiment C′.</p>
         </>
       )}

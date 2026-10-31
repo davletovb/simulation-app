@@ -62,6 +62,7 @@ pub struct Command {
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum CommandKind {
     AdvanceSlice,
+    ContinueQuarter,
     Propose { allocation: WireAllocation },
     Amend { allocation: WireAllocation },
     Decide { ratify: bool },
@@ -79,6 +80,7 @@ impl CommandKind {
         };
         Ok(match self {
             Self::AdvanceSlice => None,
+            Self::ContinueQuarter => Some(json!({"kind":"advance_quarter"})),
             Self::Propose { allocation } => Some(json!({
                 "kind":"propose","meeting_id":meeting,"allocation":allocation,
             })),
@@ -1996,6 +1998,14 @@ mod tests {
         assert_eq!(
             body,
             json!({"kind":"order_audit","family":"repairs","inspected_quarter":2})
+        );
+    }
+    #[test]
+    fn p7_quarter_continuation_is_an_explicit_typed_player_action() {
+        let world = GameWorld::initial("continue-wire").unwrap();
+        assert_eq!(
+            CommandKind::ContinueQuarter.body(&world).unwrap(),
+            Some(json!({"kind":"advance_quarter"}))
         );
     }
     #[tokio::test]
