@@ -898,7 +898,7 @@ mod tests {
         let path = temp("tool");
         let trial = create(&path, "tool-receipt", 44).unwrap();
         let obs = trial.store.world().observe(PLAYER).unwrap();
-        let spec = GamePolicy::specification(&obs).unwrap();
+        let spec = GamePolicy::default().specification(&obs).unwrap();
         assert_eq!(spec.len(), 1);
         let backend = PlayerCommandTool;
         let result = backend.resolve(&spec[0]).await.unwrap();
@@ -982,4 +982,82 @@ mod tests {
         );
         std::fs::remove_dir_all(path).unwrap();
     }
+    struct FakeDisagreeingCabinet;
+    impl Backend for FakeDisagreeingCabinet {
+        fn resolve<'a>(&'a self, spec: &'a EffectSpec) -> BoxResult<'a> {
+            Box::pin(async move {
+                let EffectSpec::Model(model) = spec else { return Err("not a model effect".into()); };
+                let raw = model.messages.last().ok_or("no role context")?.content
+                    .split_once('\n').ok_or("missing role context")?.1;
+                let view: serde_json::Value = serde_json::from_str(raw)
+                    .map_err(|_| "bad frozen role view")?;
+                let first = model.response_format.as_ref().is_some_and(|f|
+                    f["json_schema"]["name"].as_str().is_some_and(|s| s.starts_with("myth_first_")));
+                let ministry=view["ministry"].as_str().ok_or("missing seat")?;
+                let mut action=serde_json::json!({
+                    "schema_version":1,"stage":if first {"first"} else {"final"},
+                    "meeting_id":view["meeting_id"],
+                    "proposal_version":view["proposal_version"],
+                    "ministry":ministry,
+                    "position":if ministry=="finance"{"support"}else{"oppose"},
+                    "preferred_allocation":view["allocation"],
+                    "conditions":[],"evidence_ids":[],
+                    "rationale_summary":"Independent fictional cabinet assessment"
+                });
+                if first { action["counterproposal_source"]=serde_json::json!({"kind":"new_typed"}); }
+                else if ministry!="finance" {
+                    action["implementation_effort_permille"]=serde_json::json!(800);
+                }
+                Ok(EffectResult::Model {
+                    content:action.to_string(),effective_model:model.model.clone(),usage:None,
+                })
+            })
+        }
+    }
+    #[tokio::test]
+    async fn fake_cabinet_decisions_change_policy_and_replay_after_restart() {
+        use crate::p5_allowance::{Allowance,PinnedRoute};
+        let control=temp("p5-control");
+        let path=temp("p5-model-trial");
+        let ledger_dir=temp("p5-allowance");
+        let mut baseline=create_world(&control,"baseline",97,GameWorld::initial("cabinet-test").unwrap()).unwrap();
+        run_until_closed(&mut baseline).await.unwrap();
+        let scripted=baseline.store.world().actions.iter()
+            .filter(|a| a.payload["command"]["kind"]=="ratify").count();
+        assert!(scripted>0);
+        drop(baseline);
+        let allowance=Arc::new(std::sync::Mutex::new(Allowance::open(&ledger_dir,"test").unwrap()));
+        let provider:Arc<dyn Backend>=Arc::new(FakeDisagreeingCabinet);
+        let route=PinnedRoute{
+            model:"test/model".into(),provider:"test-provider".into(),
+            input_micro_usd_per_million:1_000_000,
+            output_micro_usd_per_million:5_000_000,reasoning_disabled:true
+        };
+        let mut trial=create_live(&path,"fake-model",97,"cabinet-test",route.clone(),allowance.clone(),provider.clone()).unwrap();
+        advance_slice(&mut trial).await.unwrap();
+        advance_slice(&mut trial).await.unwrap();
+        assert_eq!(trial.store.world().phase,Phase::AmendmentWindow);
+        let reservations=allowance.lock().unwrap().calls().len();
+        let remaining=allowance.lock().unwrap().remaining_micro_usd().unwrap();
+        drop(trial);
+        let mut resumed=resume_live(&path,false,route,allowance.clone(),provider).unwrap();
+        assert_eq!(allowance.lock().unwrap().calls().len(),reservations);
+        assert_eq!(allowance.lock().unwrap().remaining_micro_usd().unwrap(),remaining);
+        run_until_closed(&mut resumed).await.unwrap();
+        let modeled=resumed.store.world().actions.iter().filter(|a|
+            a.payload["command"]["kind"]=="ratify").count();
+        assert_eq!(modeled,0);
+        assert_eq!(resumed.store.world().actions.iter().filter(|a|
+            a.kind==ActionKind::MinisterAction && a.model_receipt_digest.is_some()).count(),36);
+        let hash=resumed.store.world().private_state_sha256.clone();
+        drop(resumed);
+        assert_eq!(inspect(&path).unwrap().0,hash);
+        let replay=resume(&path,true).unwrap();
+        assert_eq!(replay.store.world().private_state_sha256,hash);
+        drop(replay);drop(allowance);
+        std::fs::remove_dir_all(control).unwrap();
+        std::fs::remove_dir_all(path).unwrap();
+        std::fs::remove_dir_all(ledger_dir).unwrap();
+    }
+
 }
