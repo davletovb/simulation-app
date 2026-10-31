@@ -383,8 +383,8 @@ fn minister_scope(world: &GameWorld) -> Scope {
         batch_id: None,
     }
 }
-fn live_governor(backend: Arc<SharedAdmissionBackend>) -> Result<Arc<dyn Backend>, String> {
-    let governed = governed_trial(backend)
+fn live_governor(provider: Arc<dyn Backend>) -> Result<Arc<dyn Backend>, String> {
+    let governed = governed_trial(provider)
         .allow_tool(
             "player_command",
             ToolRule {
@@ -408,13 +408,14 @@ pub fn create_live(
     provider: Arc<dyn Backend>,
 ) -> Result<GameTrial, String> {
     let world = GameWorld::initial(campaign_id)?;
+    let governor = live_governor(provider)?;
     let admitted = Arc::new(SharedAdmissionBackend::new(
         ledger,
-        provider,
+        governor,
         route.clone(),
         minister_scope(&world),
     )?);
-    let governor = live_governor(admitted.clone())?;
+
     let mut inner = Trial::create(
         dir,
         name,
@@ -425,7 +426,7 @@ pub fn create_live(
             live_route: Some(route),
             ..GamePolicy::default()
         },
-        governor,
+        admitted.clone(),
         ACTORS.to_vec(),
         Scheduling::RoundRobin,
     )?;
@@ -447,13 +448,14 @@ pub fn resume_live(
 ) -> Result<GameTrial, String> {
     let persisted = hiyal::storage::Store::<GameWorld, GameAction>::inspect_read_only(dir)?;
     persisted.world.verify()?;
+    let governor = live_governor(provider)?;
     let admitted = Arc::new(SharedAdmissionBackend::new(
         ledger,
-        provider,
+        governor,
         route.clone(),
         minister_scope(&persisted.world),
     )?);
-    let governor = live_governor(admitted.clone())?;
+
     let mut inner = Trial::resume(
         dir,
         WORLD_KIND,
@@ -461,7 +463,7 @@ pub fn resume_live(
             live_route: Some(route),
             ..GamePolicy::default()
         },
-        governor,
+        admitted.clone(),
         replay_only,
     )?;
     inner.store.set_durability(Durability::EveryEvent)?;
