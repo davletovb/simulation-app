@@ -1,5 +1,5 @@
-import {useQuery} from '@tanstack/react-query'
-import {CACHE_KEY,loadSnapshot} from './ConnectedView'
+import {useQuery,useQueryClient} from '@tanstack/react-query'
+import {CACHE_KEY,fetchCommitted} from './ConnectedView'
 import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent } from 'react'
 import { OFFLINE_PILOT } from '../contracts'
 import {
@@ -181,7 +181,8 @@ export function CommandView({ allocation, onChange }: {
 }) {
   const setFamily = (family: Family, value: number) => onChange({ ...allocation, [family]: value })
   const preview = usePreview(allocation)
-  const {data:committedView}=useQuery({queryKey:CACHE_KEY,queryFn:loadSnapshot,staleTime:2000})
+  const cache=useQueryClient()
+  const {data:committedView}=useQuery({queryKey:CACHE_KEY,queryFn:()=>fetchCommitted(cache),staleTime:2000})
   const snapshot=committedView?.snapshot
   const budget=snapshot?.treasury.available_credits??OFFLINE_PILOT.credits
 
