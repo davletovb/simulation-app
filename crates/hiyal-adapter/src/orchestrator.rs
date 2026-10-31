@@ -375,6 +375,33 @@ pub fn resume(dir: &Path, replay_only: bool) -> Result<GameTrial, String> {
     })
 }
 
+/// Persist the pinned live route in the private trial directory. Hiyal's
+/// own immutable per-trial BudgetConfig is separately checked on resume.
+fn bind_live_route(dir: &Path, route: &PinnedRoute, creating: bool) -> Result<(), String> {
+    route.validate()?;
+    let path = dir.join("p5-route.json");
+    let bytes = serde_json::to_vec(route).map_err(|_| "invalid route metadata")?;
+    if bytes.len() > 4096 {
+        return Err("route metadata oversized".into());
+    }
+    if creating {
+        let mut file = std::fs::OpenOptions::new()
+            .write(true).create_new(true).open(&path)
+            .map_err(|_| "could not create immutable live route")?;
+        use std::io::Write;
+        file.write_all(&bytes).map_err(|_| "could not persist live route")?;
+        file.sync_all().map_err(|_| "could not sync live route")?;
+        #[cfg(unix)]
+        std::fs::File::open(dir).and_then(|f| f.sync_all())
+            .map_err(|_| "could not sync live route directory")?;
+    } else {
+        let saved = std::fs::read(path).map_err(|_| "missing immutable live route")?;
+        if saved != bytes {
+            return Err("live route or pricing differs from saved trial".into());
+        }
+    }
+    Ok(())
+}
 fn minister_scope(world: &GameWorld) -> Scope {
     Scope {
         purpose: Purpose::Minister,
@@ -416,6 +443,7 @@ pub fn create_live(
         minister_scope(&world),
     )?);
 
+    let route_for_binding = route.clone();
     let mut inner = Trial::create(
         dir,
         name,
@@ -431,6 +459,7 @@ pub fn create_live(
         Scheduling::RoundRobin,
     )?;
     inner.store.set_durability(Durability::EveryEvent)?;
+    bind_live_route(dir, &route_for_binding, true)?;
     Ok(GameTrial {
         inner,
         paused: BTreeSet::new(),
@@ -446,6 +475,7 @@ pub fn resume_live(
     ledger: Arc<std::sync::Mutex<Allowance>>,
     provider: Arc<dyn Backend>,
 ) -> Result<GameTrial, String> {
+    bind_live_route(dir, &route, false)?;
     let persisted = hiyal::storage::Store::<GameWorld, GameAction>::inspect_read_only(dir)?;
     persisted.world.verify()?;
     let governor = live_governor(provider)?;
@@ -1088,6 +1118,9 @@ mod tests {
         let reservations = allowance.lock().unwrap().calls().len();
         let remaining = allowance.lock().unwrap().remaining_micro_usd().unwrap();
         drop(trial);
+        let mut different = route.clone();
+        different.output_micro_usd_per_million = 4_000_000;
+        assert!(resume_live(&path, false, different, allowance.clone(), provider.clone()).is_err());
         let mut resumed = resume_live(&path, false, route, allowance.clone(), provider).unwrap();
         assert_eq!(allowance.lock().unwrap().calls().len(), reservations);
         assert_eq!(
