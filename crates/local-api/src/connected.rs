@@ -1248,58 +1248,78 @@ mod tests {
         fs::remove_dir_all(dir).unwrap();
     }
     #[tokio::test]
-    async fn p6_offline_metrics_without_model_calls(){
-        let dir=root();
-        let started=std::time::Instant::now();
-        let service=Connected::new(dir.clone()).unwrap();
-        let owner=service.owner("metrics").unwrap();
-        let create_ms=started.elapsed().as_millis();
-        let preview_started=std::time::Instant::now();
-        let allocation=WireAllocation{staff:50,repairs:40,access:10};
-        let forecast=crate::forecast(crate::AllocationRequest{
-            allocation:allocation.clone(),
-        }).unwrap();
-        assert_eq!(forecast.calculator,"myth_domain");
-        let preview_ms=preview_started.elapsed().as_millis();
-        let commit_started=std::time::Instant::now();
-        let result=accepted_step(&service,"metrics",
-            CommandKind::Propose{allocation},1).await;
-        let commit_ms=commit_started.elapsed().as_millis();
-        assert_eq!(result.phase,"FirstPositionsFrozen");
-        let replay_started=std::time::Instant::now();
-        let verified=inspect(&owner.engine.lock().await.trial.store.dir).unwrap();
-        let full_verification_ms=replay_started.elapsed().as_millis();
-        assert_eq!(verified.2.to_string(),result.cursor);
-        drop(owner);drop(service);
-        let restore_started=std::time::Instant::now();
-        let recovered=Connected::new(dir.clone()).unwrap();
-        let reopened=recovered.owner("metrics").unwrap();
-        let saved=capture(&reopened.engine.lock().await.trial).unwrap();
-        let restore_ms=restore_started.elapsed().as_millis();
-        assert_eq!(saved.cursor,result.cursor);
-        println!("{}",serde_json::json!({
-            "gate":"P6 offline performance (not live Experiment C-prime)",
-            "create_ms":create_ms,
-            "preview_ms":preview_ms,
-            "command_accept_commit_wait_ms":commit_ms,
-            "strict_full_verification_ms":full_verification_ms,
-            "restore_and_snapshot_ms":restore_ms,
-            "actual_model_calls":0,
-            "model_usage_or_billing_measured":false,
-            "local_external_infrastructure_cost_usd":0,
-        }));
-        drop(reopened);drop(recovered);fs::remove_dir_all(dir).unwrap();
+    async fn p6_offline_metrics_without_model_calls() {
+        let dir = root();
+        let started = std::time::Instant::now();
+        let service = Connected::new(dir.clone()).unwrap();
+        let owner = service.owner("metrics").unwrap();
+        let create_ms = started.elapsed().as_millis();
+        let preview_started = std::time::Instant::now();
+        let allocation = WireAllocation {
+            staff: 50,
+            repairs: 40,
+            access: 10,
+        };
+        let forecast = crate::forecast(crate::AllocationRequest {
+            allocation: allocation.clone(),
+        })
+        .unwrap();
+        assert_eq!(forecast.calculator, "myth_domain");
+        let preview_ms = preview_started.elapsed().as_millis();
+        let commit_started = std::time::Instant::now();
+        let result =
+            accepted_step(&service, "metrics", CommandKind::Propose { allocation }, 1).await;
+        let commit_ms = commit_started.elapsed().as_millis();
+        assert_eq!(result.phase, "FirstPositionsFrozen");
+        let replay_started = std::time::Instant::now();
+        let verified = inspect(&owner.engine.lock().await.trial.store.dir).unwrap();
+        let full_verification_ms = replay_started.elapsed().as_millis();
+        assert_eq!(verified.2.to_string(), result.cursor);
+        drop(owner);
+        drop(service);
+        let restore_started = std::time::Instant::now();
+        let recovered = Connected::new(dir.clone()).unwrap();
+        let reopened = recovered.owner("metrics").unwrap();
+        let saved = capture(&reopened.engine.lock().await.trial).unwrap();
+        let restore_ms = restore_started.elapsed().as_millis();
+        assert_eq!(saved.cursor, result.cursor);
+        println!(
+            "{}",
+            serde_json::json!({
+                "gate":"P6 offline performance (not live Experiment C-prime)",
+                "create_ms":create_ms,
+                "preview_ms":preview_ms,
+                "command_accept_commit_wait_ms":commit_ms,
+                "strict_full_verification_ms":full_verification_ms,
+                "restore_and_snapshot_ms":restore_ms,
+                "actual_model_calls":0,
+                "model_usage_or_billing_measured":false,
+                "local_external_infrastructure_cost_usd":0,
+            })
+        );
+        drop(reopened);
+        drop(recovered);
+        fs::remove_dir_all(dir).unwrap();
     }
     #[tokio::test]
-    async fn mid_round_receipt_panic_restarts_without_duplicate_minister_actions(){
-        let dir=root();
-        let service=Connected::new(dir.clone()).unwrap();
-        accepted_step(&service,"mid-round",
-            CommandKind::Propose{allocation:WireAllocation{
-                staff:50,repairs:40,access:10,
-            }},1).await;
-        let owner=service.owner("mid-round").unwrap();
-        owner.engine.lock().await.trial.policy.fail_role_once=Some((
+    async fn mid_round_receipt_panic_restarts_without_duplicate_minister_actions() {
+        let dir = root();
+        let service = Connected::new(dir.clone()).unwrap();
+        accepted_step(
+            &service,
+            "mid-round",
+            CommandKind::Propose {
+                allocation: WireAllocation {
+                    staff: 50,
+                    repairs: 40,
+                    access: 10,
+                },
+            },
+            1,
+        )
+        .await;
+        let owner = service.owner("mid-round").unwrap();
+        owner.engine.lock().await.trial.policy.fail_role_once = Some((
             myth_hiyal_adapter::EDUCATION,
             Arc::new(AtomicBool::new(true)),
         ));
