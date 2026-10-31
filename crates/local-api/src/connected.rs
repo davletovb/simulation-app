@@ -63,10 +63,19 @@ pub struct Command {
 pub enum CommandKind {
     AdvanceSlice,
     ContinueQuarter,
-    Propose { allocation: WireAllocation },
-    Amend { allocation: WireAllocation },
-    Decide { ratify: bool },
-    OrderAudit { family: myth_contracts::Family, inspected_quarter: u8 },
+    Propose {
+        allocation: WireAllocation,
+    },
+    Amend {
+        allocation: WireAllocation,
+    },
+    Decide {
+        ratify: bool,
+    },
+    OrderAudit {
+        family: myth_contracts::Family,
+        inspected_quarter: u8,
+    },
 }
 impl CommandKind {
     fn body(&self, world: &GameWorld) -> Result<Option<Value>, String> {
@@ -94,7 +103,10 @@ impl CommandKind {
                 "proposal_version":proposal_version()?,
             })),
             Self::Decide { ratify: false } => Some(json!({"kind":"defer"})),
-            Self::OrderAudit { family, inspected_quarter } => Some(json!({
+            Self::OrderAudit {
+                family,
+                inspected_quarter,
+            } => Some(json!({
                 "kind": "order_audit",
                 "family": family,
                 "inspected_quarter": inspected_quarter,
