@@ -12,7 +12,15 @@ export function newer(old, next) {
     throw new Error('Conflicting view version at one committed cursor')
   }
   if (b === a) {
-    return {snapshot:old.snapshot,operation:next.operation ?? old.operation}
+    const previous = old.operation
+    const incoming = next.operation
+    // A duplicated or out-of-order SSE frame must not regress a durable
+    // operation from completed/failed back to accepted at one boundary.
+    const operation = previous && incoming &&
+      previous.command_id === incoming.command_id &&
+      previous.status !== 'accepted' && incoming.status === 'accepted'
+      ? previous : incoming ?? previous
+    return {snapshot:old.snapshot,operation}
   }
   return next
 }
