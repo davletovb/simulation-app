@@ -497,6 +497,19 @@ impl Connected {
             .try_lock()
             .map_err(|_| "another simulation API process already owns this save directory")?;
         let _writer_lock = Arc::new(lock_file);
+        // With the process-wide writer lock held, interrupted staging from
+        // a killed previous owner cannot be live. Remove only our bounded
+        // hidden fork-stage directories, never published campaign journals.
+        for entry in fs::read_dir(&root).map_err(|_| "cannot scan private campaign root")? {
+            let entry = entry.map_err(|_| "cannot scan fork staging")?;
+            let name = entry.file_name();
+            let Some(name) = name.to_str() else { continue };
+            if name.starts_with('.') && name.ends_with(".fork-stage")
+                && entry.file_type().map_err(|_| "cannot inspect fork staging")?.is_dir()
+            {
+                fs::remove_dir_all(entry.path()).map_err(|_| "cannot clean interrupted fork staging")?;
+            }
+        }
         Ok(Arc::new(Self {
             root,
             owners: Mutex::new(BTreeMap::new()),
@@ -1048,9 +1061,7 @@ async fn fork(
         // Do not copy unverified output, temp artifacts, locks or auth secrets.
         // Only the Hiyal manifest, exact journal and optional verified snapshot
         // and receipts are eligible for a bounded local offline fork.
-        let stage = service
-            .root
-            .join(format!(".{}.fork-stage", request.branch_id));
+        let stage = root.join(format!(".{}.fork-stage", request.branch_id));
         fs::create_dir(&stage).map_err(|_| {
             status(
                 StatusCode::CONFLICT,
@@ -1184,6 +1195,42 @@ mod tests {
         let recovered = Connected::new(path.clone()).unwrap();
         drop(recovered);
         fs::remove_dir_all(path).unwrap();
+    }
+    #[test]
+    fn uncommitted_fork_stage_is_cleaned_on_error_or_restart() {
+        let dir = root();
+        let service = Connected::new(dir.clone()).unwrap();
+        let stage = dir.join(".fork-test.fork-stage");
+        fs::create_dir(&stage).unwrap();
+        let guard = ForkStageGuard { path: stage.clone(), active: true };
+        fs::write(stage.join("events.jsonl"), b"partial").unwrap();
+        drop(guard);
+        assert!(!stage.exists());
+        // Simulated SIGKILL: no Drop handler ran, but exclusive ownership on
+        // restart may remove only the unpublished staging directory.
+        fs::create_dir(&stage).unwrap();
+        fs::write(stage.join("events.jsonl"), b"partial").unwrap();
+        drop(service);
+        let resumed = Connected::new(dir.clone()).unwrap();
+        assert!(!stage.exists());
+        drop(resumed);
+        fs::remove_dir_all(dir).unwrap();
+    }
+    #[tokio::test]
+    async fn unknown_campaign_reads_do_not_create_state() {
+        let dir = root();
+        let service = Connected::new(dir.clone()).unwrap();
+        match snapshot(State(service.clone()), Path("missing".into())).await {
+            Err((code, _)) => assert_eq!(code, StatusCode::NOT_FOUND),
+            Ok(_) => panic!("unknown read unexpectedly created a campaign"),
+        }
+        assert!(!dir.join("missing").exists());
+        let (code, Json(created)) = create(State(service.clone()), Path("missing".into())).await.unwrap();
+        assert_eq!(code, StatusCode::CREATED);
+        assert_eq!(created.snapshot.cursor, "0");
+        assert!(dir.join("missing").is_dir());
+        drop(service);
+        fs::remove_dir_all(dir).unwrap();
     }
     #[tokio::test]
     async fn durable_idempotency_and_scoped_recovery() {
