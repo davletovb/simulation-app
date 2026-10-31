@@ -85,7 +85,7 @@ async fn benchmark(count: usize, stress: bool) -> Result<(), String> {
             if trial.store.world().is_closed() {
                 break;
             }
-            let phase = trial.store.world().phase.clone();
+            let phase = trial.store.world().phase;
             if phase == Phase::FirstPositionsFrozen
                 || (phase == Phase::FinalPositionsFrozen
                     && trial.store.world().final_votes_this_meeting() < 3)
