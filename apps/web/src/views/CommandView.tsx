@@ -1,3 +1,5 @@
+import {useQuery} from '@tanstack/react-query'
+import {CACHE_KEY,loadSnapshot} from './ConnectedView'
 import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent } from 'react'
 import { OFFLINE_PILOT } from '../contracts'
 import {
@@ -13,8 +15,9 @@ import {parseExactBudget} from '../exactBudget.mjs'
 
 type CardChoice = PolicyCard | 'custom'
 
-function PolicyHand({ allocation, onPick }: {
+function PolicyHand({ allocation, budget, onPick }: {
   allocation: Allocation
+  budget: number
   onPick: (card: PolicyCard) => void
 }) {
   const refs = useRef<(HTMLButtonElement | null)[]>([])
@@ -46,7 +49,7 @@ function PolicyHand({ allocation, onPick }: {
         const isCustom = choice === 'custom'
         // The custom card mirrors the draft only while it is the active choice.
         const cardAllocation = !isCustom ? choice.allocation : checked ? allocation : null
-        const over = cardAllocation !== null && committed(cardAllocation) > OFFLINE_PILOT.credits
+        const over = cardAllocation !== null && committed(cardAllocation) > budget
         return (
           <button key={isCustom ? 'custom' : choice.id} ref={el => { refs.current[index] = el }}
             type="button" role="radio" aria-checked={checked} tabIndex={checked ? 0 : -1}
@@ -79,12 +82,13 @@ function PolicyHand({ allocation, onPick }: {
   )
 }
 
-function FamilyControl({ family, value, onChange }: {
+function FamilyControl({ family, value, budget, onChange }: {
   family: FamilyInfo
   value: number
+  budget: number
   onChange: (next: number) => void
 }) {
-  const max = OFFLINE_PILOT.credits
+  const max = budget
   const [draft, setDraft] = useState(() => String(value))
   const [invalid, setInvalid] = useState(false)
   useEffect(() => { setDraft(String(value)); setInvalid(false) }, [value])
@@ -177,13 +181,16 @@ export function CommandView({ allocation, onChange }: {
 }) {
   const setFamily = (family: Family, value: number) => onChange({ ...allocation, [family]: value })
   const preview = usePreview(allocation)
+  const {data:committedView}=useQuery({queryKey:CACHE_KEY,queryFn:loadSnapshot,staleTime:2000})
+  const snapshot=committedView?.snapshot
+  const budget=snapshot?.treasury.available_credits??OFFLINE_PILOT.credits
 
   return (
     <>
       <header className="view-head">
-        <p className="kicker">{QUARTERS[0]?.label} · Opening move</p>
-        <h1>Choose your opening package</h1>
-        <p>Play a policy card or build your own split of the {OFFLINE_PILOT.credits} pilot credits. They must last
+        <p className="kicker">{snapshot ? `Quarter ${snapshot.quarter} · ${snapshot.phase}` : QUARTERS[0]?.label} · Local campaign</p>
+        <h1>Choose your policy package</h1>
+        <p>Play a policy card or build your own split of the {budget} currently available credits. The campaign began with {OFFLINE_PILOT.credits} credits; they must last
           all {OFFLINE_PILOT.total_quarters} quarters, so anything you hold back can fund later packages or audits.</p>
       </header>
 
@@ -193,18 +200,18 @@ export function CommandView({ allocation, onChange }: {
             <h2 id="hand-title">Policy cards</h2>
             <span className="hint">Arrow keys to browse</span>
           </div>
-          <PolicyHand allocation={allocation} onPick={card => onChange(card.allocation)} />
+          <PolicyHand allocation={allocation} budget={budget} onPick={card => onChange(card.allocation)} />
         </section>
 
         <section className="panel draft" aria-labelledby="draft-title">
           <div className="panel-head">
             <h2 id="draft-title">Draft package</h2>
-            <span className="tag">Not submitted</span>
+            <span className="tag">{snapshot?.phase === 'AmendmentWindow' ? 'Amendment draft' : 'Not submitted'}</span>
           </div>
-          <CreditMeter allocation={allocation} />
+          <CreditMeter allocation={allocation} budget={budget} />
           <div className="families">
             {FAMILIES.map(f => (
-              <FamilyControl key={f.id} family={f} value={allocation[f.id]} onChange={v => setFamily(f.id, v)} />
+              <FamilyControl key={f.id} family={f} value={allocation[f.id]} budget={budget} onChange={v => setFamily(f.id, v)} />
             ))}
           </div>
           <Pressures allocation={allocation} preview={preview} />
@@ -220,7 +227,7 @@ export function CommandView({ allocation, onChange }: {
             </button>
           </div>
           <p id="cta-why" className="cta-why">
-            Submit the chosen allocation using the connected decision controls above. The Rust service checks the actual treasury, records scripted minister positions and can ratify or defer a proposal. This panel is an illustrative drafting preview.
+            Submit the chosen allocation using the connected decision controls above. If this budget exceeds the saved treasury balance, adjust your split first. The Rust service checks the actual treasury, records scripted minister positions and can ratify or defer a proposal. This panel is an illustrative drafting preview.
           </p>
         </section>
 
