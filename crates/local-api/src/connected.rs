@@ -16,7 +16,7 @@ use myth_contracts::Allocation as WireAllocation;
 use myth_domain::PolicyFamily;
 use myth_hiyal_adapter::{
     ActionKind, GameWorld,
-    orchestrator::{GameTrial, advance_slice, create_campaign, inspect, resume},
+    orchestrator::{GameTrial, advance_slice, create_campaign, inspect, resume, run_until_closed},
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -1966,6 +1966,49 @@ mod tests {
             assert!(!payload.contains(secret), "private field escaped: {secret}");
         }
         drop(service);
+        fs::remove_dir_all(dir).unwrap();
+    }
+    #[tokio::test]
+    async fn p7_complete_scripted_campaign_reports_exactly_six_quarters_and_replays() {
+        let dir = root();
+        let service = Connected::new(dir.clone()).unwrap();
+        let owner = service.owner("six-report").unwrap();
+        let final_view;
+        let saved_hash;
+        {
+            let mut engine = owner.engine.lock().await;
+            run_until_closed(&mut engine.trial).await.unwrap();
+            final_view = capture_for(&engine.trial, "six-report").unwrap();
+            assert!(final_view.closed);
+            assert_eq!(final_view.quarter, 6);
+            assert_eq!(final_view.delivery_history.len(), 6);
+            assert_eq!(
+                final_view.delivery_history.iter().map(|r| r.quarter).collect::<Vec<_>>(),
+                vec![1, 2, 3, 4, 5, 6]
+            );
+            assert_eq!(final_view.news.len(), 3);
+            assert_eq!(final_view.comparison.mode, "exact_recorded_actions");
+            let t = &final_view.treasury;
+            assert_eq!(
+                u32::from(t.available_credits) + u32::from(t.encumbered_staff)
+                    + u32::from(t.encumbered_repairs) + u32::from(t.encumbered_access)
+                    + u32::from(t.service_spent) + u32::from(t.audit_spent),
+                100
+            );
+            saved_hash = inspect(&engine.trial.store.dir).unwrap().0;
+        }
+        drop(owner);
+        drop(service);
+        assert_eq!(inspect(&dir.join("six-report")).unwrap().0, saved_hash);
+        let reopened = Connected::new(dir.clone()).unwrap();
+        let restored = reopened.owner("six-report").unwrap();
+        let view = capture_for(&restored.engine.lock().await.trial, "six-report").unwrap();
+        assert_eq!(view.cursor, final_view.cursor);
+        assert_eq!(view.view_version, final_view.view_version);
+        assert_eq!(view.delivery_history.len(), 6);
+        assert_eq!(view.treasury.service_spent, final_view.treasury.service_spent);
+        drop(restored);
+        drop(reopened);
         fs::remove_dir_all(dir).unwrap();
     }
     #[tokio::test]
