@@ -198,12 +198,12 @@ pub struct PublicVote {
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct PublicTreasury {
-    pub available_credits:u16,
-    pub encumbered_staff:u16,
-    pub encumbered_repairs:u16,
-    pub encumbered_access:u16,
-    pub service_spent:u16,
-    pub audit_spent:u16,
+    pub available_credits: u16,
+    pub encumbered_staff: u16,
+    pub encumbered_repairs: u16,
+    pub encumbered_access: u16,
+    pub service_spent: u16,
+    pub audit_spent: u16,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct PublicView {
@@ -261,15 +261,15 @@ fn capture(trial: &GameTrial) -> Result<PublicView, String> {
             });
         }
     }
-    let campaign=world.fold()?;
-    let treasury=campaign.world().treasury();
-    let fiscal=PublicTreasury {
-        available_credits:treasury.available(),
-        encumbered_staff:treasury.encumbered(PolicyFamily::Staffing),
-        encumbered_repairs:treasury.encumbered(PolicyFamily::Repairs),
-        encumbered_access:treasury.encumbered(PolicyFamily::Access),
-        service_spent:treasury.service_spent(),
-        audit_spent:treasury.audit_spent(),
+    let campaign = world.fold()?;
+    let treasury = campaign.world().treasury();
+    let fiscal = PublicTreasury {
+        available_credits: treasury.available(),
+        encumbered_staff: treasury.encumbered(PolicyFamily::Staffing),
+        encumbered_repairs: treasury.encumbered(PolicyFamily::Repairs),
+        encumbered_access: treasury.encumbered(PolicyFamily::Access),
+        service_spent: treasury.service_spent(),
+        audit_spent: treasury.audit_spent(),
     };
     Ok(PublicView{
         schema_version:1,
@@ -454,9 +454,12 @@ fn schedule(owner: Arc<Owner>) {
                         proposal: None,
                         votes: vec![],
                         treasury: PublicTreasury {
-                            available_credits:0, encumbered_staff:0,
-                            encumbered_repairs:0, encumbered_access:0,
-                            service_spent:0,audit_spent:0,
+                            available_credits: 0,
+                            encumbered_staff: 0,
+                            encumbered_repairs: 0,
+                            encumbered_access: 0,
+                            service_spent: 0,
+                            audit_spent: 0,
                         },
                         outcome: None,
                         assumption: "Offline verification failed".into(),
