@@ -1,6 +1,6 @@
 # P4 — Hiyal integration and recovery verification (review packet)
 
-**Branch:** `feat/p4-hiyal-recovery` / PR #11. **Status:** implementation in progress; no P4 gate or cross-OS metric is accepted without executed evidence.
+**Branch:** `feat/p4-hiyal-recovery` / PR #11. **Status:** P4 first-case offline implementation and cross-OS B′ acceptance evidence complete; final PR code review remains required. [Linux x86_64 / macOS arm64 run 41157622619](https://github.com/davletovb/simulation-app/actions/runs/41157622619) **passed**, including the independent hash/resource comparison. See the [committed measurement record](p4-recovery-benchmark.md).
 
 ## Versioned, replaceable integration boundary
 
@@ -24,7 +24,7 @@ Do **not** infer exactly-once remote billing from these tests. Hiyal’s `Billin
 
 ## Performance and cross-OS gate (P0-04)
 
-Run deliberately on Linux x86_64 and macOS **arm64**, with the same reviewed Git revision and Rust 1.99.1. Compare the adapter's **`private_state_sha256`** across OS, not the full Hiyal journal chain head, because Hiyal's genesis includes target-specific build provenance. For each OS, report measured median/p95 and sample counts. Do not infer a cross-OS guarantee from compilation or from one Linux test.
+**Executed on 2026-10-31** using Linux x86_64 (`ubuntu-24.04`) and macOS **arm64** (`macos-15`), the same frozen case and Hiyal revision, and Rust 1.99.1: [run 41157622619](https://github.com/davletovb/simulation-app/actions/runs/41157622619). Both operating systems reconstructed **identical** `private_state_sha256` values in prototype and 1,024-record stress scenarios. Compare the game-state hash rather than the platform-specific Hiyal journal provenance. Each of three repeats passed strict save/restart and full read-only verification. Full per-OS median/p95, sizes, RSS measurement and output hashes are recorded in [P4-B′ evidence](p4-recovery-benchmark.md). This is bounded first-case evidence, not a statistical or global cross-platform guarantee.
 
 | Metric | Prototype target | 1,024-record stress target |
 |---|---:|---:|
@@ -48,10 +48,23 @@ cargo +1.99.1 run --locked -p myth-hiyal-adapter --bin p4-trial -- benchmark 3
 cargo +1.99.1 run --locked -p myth-hiyal-adapter --bin p4-trial -- benchmark-stress 3
 ```
 
-The benchmark prints bounded JSON records containing OS, architecture, Rust toolchain, sample counts, commit times, snapshot size, full-disk footprint, restore/full-verify timing and Linux `/proc/self/status` high-water RSS. On macOS, peak RSS is **not measured** by this CLI yet; do not misrepresent a current-RSS sample as peak. Until macOS peak is measured independently, that numeric acceptance target remains open.
+The benchmark prints bounded JSON records containing OS, architecture, Rust toolchain, sample counts, individually timed cabinet commits, checkpoint size, whole trial disk footprint, restore/full-verify timings and Linux `/proc/self/status` high-water RSS. On macOS the **separate executed `/usr/bin/time -l` wrapper** measured 28,229,632-byte stress peak RSS; the CLI itself correctly leaves its macOS peak RSS nullable. The declared small-world memory and disk targets were met. The 1,024-record stress is intentionally far smaller than any future 10²–10⁵ parameter scaling study.
 
-## Adoption decision (provisional)
+## P4-06 adoption decision: retain reviewed Hiyal for first-case alpha
 
-The first-case application needs strict source binding, one writer, frozen cabinet rounds, receipt custody, deterministic redo, failure inspection and replay without dispatch. Hiyal's pinned APIs provide the underlying trial, schedule, event journal, `EffectJournal`, `EveryEvent`, and read-only full verification. The game adapter owns P3 rule application and a bounded authoritative action-fold. **The replaceable pure-domain boundary is preserved**; there is no need to move social or minister decisions into Hiyal.
+**Decision:** Retain **Hiyal at the reviewed, pinned revision `050d1de094f5d0813817e2020ec5c5da97d5c42e`** as the replaceable offline orchestration/recovery engine for the first scripted England education pilot. This decision rests on **executed** Linux/macOS arm64 equality, a full six-quarter restore and strict audit trail, pending minister-round crash recovery, player receipt reuse, exclusive writer locks, unknown-charge receipt custody, and prototype/stress metrics below P0's declared ceilings. The independent `myth-domain` crate remains the only owner of simulation and actor mechanism equations; Hiyal owns schedule, effects and durable journal machinery.
 
-The adoption is *provisional*, not a global endorsement, until the exact pinned revision passes the Linux/macOS replay identity gate and P0 prototype/stress targets. Remaining generic engine needs should be filed against Hiyal separately, with no speculative game-side forks. P5/P6/P7 integration, provider metering, web UI authentication and live cabinet behavior are separate, **not** P4 evidence.
+**Satisfied in P4 (first-case only):** source- and rule-bound genesis; explicit five-actor phase/order mapping; frozen-round and sequential action equality in the modeled baseline; private, typed command and minister observations/efforts; side-effect-free allowlisted player receipt; `EveryEvent` and verified checkpoint recovery; fault injection at post-receipt/pre-action and mid-round; strict read-only replay without dispatch; 1,024-record 96-fake-receipt stress; identical game-state SHA-256 and bounded timing/memory/storage across both P1-01 operating systems.
+
+**Known limits and separately tracked future work:**
+
+- **P4 checkpoint is a bounded private action-fold (maximum 512 logical game actions)** plus strict verified Hiyal journal, *not* the P1 world-only checkpoint. The private P3 state is reconstructed deterministically on resume; long campaigns and 10²–10⁵ record scaling need separate time/size benchmarking and possibly a versioned compact private schema.
+- **No live LLM requests or remote billing were dispatched.** P5 must implement durable application-level shared spending reservations and uncertain-charge carry-forward before any paid call. Hiyal's per-trial journal is not a shared cross-campaign wallet; successful offline receipt recovery does not establish exactly-once remote billing.
+- **No publicly authenticated cabinet service or player web API is included.** P6 must add a typed authenticated adapter, strict private/public projection boundary and bounded schema-aware model responses. Non-scripted input must be frozen into an authorized, receipt-bound operation before replay.
+- **Only the declared six-quarter case and 1,024 synthetic load records were measured.** The larger scaling study, cross-OS journal-chain byte identity (not a goal here), dynamic actor generation, and human/LLM behavior validation remain outside P4. The `macos-15` prototype peak RSS was not independently saved; a future **manually dispatched** benchmark now checks both macOS prototype and stress RSS explicitly.
+
+No generic Hiyal API modification was required for this P4 alpha path. The design-specific frozen-observation anchors, typed game action fold, profile selector and country provenance remain in the game adapter. **Do not transfer them into Hiyal** or introduce a game-specific Hiyal fork. If the P5/P6 service reveals a genuinely generic requirement, record it as a separate Hiyal issue with regression tests and a reviewed commit before pin changes.
+
+## Release gate
+
+The successful [cross-OS B′ run](https://github.com/davletovb/simulation-app/actions/runs/41157622619) establishes the declared **offline, deterministic P4 gate**. The [essential CI workflow](../.github/workflows/ci.yml) separately validates all workspace Rust tests/Clippy, P2/P3 frozen evidence, API/checkpoint smoke and generated contracts. P4 checkmarks describe this **headless first-case scope only**; live operational persistence is not claimed until P5/P6 service wiring passes its own authorization and budget tests. Review PR #11 before merge.
