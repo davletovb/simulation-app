@@ -77,6 +77,15 @@ function validSnapshot(raw: unknown): raw is Committed {
   if (typeof raw !== 'object' || raw === null) return false
   const obj = raw as Partial<Committed>
   const s = obj.snapshot
+  const op = obj.operation
+  if (op !== null && (typeof op !== 'object' || !op ||
+      op.campaign_id !== CAMPAIGN ||
+      typeof op.command_id !== 'string' ||
+      !/^[a-z0-9_-]{1,64}$/.test(op.command_id) ||
+      !['accepted', 'completed', 'failed'].includes(op.status) ||
+      (op.committed_cursor !== null && (typeof op.committed_cursor !== 'string' ||
+        !/^\\d+$/.test(op.committed_cursor))) ||
+      (op.message !== null && typeof op.message !== 'string'))) return false
   return !!s && s.schema_version === 1 && s.campaign_id === CAMPAIGN &&
     typeof s.cursor === 'string' && /^\d+$/.test(s.cursor) &&
     typeof s.view_version === 'string' && s.view_version.length > 0 &&
@@ -144,34 +153,29 @@ export async function loadSnapshot():Promise<Committed> {
   if (!validSnapshot(raw)) throw new Error('Invalid server snapshot')
   return raw
 }
+// The authoritative cache is write-only through accept()->newer().
+// A React Query refetch must never overwrite a later SSE boundary: observers
+// therefore do not fetch or auto-refetch and subscribe to committed data only.
+export function useCommittedCampaign() {
+  return useQuery<Committed>({queryKey:CACHE_KEY,enabled:false,staleTime:Infinity})
+}
+
 export function ConnectedView({allocation}:{allocation:Allocation}) {
   const cache=useQueryClient()
-  const query=useQuery<Committed>({
-    queryKey:CACHE_KEY,
-    queryFn:async()=>{
-      const old=cache.getQueryData<Committed>(CACHE_KEY)
-      const incoming=await loadSnapshot()
-      return old?.snapshot.comparison.mode==='verification_failed' ? incoming : newer(old??null,incoming)
-    },
-    staleTime:2000,
-  })
+  const query=useCommittedCampaign()
   const current=query.data??null
   const [transport, setTransport] = useState<Transport>('connecting')
   const [pending, setPending] = useState<Pending | null>(readPending)
   const [error, setError] = useState<string | null>(null)
+  const [submitting, setSubmitting] = useState(false)
   const [forkId, setForkId] = useState<string|null>(null)
   const [auditFamily,setAuditFamily] = useState<'staffing'|'repairs'|'access'>('repairs')
   const [auditQuarter,setAuditQuarter] = useState(1)
   const [auditAcknowledged,setAuditAcknowledged] = useState(false)
+  const [integrityFailure, setIntegrityFailure] = useState(false)
   const accept = useCallback((raw: unknown) => {
     if (!validSnapshot(raw)) throw new Error('Incorrect versioned server view')
-    // A journal-verification failure is a terminal status frame, not an old
-    // normal boundary. Never silently discard it solely because cursor=0.
-    cache.setQueryData<Committed>(CACHE_KEY,old=>
-      raw.snapshot.comparison.mode==='verification_failed' ||
-      old?.snapshot.comparison.mode==='verification_failed' ? raw : newer(old??null,raw))
-    if (raw.snapshot.comparison.mode==='verification_failed')
-      setError('Journal verification failed. Stop the service and inspect the private save.')
+    cache.setQueryData<Committed>(CACHE_KEY,old=>newer(old??null,raw))
     if (raw.operation && raw.operation.status !== 'accepted') {
       setPending(old => {
         if (old && old.id === raw.operation?.command_id) {
@@ -189,6 +193,10 @@ export function ConnectedView({allocation}:{allocation:Allocation}) {
   }, [accept])
 
   useEffect(() => {
+    void load().catch(() => setError('Verified campaign snapshot unavailable. Create a campaign explicitly if it does not exist.'))
+  }, [load])
+
+  useEffect(() => {
     let alive = true
     const source = new EventSource(root + '/events')
     source.onopen = () => { if (alive) setTransport('connected') }
@@ -198,6 +206,23 @@ export function ConnectedView({allocation}:{allocation:Allocation}) {
         void cache.invalidateQueries({queryKey:CACHE_KEY})
       }
     }
+    source.addEventListener('integrity_failure', (event: MessageEvent) => {
+      if (!alive) return
+      // Cursor-0 synthetic failure payloads are NOT committed snapshots.
+      // Keep the last verified world and block actions until verification.
+      try {
+        const raw = JSON.parse(event.data) as unknown
+        if (typeof raw !== 'object' || raw === null ||
+            (raw as {snapshot?: {campaign_id?: string}}).snapshot?.campaign_id !== CAMPAIGN) return
+        setIntegrityFailure(true)
+        setTransport('unavailable')
+        setError('Campaign integrity verification failed. The last verified snapshot is retained; no further commands can be submitted until recovery.')
+      } catch {
+        setIntegrityFailure(true)
+        setTransport('unavailable')
+        setError('Invalid integrity alert; stop issuing commands and inspect the local service.')
+      }
+    })
     for (const kind of ['snapshot', 'snapshot_fallback', 'committed']) {
       source.addEventListener(kind, (event: MessageEvent) => {
         if (!alive) return
@@ -214,6 +239,7 @@ export function ConnectedView({allocation}:{allocation:Allocation}) {
     setPending(operation)
     writeStored(PENDING_KEY,JSON.stringify(operation))
     setError(null)
+    setSubmitting(true)
     try {
       const response = await fetch(root + '/commands', {
         method: 'POST',
@@ -248,6 +274,8 @@ export function ConnectedView({allocation}:{allocation:Allocation}) {
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Unknown network error')
       // Retain original operation ID after a lost acknowledgment.
+    } finally {
+      setSubmitting(false)
     }
   }
 
@@ -260,7 +288,10 @@ export function ConnectedView({allocation}:{allocation:Allocation}) {
       try {
         const response = await fetch(root+'/commands/'+encodeURIComponent(pending.id), {cache:'no-store'})
         if (stopped) return
-        if (response.status === 404) return // dispatch may not have reached the server
+        if (response.status === 404) {
+          setError('This command was not found after reconnecting. Retry using the same ID; no new action will be created if it was admitted meanwhile.')
+          return
+        }
         if (!response.ok) return
         const status = await response.json() as Operation
         if (status.command_id!==pending.id) return
@@ -299,6 +330,18 @@ export function ConnectedView({allocation}:{allocation:Allocation}) {
     }catch(reason){setError(reason instanceof Error?reason.message:'Cannot create fork')}
   }
 
+  const createCampaign = async () => {
+    try {
+      const response = await fetch(root, {method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})
+      if (!response.ok) throw new Error('Could not start this local campaign')
+      const created = await response.json() as unknown
+      accept(created)
+      setError(null)
+    } catch(reason) {
+      setError(reason instanceof Error ? reason.message : 'Cannot start campaign')
+    }
+  }
+
   const refresh = () => {
     setError(null)
     void load().catch(() => setError('Verified campaign snapshot unavailable'))
@@ -315,10 +358,11 @@ export function ConnectedView({allocation}:{allocation:Allocation}) {
         <span role="status" className="connected-status">{transport}</span>
       </div>
       {error && <p role="alert" className="connected-error">{error}</p>}
-      {query.isError && !snapshot && <p role="alert">The local campaign could not be loaded.</p>}
+      {error && !snapshot && <p role="alert">The local campaign could not be loaded.</p>}
       {!snapshot ? (
         <div className="connected-grid"><p>Loading a verified committed boundary…</p>
-          <ActionButton onClick={refresh}>Retry</ActionButton></div>
+          <ActionButton onClick={() => void createCampaign()}>Start or open this campaign</ActionButton>
+          <ActionButton onClick={refresh}>Retry loading</ActionButton></div>
       ) : (
         <>
           <div className="connected-grid">
@@ -369,8 +413,8 @@ export function ConnectedView({allocation}:{allocation:Allocation}) {
             cutoff={snapshot.evidence.source_cutoff_utc}
             scope={snapshot.evidence.scope} attribution={snapshot.evidence.attribution}/>
           <div className="connected-actions">
-            {pending ? (
-              <ActionButton onClick={() => void advance(pending.action)} disabled={!error}>
+            {integrityFailure ? <p role="alert">Command controls suspended pending a verified recovery.</p> : pending ? (
+              <ActionButton onClick={() => void advance(pending.action)} disabled={submitting}>
                 Retry existing command ID</ActionButton>
             ) : (
               <>
@@ -434,7 +478,7 @@ export function ConnectedView({allocation}:{allocation:Allocation}) {
             <a href={'?campaign='+encodeURIComponent(forkId)}>Open independent branch {forkId}</a>.
             Its journal retains the source shock schedule, and new decisions cannot alter the source campaign.
           </p>}
-          {pending && <p role="status">Operation {pending.id}: submitted or awaiting acknowledgment. Keep this ID for retries.</p>}
+          {pending && <p role="status">Operation {pending.id}: awaiting acknowledgment or retry. The same ID is preserved. Keep this ID for retries.</p>}
           {current?.operation && <p className="connected-assumptions">
             Last operation: {current.operation.command_id} · {current.operation.status}
           </p>}

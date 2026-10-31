@@ -43,13 +43,24 @@ const FROZEN_NEWS: &str = include_str!("../../../data/england-school-pilot-v1/ne
 const FROZEN_COUNTRY: &str =
     include_str!("../../../data/england-school-pilot-v1/country-pack.json");
 const FROZEN_VALUES: &str = include_str!("../../../data/england-school-pilot-v1/values.json");
-const MAX_COMMAND_BYTES: usize = 1024 * 1024;
-fn valid_id(s: &str) -> bool {
-    !s.is_empty()
-        && s.len() <= 64
-        && s.bytes()
-            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == b'-' || c == b'_')
+
+/// Removes uncommitted fork staging on *all* error paths. A published fork
+/// remains durable even if the following directory fsync fails.
+struct ForkStageGuard {
+    path: PathBuf,
+    active: bool,
 }
+impl Drop for ForkStageGuard {
+    fn drop(&mut self) {
+        if self.active {
+            let _ = fs::remove_dir_all(&self.path);
+        }
+    }
+}
+
+const MAX_CACHED_CAMPAIGNS: usize = 128;
+const MAX_COMMAND_BYTES: usize = 1024 * 1024;
+use myth_contracts::valid_public_id as valid_id;
 fn digest(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
 }
@@ -732,6 +743,7 @@ struct Owner {
 pub struct Connected {
     root: PathBuf,
     owners: Mutex<BTreeMap<String, Arc<Owner>>>,
+    loading: AsyncMutex<()>,
     _writer_lock: Arc<File>,
 }
 impl Connected {
@@ -761,46 +773,103 @@ impl Connected {
             .try_lock()
             .map_err(|_| "another simulation API process already owns this save directory")?;
         let _writer_lock = Arc::new(lock_file);
+        // With the process-wide writer lock held, interrupted staging from
+        // a killed previous owner cannot be live. Remove only our bounded
+        // hidden fork-stage directories, never published campaign journals.
+        for entry in fs::read_dir(&root).map_err(|_| "cannot scan private campaign root")? {
+            let entry = entry.map_err(|_| "cannot scan fork staging")?;
+            let name = entry.file_name();
+            let Some(name) = name.to_str() else { continue };
+            if name.starts_with('.')
+                && name.ends_with(".fork-stage")
+                && entry
+                    .file_type()
+                    .map_err(|_| "cannot inspect fork staging")?
+                    .is_dir()
+            {
+                fs::remove_dir_all(entry.path())
+                    .map_err(|_| "cannot clean interrupted fork staging")?;
+            }
+        }
         Ok(Arc::new(Self {
             root,
             owners: Mutex::new(BTreeMap::new()),
+            loading: AsyncMutex::new(()),
             _writer_lock,
         }))
     }
-    fn owner(self: &Arc<Self>, id: &str) -> Result<Arc<Owner>, String> {
+    /// Reads never create a campaign. Admission may create a new explicit
+    /// campaign; only one loading task runs at a time, and filesystem replay
+    /// never executes under the global owner registry mutex or on Tokio.
+    async fn owner(self: &Arc<Self>, id: &str, create: bool) -> Result<Arc<Owner>, String> {
         if !valid_id(id) {
             return Err("invalid campaign id".into());
         }
-        let mut map = self.owners.lock().map_err(|_| "owner registry poisoned")?;
-        if let Some(held) = map.get(id) {
+        if let Some(held) = self
+            .owners
+            .lock()
+            .map_err(|_| "owner registry poisoned")?
+            .get(id)
+        {
             return Ok(held.clone());
         }
+        if !create && !self.root.join(id).is_dir() {
+            return Err("campaign not found".into());
+        }
+        let _loading = self.loading.lock().await;
+        if let Some(held) = self
+            .owners
+            .lock()
+            .map_err(|_| "owner registry poisoned")?
+            .get(id)
+        {
+            return Ok(held.clone());
+        }
+        if self
+            .owners
+            .lock()
+            .map_err(|_| "owner registry poisoned")?
+            .len()
+            >= MAX_CACHED_CAMPAIGNS
+        {
+            return Err("campaign owner cache is full".into());
+        }
         let path = self.root.join(id);
-        if !path.exists() && self.root.join(format!("{id}.commands.json")).exists() {
-            return Err("command history exists but Hiyal trial is missing".into());
-        }
-        let trial = if path.exists() {
-            resume(&path, false)?
-        } else {
-            create_campaign(&path, id, 43, id)?
-        };
-        if trial.store.world().campaign_id != id {
-            let provenance = read_fork_meta(&path)?.ok_or("missing fork provenance")?;
-            if provenance.branch_id != id
-                || provenance.source_campaign_id != trial.store.world().campaign_id
-                || inspect(&path)?.2
-                    < provenance
-                        .source_cursor
-                        .parse::<u64>()
-                        .map_err(|_| "invalid fork source cursor")?
-            {
-                return Err("fork origin mismatch or truncated journal".into());
-            }
-        } else if read_fork_meta(&path)?.is_some() {
-            return Err("fork provenance may not overwrite a primary campaign".into());
-        }
         let log_path = self.root.join(format!("{id}.commands.json"));
-        let log = read_log(&log_path, id)?;
+        let key = id.to_owned();
+        let id_for_load = key.clone();
+        let (trial, log) = tokio::task::spawn_blocking(move || {
+            if !path.exists() && log_path.exists() {
+                return Err("command history exists but Hiyal trial is missing".into());
+            }
+            if !create && !path.is_dir() {
+                return Err("campaign not found".into());
+            }
+            let trial = if path.exists() {
+                resume(&path, false)?
+            } else {
+                create_campaign(&path, &id_for_load, 43, &id_for_load)?
+            };
+            if trial.store.world().campaign_id != id_for_load {
+                let provenance = read_fork_meta(&path)?.ok_or("missing fork provenance")?;
+                if provenance.branch_id != id_for_load
+                    || provenance.source_campaign_id != trial.store.world().campaign_id
+                    || inspect(&path)?.2
+                        < provenance
+                            .source_cursor
+                            .parse::<u64>()
+                            .map_err(|_| "invalid fork source cursor")?
+                {
+                    return Err("fork origin mismatch or truncated journal".into());
+                }
+            } else if read_fork_meta(&path)?.is_some() {
+                return Err("fork provenance may not overwrite a primary campaign".into());
+            }
+            let log = read_log(&log_path, &id_for_load)?;
+            Ok::<_, String>((trial, log))
+        })
+        .await
+        .map_err(|_| "campaign restoration task failed")??;
         let (sender, _) = broadcast::channel(64);
         let owner = Arc::new(Owner {
             engine: AsyncMutex::new(Engine {
@@ -810,17 +879,21 @@ impl Connected {
             }),
             inflight: AtomicBool::new(false),
             sender,
-            log_path,
-            id: id.to_owned(),
+            log_path: self.root.join(format!("{key}.commands.json")),
+            id: key.clone(),
             _writer_lock: self._writer_lock.clone(),
         });
-        map.insert(id.into(), owner.clone());
-        if owner.engine.try_lock().is_ok_and(|g| {
+        let recover = owner.engine.try_lock().is_ok_and(|g| {
             g.log
                 .records
                 .iter()
                 .any(|r| r.status == OperationStatus::Accepted)
-        }) {
+        });
+        self.owners
+            .lock()
+            .map_err(|_| "owner registry poisoned")?
+            .insert(key, owner.clone());
+        if recover {
             schedule(owner.clone());
         }
         Ok(owner)
@@ -967,13 +1040,42 @@ fn schedule(owner: Arc<Owner>) {
         }
     });
 }
+/// Campaign creation is an explicit POST, never a side effect of GET.
+async fn create(
+    State(service): State<Arc<Connected>>,
+    Path(id): Path<String>,
+) -> Result<(StatusCode, Json<Committed>), Failure> {
+    if !valid_id(&id) {
+        return Err(status(StatusCode::BAD_REQUEST, "invalid campaign id"));
+    }
+    let exists = service.root.join(&id).is_dir();
+    let owner = service
+        .owner(&id, true)
+        .await
+        .map_err(|_| status(StatusCode::CONFLICT, "campaign could not be created"))?;
+    let engine = owner.engine.lock().await;
+    let view = capture_for(&engine.trial, &owner.id)
+        .map_err(|_| status(StatusCode::CONFLICT, "verification failed"))?;
+    Ok((
+        if exists {
+            StatusCode::OK
+        } else {
+            StatusCode::CREATED
+        },
+        Json(Committed {
+            snapshot: view,
+            operation: None,
+        }),
+    ))
+}
 async fn snapshot(
     State(service): State<Arc<Connected>>,
     Path(id): Path<String>,
 ) -> Result<Json<Committed>, Failure> {
     let owner = service
-        .owner(&id)
-        .map_err(|_| status(StatusCode::CONFLICT, "campaign unavailable"))?;
+        .owner(&id, false)
+        .await
+        .map_err(|_| status(StatusCode::NOT_FOUND, "campaign unavailable"))?;
     let engine = owner.engine.lock().await;
     Ok(Json(Committed {
         snapshot: capture_for(&engine.trial, &owner.id)
@@ -986,8 +1088,9 @@ async fn operation(
     Path((id, command_id)): Path<(String, String)>,
 ) -> Result<Json<Operation>, Failure> {
     let owner = service
-        .owner(&id)
-        .map_err(|_| status(StatusCode::CONFLICT, "campaign unavailable"))?;
+        .owner(&id, false)
+        .await
+        .map_err(|_| status(StatusCode::NOT_FOUND, "campaign unavailable"))?;
     let engine = owner.engine.lock().await;
     let found = engine
         .log
@@ -1012,7 +1115,8 @@ async fn command(
         ));
     }
     let owner = service
-        .owner(&id)
+        .owner(&id, true)
+        .await
         .map_err(|_| status(StatusCode::CONFLICT, "campaign unavailable"))?;
     let encoded = serde_json::to_vec(&request)
         .map_err(|_| status(StatusCode::BAD_REQUEST, "invalid command"))?;
@@ -1131,8 +1235,9 @@ async fn stream_events(
     headers: HeaderMap,
 ) -> Result<impl IntoResponse, Failure> {
     let owner = service
-        .owner(&id)
-        .map_err(|_| status(StatusCode::CONFLICT, "campaign unavailable"))?;
+        .owner(&id, false)
+        .await
+        .map_err(|_| status(StatusCode::NOT_FOUND, "campaign unavailable"))?;
     // The same tested join is used for initial and Last-Event-ID fallback.
     let (committed, live) = subscribed_boundary(&owner)
         .await
@@ -1160,11 +1265,20 @@ async fn stream_events(
         match receiver.recv().await {
             Ok(event) => {
                 let id = format!("{}:{}", event.snapshot.campaign_id, event.snapshot.cursor);
-                let frame = Event::default()
-                    .event("committed")
-                    .id(id)
-                    .json_data(event)
-                    .ok()?;
+                // An unverified boundary is a notification, NOT a cursor-0
+                // commit. Never feed it through monotonic state reduction.
+                let frame = if event.snapshot.phase == "IntegrityFailure" {
+                    Event::default()
+                        .event("integrity_failure")
+                        .json_data(event)
+                        .ok()?
+                } else {
+                    Event::default()
+                        .event("committed")
+                        .id(id)
+                        .json_data(event)
+                        .ok()?
+                };
                 Some((Ok(frame), (None, receiver)))
             }
             Err(broadcast::error::RecvError::Lagged(_)) => {
@@ -1195,8 +1309,9 @@ async fn fork(
         ));
     }
     let owner = service
-        .owner(&id)
-        .map_err(|_| status(StatusCode::CONFLICT, "source unavailable"))?;
+        .owner(&id, false)
+        .await
+        .map_err(|_| status(StatusCode::NOT_FOUND, "source unavailable"))?;
     let engine = owner.engine.lock().await;
     if engine.poisoned
         || engine.trial.store.world().phase != Phase::Resolved
@@ -1219,10 +1334,10 @@ async fn fork(
     {
         return Err(status(StatusCode::CONFLICT, "fork boundary is stale"));
     }
-    let source = &engine.trial.store.dir;
-    let source_hash = inspect(source)
-        .map_err(|_| status(StatusCode::CONFLICT, "source journal invalid"))?
-        .0;
+    let source = engine.trial.store.dir.clone();
+    // capture_for already strictly verified the journal against the frozen
+    // committed checkpoint at this boundary.
+    let source_hash = engine.trial.store.world().private_state_sha256.clone();
     let meta = ForkMeta {
         schema_version: 1,
         branch_id: request.branch_id.clone(),
@@ -1230,125 +1345,139 @@ async fn fork(
         source_cursor: boundary.cursor,
         source_state_sha256: source_hash,
     };
-    let dst = service.root.join(&request.branch_id);
-    if dst.exists() {
-        let existing = read_fork_meta(&dst)
-            .map_err(|_| status(StatusCode::CONFLICT, "existing branch invalid"))?;
-        if existing.as_ref().is_some_and(|v| {
-            v.branch_id == meta.branch_id
-                && v.source_campaign_id == meta.source_campaign_id
-                && v.source_cursor == meta.source_cursor
-                && v.source_state_sha256 == meta.source_state_sha256
-        }) {
-            return Ok((StatusCode::OK, Json(fork_receipt(&meta))));
-        }
-        return Err(status(
-            StatusCode::CONFLICT,
-            "branch already exists at another boundary",
-        ));
-    }
-    // Do not copy unverified output, temp artifacts, locks or auth secrets.
-    // Only the Hiyal manifest, exact journal and optional verified snapshot
-    // and receipts are eligible for a bounded local offline fork.
-    let stage = service
-        .root
-        .join(format!(".{}.fork-stage", request.branch_id));
-    fs::create_dir(&stage).map_err(|_| {
-        status(
-            StatusCode::CONFLICT,
-            "fork staging exists or cannot be created",
-        )
-    })?;
-    for name in [
-        "manifest.json",
-        "events.jsonl",
-        "effects.jsonl",
-        "snapshot.json",
-    ] {
-        let original = source.join(name);
-        if !original.exists() {
-            continue;
-        }
-        let metadata = fs::symlink_metadata(&original)
-            .map_err(|_| status(StatusCode::CONFLICT, "fork source metadata unavailable"))?;
-        if !metadata.file_type().is_file() || metadata.len() > 64 * 1024 * 1024 {
+    // Verified quiescent cursor/hash were captured under the campaign lock.
+    // The immutable copy and strict replay run outside Tokio and outside
+    // the live campaign lock; any concurrent append causes a digest/cursor
+    // mismatch and the uncommitted staging directory is cleaned up.
+    let root = service.root.clone();
+    drop(engine);
+    tokio::task::spawn_blocking(move || -> Result<_, Failure> {
+        let dst = root.join(&request.branch_id);
+        if dst.exists() {
+            let existing = read_fork_meta(&dst)
+                .map_err(|_| status(StatusCode::CONFLICT, "existing branch invalid"))?;
+            if existing.as_ref().is_some_and(|v| {
+                v.branch_id == meta.branch_id
+                    && v.source_campaign_id == meta.source_campaign_id
+                    && v.source_cursor == meta.source_cursor
+                    && v.source_state_sha256 == meta.source_state_sha256
+            }) {
+                return Ok((StatusCode::OK, Json(fork_receipt(&meta))));
+            }
             return Err(status(
                 StatusCode::CONFLICT,
-                "unsafe source artifact for fork",
+                "branch already exists at another boundary",
             ));
         }
-        let target = stage.join(name);
-        fs::copy(&original, &target).map_err(|_| {
+        // Do not copy unverified output, temp artifacts, locks or auth secrets.
+        // Only the Hiyal manifest, exact journal and optional verified snapshot
+        // and receipts are eligible for a bounded local offline fork.
+        let stage = root.join(format!(".{}.fork-stage", request.branch_id));
+        fs::create_dir(&stage).map_err(|_| {
             status(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "cannot copy fork journal",
+                StatusCode::CONFLICT,
+                "fork staging exists or cannot be created",
             )
         })?;
-        File::open(&target)
-            .and_then(|file| file.sync_all())
+        let mut cleanup = ForkStageGuard {
+            path: stage.clone(),
+            active: true,
+        };
+        for name in [
+            "manifest.json",
+            "events.jsonl",
+            "effects.jsonl",
+            "snapshot.json",
+        ] {
+            let original = source.join(name);
+            if !original.exists() {
+                continue;
+            }
+            let metadata = fs::symlink_metadata(&original)
+                .map_err(|_| status(StatusCode::CONFLICT, "fork source metadata unavailable"))?;
+            if !metadata.file_type().is_file() || metadata.len() > 64 * 1024 * 1024 {
+                return Err(status(
+                    StatusCode::CONFLICT,
+                    "unsafe source artifact for fork",
+                ));
+            }
+            let target = stage.join(name);
+            fs::copy(&original, &target).map_err(|_| {
+                status(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "cannot copy fork journal",
+                )
+            })?;
+            File::open(&target)
+                .and_then(|file| file.sync_all())
+                .map_err(|_| {
+                    status(
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        "cannot sync fork journal",
+                    )
+                })?;
+        }
+        let raw = serde_json::to_vec(&meta).map_err(|_| {
+            status(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "cannot encode fork metadata",
+            )
+        })?;
+        let mut file = OpenOptions::new()
+            .create_new(true)
+            .write(true)
+            .open(stage.join("p6-fork-origin.json"))
             .map_err(|_| {
                 status(
                     StatusCode::INTERNAL_SERVER_ERROR,
-                    "cannot sync fork journal",
+                    "cannot stage fork metadata",
                 )
             })?;
-    }
-    let raw = serde_json::to_vec(&meta).map_err(|_| {
-        status(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "cannot encode fork metadata",
-        )
-    })?;
-    let mut file = OpenOptions::new()
-        .create_new(true)
-        .write(true)
-        .open(stage.join("p6-fork-origin.json"))
-        .map_err(|_| {
+        file.write_all(&raw)
+            .and_then(|_| file.sync_all())
+            .map_err(|_| {
+                status(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "cannot sync fork provenance",
+                )
+            })?;
+        #[cfg(unix)]
+        File::open(&stage).and_then(|f| f.sync_all()).map_err(|_| {
             status(
                 StatusCode::INTERNAL_SERVER_ERROR,
-                "cannot stage fork metadata",
+                "cannot sync fork staging",
             )
         })?;
-    file.write_all(&raw)
-        .and_then(|_| file.sync_all())
-        .map_err(|_| {
+        // Verify the copied committed boundary before publishing it.
+        let clone_hash = inspect(&stage).map_err(|_| {
             status(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "cannot sync fork provenance",
+                StatusCode::CONFLICT,
+                "copied journal did not strictly replay",
             )
         })?;
-    #[cfg(unix)]
-    File::open(&stage).and_then(|f| f.sync_all()).map_err(|_| {
-        status(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "cannot sync fork staging",
-        )
-    })?;
-    // Verify the copied committed boundary before publishing it.
-    let clone_hash = inspect(&stage).map_err(|_| {
-        status(
-            StatusCode::CONFLICT,
-            "copied journal did not strictly replay",
-        )
-    })?;
-    if clone_hash.0 != meta.source_state_sha256 || clone_hash.2.to_string() != meta.source_cursor {
-        return Err(status(StatusCode::CONFLICT, "fork hash or cursor mismatch"));
-    }
-    fs::rename(&stage, &dst)
-        .map_err(|_| status(StatusCode::CONFLICT, "fork publication failed"))?;
-    #[cfg(unix)]
-    File::open(&service.root)
-        .and_then(|f| f.sync_all())
-        .map_err(|_| {
+        if clone_hash.0 != meta.source_state_sha256
+            || clone_hash.2.to_string() != meta.source_cursor
+        {
+            return Err(status(StatusCode::CONFLICT, "fork hash or cursor mismatch"));
+        }
+        fs::rename(&stage, &dst)
+            .map_err(|_| status(StatusCode::CONFLICT, "fork publication failed"))?;
+        cleanup.active = false;
+        #[cfg(unix)]
+        File::open(&root).and_then(|f| f.sync_all()).map_err(|_| {
             status(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "cannot sync branch directory",
             )
         })?;
-    Ok((StatusCode::CREATED, Json(fork_receipt(&meta))))
+        Ok((StatusCode::CREATED, Json(fork_receipt(&meta))))
+    })
+    .await
+    .map_err(|_| status(StatusCode::INTERNAL_SERVER_ERROR, "fork task failed"))?
 }
 pub fn routes() -> Router<Arc<Connected>> {
     Router::new()
+        .route("/api/campaigns/{id}", post(create))
         .route("/api/campaigns/{id}/snapshot", get(snapshot))
         .route("/api/campaigns/{id}/commands", post(command))
         .route("/api/campaigns/{id}/commands/{command_id}", get(operation))
@@ -1379,12 +1508,53 @@ mod tests {
         drop(recovered);
         fs::remove_dir_all(path).unwrap();
     }
+    #[test]
+    fn uncommitted_fork_stage_is_cleaned_on_error_or_restart() {
+        let dir = root();
+        let service = Connected::new(dir.clone()).unwrap();
+        let stage = dir.join(".fork-test.fork-stage");
+        fs::create_dir(&stage).unwrap();
+        let guard = ForkStageGuard {
+            path: stage.clone(),
+            active: true,
+        };
+        fs::write(stage.join("events.jsonl"), b"partial").unwrap();
+        drop(guard);
+        assert!(!stage.exists());
+        // Simulated SIGKILL: no Drop handler ran, but exclusive ownership on
+        // restart may remove only the unpublished staging directory.
+        fs::create_dir(&stage).unwrap();
+        fs::write(stage.join("events.jsonl"), b"partial").unwrap();
+        drop(service);
+        let resumed = Connected::new(dir.clone()).unwrap();
+        assert!(!stage.exists());
+        drop(resumed);
+        fs::remove_dir_all(dir).unwrap();
+    }
+    #[tokio::test]
+    async fn unknown_campaign_reads_do_not_create_state() {
+        let dir = root();
+        let service = Connected::new(dir.clone()).unwrap();
+        match snapshot(State(service.clone()), Path("missing".into())).await {
+            Err((code, _)) => assert_eq!(code, StatusCode::NOT_FOUND),
+            Ok(_) => panic!("unknown read unexpectedly created a campaign"),
+        }
+        assert!(!dir.join("missing").exists());
+        let (code, Json(created)) = create(State(service.clone()), Path("missing".into()))
+            .await
+            .unwrap();
+        assert_eq!(code, StatusCode::CREATED);
+        assert_eq!(created.snapshot.cursor, "0");
+        assert!(dir.join("missing").is_dir());
+        drop(service);
+        fs::remove_dir_all(dir).unwrap();
+    }
     #[tokio::test]
     async fn durable_idempotency_and_scoped_recovery() {
         let dir = root();
         let service = Connected::new(dir.clone()).unwrap();
-        let first = service.owner("alpha").unwrap();
-        let second = service.owner("beta").unwrap();
+        let first = service.owner("alpha", true).await.unwrap();
+        let second = service.owner("beta", true).await.unwrap();
         let version = first
             .engine
             .lock()
@@ -1442,7 +1612,7 @@ mod tests {
         drop(second);
         drop(service);
         let recovered = Connected::new(dir.clone()).unwrap();
-        let owner = recovered.owner("alpha").unwrap();
+        let owner = recovered.owner("alpha", true).await.unwrap();
         assert_eq!(
             capture(&owner.engine.lock().await.trial).unwrap().cursor,
             cursor
@@ -1455,7 +1625,7 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(status, StatusCode::OK);
-        assert!(recovered.owner("../bad").is_err());
+        assert!(recovered.owner("../bad", true).await.is_err());
         drop(owner);
         drop(recovered);
         fs::remove_dir_all(dir).unwrap();
@@ -1464,7 +1634,7 @@ mod tests {
     async fn initial_and_fallback_join_never_skip_a_concurrent_commit() {
         let dir = root();
         let service = Connected::new(dir.clone()).unwrap();
-        let owner = service.owner("race").unwrap();
+        let owner = service.owner("race", true).await.unwrap();
         // Commit holds the writer lock when the subscriber attaches: the
         // subscriber registers immediately, and captures after the commit.
         let guard = owner.engine.lock().await;
@@ -1558,8 +1728,8 @@ mod tests {
                 .unwrap();
         assert_eq!(duplicate, StatusCode::OK);
         assert_eq!(again.source_state_sha256, receipt.source_state_sha256);
-        let original = service.owner("source").unwrap();
-        let branch = service.owner("alternate").unwrap();
+        let original = service.owner("source", true).await.unwrap();
+        let branch = service.owner("alternate", true).await.unwrap();
         let before = inspect(&original.engine.lock().await.trial.store.dir).unwrap();
         assert_eq!(
             before,
@@ -1615,7 +1785,8 @@ mod tests {
         assert_eq!(
             capture_for(
                 &recovered
-                    .owner("alternate")
+                    .owner("alternate", true)
+                    .await
                     .unwrap()
                     .engine
                     .lock()
@@ -1634,7 +1805,7 @@ mod tests {
     async fn crash_after_hiyal_commit_before_command_status_rebuilds_once() {
         let dir = root();
         let service = Connected::new(dir.clone()).unwrap();
-        let owner = service.owner("interrupted").unwrap();
+        let owner = service.owner("interrupted", true).await.unwrap();
         let (original, next_cursor) = {
             let mut engine = owner.engine.lock().await;
             let world_version = engine.trial.store.world().world_version.clone();
@@ -1667,7 +1838,7 @@ mod tests {
         drop(owner);
         drop(service);
         let restarted = Connected::new(dir.clone()).unwrap();
-        let recovered = restarted.owner("interrupted").unwrap();
+        let recovered = restarted.owner("interrupted", true).await.unwrap();
         for _ in 0..120 {
             if recovered.engine.lock().await.log.records[0].status == OperationStatus::Completed {
                 break;
@@ -1715,7 +1886,7 @@ mod tests {
     async fn fsynced_acceptance_before_dispatch_recovers_once() {
         let dir = root();
         let service = Connected::new(dir.clone()).unwrap();
-        let owner = service.owner("accepted-crash").unwrap();
+        let owner = service.owner("accepted-crash", true).await.unwrap();
         let original = Command {
             command_id: "accepted-before-dispatch".into(),
             expected_world_version: "0".into(),
@@ -1739,7 +1910,7 @@ mod tests {
         drop(owner);
         drop(service);
         let restarted = Connected::new(dir.clone()).unwrap();
-        let writer = restarted.owner("accepted-crash").unwrap();
+        let writer = restarted.owner("accepted-crash", true).await.unwrap();
         for _ in 0..120 {
             if writer.engine.lock().await.log.records[0].status == OperationStatus::Completed {
                 break;
@@ -1773,7 +1944,7 @@ mod tests {
         let dir = root();
         let started = std::time::Instant::now();
         let service = Connected::new(dir.clone()).unwrap();
-        let owner = service.owner("metrics").unwrap();
+        let owner = service.owner("metrics", true).await.unwrap();
         let create_ms = started.elapsed().as_millis();
         let preview_started = std::time::Instant::now();
         let allocation = WireAllocation {
@@ -1800,7 +1971,7 @@ mod tests {
         drop(service);
         let restore_started = std::time::Instant::now();
         let recovered = Connected::new(dir.clone()).unwrap();
-        let reopened = recovered.owner("metrics").unwrap();
+        let reopened = recovered.owner("metrics", true).await.unwrap();
         let saved = capture(&reopened.engine.lock().await.trial).unwrap();
         let restore_ms = restore_started.elapsed().as_millis();
         assert_eq!(saved.cursor, result.cursor);
@@ -1839,7 +2010,7 @@ mod tests {
             1,
         )
         .await;
-        let owner = service.owner("mid-round").unwrap();
+        let owner = service.owner("mid-round", true).await.unwrap();
         owner.engine.lock().await.trial.policy.fail_role_once = Some((
             myth_hiyal_adapter::EDUCATION,
             Arc::new(AtomicBool::new(true)),
@@ -1903,7 +2074,7 @@ mod tests {
         drop(owner);
         drop(service);
         let restored = Connected::new(dir.clone()).unwrap();
-        let live = restored.owner("mid-round").unwrap();
+        let live = restored.owner("mid-round", true).await.unwrap();
         for _ in 0..160 {
             if live.engine.lock().await.log.records.iter().any(|r| {
                 r.command_id == "failed-frozen-meeting" && r.status == OperationStatus::Completed
@@ -1938,8 +2109,8 @@ mod tests {
     async fn distinct_campaign_sse_and_command_namespaces_never_cross() {
         let dir = root();
         let service = Connected::new(dir.clone()).unwrap();
-        let alpha = service.owner("alpha").unwrap();
-        let beta = service.owner("beta").unwrap();
+        let alpha = service.owner("alpha", true).await.unwrap();
+        let beta = service.owner("beta", true).await.unwrap();
         let (_alpha_before, mut alpha_rx) = subscribed_boundary(&alpha).await.unwrap();
         let (_beta_before, mut beta_rx) = subscribed_boundary(&beta).await.unwrap();
         let committed = accepted_step(&service, "beta", CommandKind::AdvanceSlice, 1).await;
@@ -1972,7 +2143,7 @@ mod tests {
     async fn command_identity_persists_through_lost_ack_and_restart() {
         let dir = root();
         let service = Connected::new(dir.clone()).unwrap();
-        let owner = service.owner("lost-ack").unwrap();
+        let owner = service.owner("lost-ack", true).await.unwrap();
         let version = owner
             .engine
             .lock()
@@ -2013,7 +2184,7 @@ mod tests {
         drop(owner);
         drop(service);
         let restarted = Connected::new(dir.clone()).unwrap();
-        let reopened = restarted.owner("lost-ack").unwrap();
+        let reopened = restarted.owner("lost-ack", true).await.unwrap();
         let (status, Json(replayed)) = command(
             State(restarted.clone()),
             Path("lost-ack".into()),
@@ -2048,7 +2219,7 @@ mod tests {
         kind: CommandKind,
         serial: usize,
     ) -> PublicView {
-        let owner = service.owner(campaign).unwrap();
+        let owner = service.owner(campaign, true).await.unwrap();
         let version = owner
             .engine
             .lock()
@@ -2110,7 +2281,7 @@ mod tests {
     async fn public_evidence_and_late_report_exclude_private_role_fields() {
         let dir = root();
         let service = Connected::new(dir.clone()).unwrap();
-        let opening = service.owner("report").unwrap();
+        let opening = service.owner("report", true).await.unwrap();
         let initial = capture(&opening.engine.lock().await.trial).unwrap();
         assert!(initial.decisions.is_empty());
         assert!(!initial.evidence.evidence_pack_sha256.is_empty());
@@ -2431,7 +2602,8 @@ mod tests {
         assert_eq!(saved.quarter, 2);
         let before = inspect(
             &service
-                .owner("decision")
+                .owner("decision", true)
+                .await
                 .unwrap()
                 .engine
                 .lock()
@@ -2448,7 +2620,8 @@ mod tests {
         assert_eq!(
             capture(
                 &recovered
-                    .owner("decision")
+                    .owner("decision", true)
+                    .await
                     .unwrap()
                     .engine
                     .lock()
