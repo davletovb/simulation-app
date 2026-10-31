@@ -36,6 +36,7 @@ use std::{
 use tokio::sync::{Mutex as AsyncMutex, broadcast};
 
 const MAX_COMMANDS: usize = 512;
+const MAX_CACHED_CAMPAIGNS: usize = 128;
 const MAX_COMMAND_BYTES: usize = 1024 * 1024;
 fn valid_id(s: &str) -> bool {
     !s.is_empty()
@@ -460,6 +461,7 @@ struct Owner {
 pub struct Connected {
     root: PathBuf,
     owners: Mutex<BTreeMap<String, Arc<Owner>>>,
+    loading: AsyncMutex<()>,
     _writer_lock: Arc<File>,
 }
 impl Connected {
@@ -488,43 +490,63 @@ impl Connected {
         Ok(Arc::new(Self {
             root,
             owners: Mutex::new(BTreeMap::new()),
+            loading: AsyncMutex::new(()),
             _writer_lock,
         }))
     }
-    fn owner(self: &Arc<Self>, id: &str) -> Result<Arc<Owner>, String> {
+    /// Reads never create a campaign. Admission may create a new explicit
+    /// campaign; only one loading task runs at a time, and filesystem replay
+    /// never executes under the global owner registry mutex or on Tokio.
+    async fn owner(self: &Arc<Self>, id: &str, create: bool) -> Result<Arc<Owner>, String> {
         if !valid_id(id) {
             return Err("invalid campaign id".into());
         }
-        let mut map = self.owners.lock().map_err(|_| "owner registry poisoned")?;
-        if let Some(held) = map.get(id) {
+        if let Some(held) = self.owners.lock().map_err(|_| "owner registry poisoned")?.get(id) {
             return Ok(held.clone());
         }
+        if !create && !self.root.join(id).is_dir() {
+            return Err("campaign not found".into());
+        }
+        let _loading = self.loading.lock().await;
+        if let Some(held) = self.owners.lock().map_err(|_| "owner registry poisoned")?.get(id) {
+            return Ok(held.clone());
+        }
+        if self.owners.lock().map_err(|_| "owner registry poisoned")?.len()
+            >= MAX_CACHED_CAMPAIGNS
+        {
+            return Err("campaign owner cache is full".into());
+        }
         let path = self.root.join(id);
-        if !path.exists() && self.root.join(format!("{id}.commands.json")).exists() {
-            return Err("command history exists but Hiyal trial is missing".into());
-        }
-        let trial = if path.exists() {
-            resume(&path, false)?
-        } else {
-            create_campaign(&path, id, 43, id)?
-        };
-        if trial.store.world().campaign_id != id {
-            let provenance = read_fork_meta(&path)?.ok_or("missing fork provenance")?;
-            if provenance.branch_id != id
-                || provenance.source_campaign_id != trial.store.world().campaign_id
-                || inspect(&path)?.2
-                    < provenance
-                        .source_cursor
-                        .parse::<u64>()
-                        .map_err(|_| "invalid fork source cursor")?
-            {
-                return Err("fork origin mismatch or truncated journal".into());
-            }
-        } else if read_fork_meta(&path)?.is_some() {
-            return Err("fork provenance may not overwrite a primary campaign".into());
-        }
         let log_path = self.root.join(format!("{id}.commands.json"));
-        let log = read_log(&log_path, id)?;
+        let key = id.to_owned();
+        let id_for_load = key.clone();
+        let (trial, log) = tokio::task::spawn_blocking(move || {
+            if !path.exists() && log_path.exists() {
+                return Err("command history exists but Hiyal trial is missing".into());
+            }
+            if !create && !path.is_dir() {
+                return Err("campaign not found".into());
+            }
+            let trial = if path.exists() {
+                resume(&path, false)?
+            } else {
+                create_campaign(&path, &id_for_load, 43, &id_for_load)?
+            };
+            if trial.store.world().campaign_id != id_for_load {
+                let provenance = read_fork_meta(&path)?.ok_or("missing fork provenance")?;
+                if provenance.branch_id != id_for_load
+                    || provenance.source_campaign_id != trial.store.world().campaign_id
+                    || inspect(&path)?.2 < provenance.source_cursor
+                        .parse::<u64>().map_err(|_| "invalid fork source cursor")?
+                {
+                    return Err("fork origin mismatch or truncated journal".into());
+                }
+            } else if read_fork_meta(&path)?.is_some() {
+                return Err("fork provenance may not overwrite a primary campaign".into());
+            }
+            let log = read_log(&log_path, &id_for_load)?;
+            Ok::<_, String>((trial, log))
+        }).await.map_err(|_| "campaign restoration task failed")??;
         let (sender, _) = broadcast::channel(64);
         let owner = Arc::new(Owner {
             engine: AsyncMutex::new(Engine {
@@ -534,17 +556,15 @@ impl Connected {
             }),
             inflight: AtomicBool::new(false),
             sender,
-            log_path,
-            id: id.to_owned(),
+            log_path: self.root.join(format!("{key}.commands.json")),
+            id: key.clone(),
             _writer_lock: self._writer_lock.clone(),
         });
-        map.insert(id.into(), owner.clone());
-        if owner.engine.try_lock().is_ok_and(|g| {
-            g.log
-                .records
-                .iter()
-                .any(|r| r.status == OperationStatus::Accepted)
-        }) {
+        let recover = owner.engine.try_lock().is_ok_and(|g| g.log.records
+            .iter().any(|r| r.status == OperationStatus::Accepted));
+        self.owners.lock().map_err(|_| "owner registry poisoned")?
+            .insert(key, owner.clone());
+        if recover {
             schedule(owner.clone());
         }
         Ok(owner)
@@ -682,8 +702,9 @@ async fn snapshot(
     Path(id): Path<String>,
 ) -> Result<Json<Committed>, Failure> {
     let owner = service
-        .owner(&id)
-        .map_err(|_| status(StatusCode::CONFLICT, "campaign unavailable"))?;
+        .owner(&id, false)
+        .await
+        .map_err(|_| status(StatusCode::NOT_FOUND, "campaign unavailable"))?;
     let engine = owner.engine.lock().await;
     Ok(Json(Committed {
         snapshot: capture_for(&engine.trial, &owner.id)
@@ -696,8 +717,9 @@ async fn operation(
     Path((id, command_id)): Path<(String, String)>,
 ) -> Result<Json<Operation>, Failure> {
     let owner = service
-        .owner(&id)
-        .map_err(|_| status(StatusCode::CONFLICT, "campaign unavailable"))?;
+        .owner(&id, false)
+        .await
+        .map_err(|_| status(StatusCode::NOT_FOUND, "campaign unavailable"))?;
     let engine = owner.engine.lock().await;
     let found = engine
         .log
@@ -722,7 +744,8 @@ async fn command(
         ));
     }
     let owner = service
-        .owner(&id)
+        .owner(&id, true)
+        .await
         .map_err(|_| status(StatusCode::CONFLICT, "campaign unavailable"))?;
     let encoded = serde_json::to_vec(&request)
         .map_err(|_| status(StatusCode::BAD_REQUEST, "invalid command"))?;
@@ -825,8 +848,9 @@ async fn stream_events(
     headers: HeaderMap,
 ) -> Result<impl IntoResponse, Failure> {
     let owner = service
-        .owner(&id)
-        .map_err(|_| status(StatusCode::CONFLICT, "campaign unavailable"))?;
+        .owner(&id, false)
+        .await
+        .map_err(|_| status(StatusCode::NOT_FOUND, "campaign unavailable"))?;
     // The same tested join is used for initial and Last-Event-ID fallback.
     let (committed, live) = subscribed_boundary(&owner)
         .await
@@ -889,8 +913,9 @@ async fn fork(
         ));
     }
     let owner = service
-        .owner(&id)
-        .map_err(|_| status(StatusCode::CONFLICT, "source unavailable"))?;
+        .owner(&id, false)
+        .await
+        .map_err(|_| status(StatusCode::NOT_FOUND, "source unavailable"))?;
     let engine = owner.engine.lock().await;
     if engine.poisoned
         || engine.trial.store.world().phase != Phase::Resolved
@@ -1076,8 +1101,8 @@ mod tests {
     async fn durable_idempotency_and_scoped_recovery() {
         let dir = root();
         let service = Connected::new(dir.clone()).unwrap();
-        let first = service.owner("alpha").unwrap();
-        let second = service.owner("beta").unwrap();
+        let first = service.owner("alpha", true).await.unwrap();
+        let second = service.owner("beta", true).await.unwrap();
         let version = first
             .engine
             .lock()
@@ -1135,7 +1160,7 @@ mod tests {
         drop(second);
         drop(service);
         let recovered = Connected::new(dir.clone()).unwrap();
-        let owner = recovered.owner("alpha").unwrap();
+        let owner = recovered.owner("alpha", true).await.unwrap();
         assert_eq!(
             capture(&owner.engine.lock().await.trial).unwrap().cursor,
             cursor
@@ -1148,7 +1173,7 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(status, StatusCode::OK);
-        assert!(recovered.owner("../bad").is_err());
+        assert!(recovered.owner("../bad", true).await.is_err());
         drop(owner);
         drop(recovered);
         fs::remove_dir_all(dir).unwrap();
@@ -1157,7 +1182,7 @@ mod tests {
     async fn initial_and_fallback_join_never_skip_a_concurrent_commit() {
         let dir = root();
         let service = Connected::new(dir.clone()).unwrap();
-        let owner = service.owner("race").unwrap();
+        let owner = service.owner("race", true).await.unwrap();
         // Commit holds the writer lock when the subscriber attaches: the
         // subscriber registers immediately, and captures after the commit.
         let guard = owner.engine.lock().await;
@@ -1251,8 +1276,8 @@ mod tests {
                 .unwrap();
         assert_eq!(duplicate, StatusCode::OK);
         assert_eq!(again.source_state_sha256, receipt.source_state_sha256);
-        let original = service.owner("source").unwrap();
-        let branch = service.owner("alternate").unwrap();
+        let original = service.owner("source", true).await.unwrap();
+        let branch = service.owner("alternate", true).await.unwrap();
         let before = inspect(&original.engine.lock().await.trial.store.dir).unwrap();
         assert_eq!(
             before,
@@ -1308,7 +1333,7 @@ mod tests {
         assert_eq!(
             capture_for(
                 &recovered
-                    .owner("alternate")
+                    .owner("alternate", true).await
                     .unwrap()
                     .engine
                     .lock()
@@ -1327,7 +1352,7 @@ mod tests {
     async fn crash_after_hiyal_commit_before_command_status_rebuilds_once() {
         let dir = root();
         let service = Connected::new(dir.clone()).unwrap();
-        let owner = service.owner("interrupted").unwrap();
+        let owner = service.owner("interrupted", true).await.unwrap();
         let (original, next_cursor) = {
             let mut engine = owner.engine.lock().await;
             let world_version = engine.trial.store.world().world_version.clone();
@@ -1360,7 +1385,7 @@ mod tests {
         drop(owner);
         drop(service);
         let restarted = Connected::new(dir.clone()).unwrap();
-        let recovered = restarted.owner("interrupted").unwrap();
+        let recovered = restarted.owner("interrupted", true).await.unwrap();
         for _ in 0..120 {
             if recovered.engine.lock().await.log.records[0].status == OperationStatus::Completed {
                 break;
@@ -1408,7 +1433,7 @@ mod tests {
     async fn fsynced_acceptance_before_dispatch_recovers_once() {
         let dir = root();
         let service = Connected::new(dir.clone()).unwrap();
-        let owner = service.owner("accepted-crash").unwrap();
+        let owner = service.owner("accepted-crash", true).await.unwrap();
         let original = Command {
             command_id: "accepted-before-dispatch".into(),
             expected_world_version: "0".into(),
@@ -1432,7 +1457,7 @@ mod tests {
         drop(owner);
         drop(service);
         let restarted = Connected::new(dir.clone()).unwrap();
-        let writer = restarted.owner("accepted-crash").unwrap();
+        let writer = restarted.owner("accepted-crash", true).await.unwrap();
         for _ in 0..120 {
             if writer.engine.lock().await.log.records[0].status == OperationStatus::Completed {
                 break;
@@ -1466,7 +1491,7 @@ mod tests {
         let dir = root();
         let started = std::time::Instant::now();
         let service = Connected::new(dir.clone()).unwrap();
-        let owner = service.owner("metrics").unwrap();
+        let owner = service.owner("metrics", true).await.unwrap();
         let create_ms = started.elapsed().as_millis();
         let preview_started = std::time::Instant::now();
         let allocation = WireAllocation {
@@ -1493,7 +1518,7 @@ mod tests {
         drop(service);
         let restore_started = std::time::Instant::now();
         let recovered = Connected::new(dir.clone()).unwrap();
-        let reopened = recovered.owner("metrics").unwrap();
+        let reopened = recovered.owner("metrics", true).await.unwrap();
         let saved = capture(&reopened.engine.lock().await.trial).unwrap();
         let restore_ms = restore_started.elapsed().as_millis();
         assert_eq!(saved.cursor, result.cursor);
@@ -1532,7 +1557,7 @@ mod tests {
             1,
         )
         .await;
-        let owner = service.owner("mid-round").unwrap();
+        let owner = service.owner("mid-round", true).await.unwrap();
         owner.engine.lock().await.trial.policy.fail_role_once = Some((
             myth_hiyal_adapter::EDUCATION,
             Arc::new(AtomicBool::new(true)),
@@ -1596,7 +1621,7 @@ mod tests {
         drop(owner);
         drop(service);
         let restored = Connected::new(dir.clone()).unwrap();
-        let live = restored.owner("mid-round").unwrap();
+        let live = restored.owner("mid-round", true).await.unwrap();
         for _ in 0..160 {
             if live.engine.lock().await.log.records.iter().any(|r| {
                 r.command_id == "failed-frozen-meeting" && r.status == OperationStatus::Completed
@@ -1631,8 +1656,8 @@ mod tests {
     async fn distinct_campaign_sse_and_command_namespaces_never_cross() {
         let dir = root();
         let service = Connected::new(dir.clone()).unwrap();
-        let alpha = service.owner("alpha").unwrap();
-        let beta = service.owner("beta").unwrap();
+        let alpha = service.owner("alpha", true).await.unwrap();
+        let beta = service.owner("beta", true).await.unwrap();
         let (_alpha_before, mut alpha_rx) = subscribed_boundary(&alpha).await.unwrap();
         let (_beta_before, mut beta_rx) = subscribed_boundary(&beta).await.unwrap();
         let committed = accepted_step(&service, "beta", CommandKind::AdvanceSlice, 1).await;
@@ -1665,7 +1690,7 @@ mod tests {
     async fn command_identity_persists_through_lost_ack_and_restart() {
         let dir = root();
         let service = Connected::new(dir.clone()).unwrap();
-        let owner = service.owner("lost-ack").unwrap();
+        let owner = service.owner("lost-ack", true).await.unwrap();
         let version = owner
             .engine
             .lock()
@@ -1706,7 +1731,7 @@ mod tests {
         drop(owner);
         drop(service);
         let restarted = Connected::new(dir.clone()).unwrap();
-        let reopened = restarted.owner("lost-ack").unwrap();
+        let reopened = restarted.owner("lost-ack", true).await.unwrap();
         let (status, Json(replayed)) = command(
             State(restarted.clone()),
             Path("lost-ack".into()),
@@ -1741,7 +1766,7 @@ mod tests {
         kind: CommandKind,
         serial: usize,
     ) -> PublicView {
-        let owner = service.owner(campaign).unwrap();
+        let owner = service.owner(campaign, true).await.unwrap();
         let version = owner
             .engine
             .lock()
@@ -1803,7 +1828,7 @@ mod tests {
     async fn public_evidence_and_late_report_exclude_private_role_fields() {
         let dir = root();
         let service = Connected::new(dir.clone()).unwrap();
-        let opening = service.owner("report").unwrap();
+        let opening = service.owner("report", true).await.unwrap();
         let initial = capture(&opening.engine.lock().await.trial).unwrap();
         assert!(initial.decisions.is_empty());
         assert!(!initial.evidence.evidence_pack_sha256.is_empty());
@@ -1902,7 +1927,7 @@ mod tests {
         assert_eq!(saved.quarter, 2);
         let before = inspect(
             &service
-                .owner("decision")
+                .owner("decision", true).await
                 .unwrap()
                 .engine
                 .lock()
@@ -1919,7 +1944,7 @@ mod tests {
         assert_eq!(
             capture(
                 &recovered
-                    .owner("decision")
+                    .owner("decision", true).await
                     .unwrap()
                     .engine
                     .lock()
