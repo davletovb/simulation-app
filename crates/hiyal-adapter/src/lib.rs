@@ -43,7 +43,7 @@ fn sha(bytes: &[u8]) -> String {
 /// A deliberate, migration-controlled behavior contract, not raw source text.
 /// Bump when P3 rules, parsing, adapters, scenario selection or model policy change.
 pub const RULES_VERSION: &str = "p4-england-education-rules-v1";
-type FrozenSource=Result<(String,String,[u32;6]),String>;
+type FrozenSource = Result<(String, String, [u32; 6]), String>;
 static FROZEN: OnceLock<FrozenSource> = OnceLock::new();
 fn frozen() -> Result<&'static (String, String, [u32; 6]), String> {
     FROZEN
