@@ -153,7 +153,7 @@ impl Allowance {
             fs::set_permissions(dir, fs::Permissions::from_mode(0o700))
                 .map_err(|e| e.to_string())?;
         }
-        let mut lock = OpenOptions::new()
+        let lock = OpenOptions::new()
             .read(true)
             .write(true)
             .create(true)
@@ -265,7 +265,7 @@ impl Allowance {
             return Err(reject("recovered allowance exceeded funded amount"));
         }
         for call in &self.state.calls {
-            let matches = self.state.calls.iter().filter(|x| {
+            let mut matches = self.state.calls.iter().filter(|x| {
                 x.scope.campaign_id == call.scope.campaign_id
                     && x.scope.campaign_id.is_some()
                     && x.scope.quarter == call.scope.quarter
