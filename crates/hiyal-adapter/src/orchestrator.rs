@@ -399,8 +399,7 @@ pub fn create_campaign(
     seed: u64,
     campaign_id: &str,
 ) -> Result<GameTrial, String> {
-    if !myth_contracts::valid_public_id(campaign_id)
-    {
+    if !myth_contracts::valid_public_id(campaign_id) {
         return Err("invalid P6 campaign id".into());
     }
     create_world(dir, name, seed, GameWorld::initial(campaign_id)?)
