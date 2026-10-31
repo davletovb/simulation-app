@@ -565,6 +565,7 @@ struct RetryAuthorization {
     frozen_observation_sha256: String,
     source_event_hash: String,
     source_receipt_hash: String,
+    source_request_sha256: String,
 }
 #[derive(Default, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -590,7 +591,8 @@ fn read_retry_authorizations(dir: &Path) -> Result<RetryAuthorizations, String> 
     Ok(state)
 }
 fn retry_source(trial:&GameTrial, actor:AgentId) -> Result<Option<RetryAuthorization>,String> {
-    use hiyal::{core::World,storage::Outcome,effects::EffectCallKey};
+    use hiyal::{core::World,storage::Outcome};
+    use sha2::{Digest,Sha256};
     let world=trial.store.world();
     if !matches!(world.phase,Phase::FirstPositionsFrozen|Phase::FinalPositionsFrozen)
         || !world.remaining_ministers().contains(&actor) {
@@ -616,11 +618,17 @@ fn retry_source(trial:&GameTrial, actor:AgentId) -> Result<Option<RetryAuthoriza
     if *key != receipt.spec.key(&key.trial_id,key.logical_step,key.agent_id,key.call_index)? {
         return Err("prior retry receipt key mismatch");
     }
+    let EffectSpec::Model(model)=&receipt.spec else {
+        return Err("failed minister receipt was not a model request");
+    };
+    let source_request_sha256=format!("{:x}",Sha256::digest(
+        serde_json::to_vec(model).map_err(|_|"cannot hash failed model request")?));
     Ok(Some(RetryAuthorization{
         actor:actor.0,quarter:world.quarter,phase:world.phase,
         frozen_observation_sha256:observation.action.observation_sha256.clone(),
         source_event_hash:failure.hash.clone(),
         source_receipt_hash:receipt.content_hash.clone(),
+        source_request_sha256,
     }))
 }
 fn persist_retry_authorizations(dir:&Path, state:&RetryAuthorizations)->Result<(),String> {
@@ -659,6 +667,37 @@ pub fn authorize_failed_minister_retry(trial:&GameTrial,actor:AgentId)->Result<(
     state.entries.push(source);
     persist_retry_authorizations(&trial.store.dir,&state)
 }
+/// Re-verify a saved paid response using ONLY the OpenRouter generation
+/// metadata GET. A successful certification is separately persisted by the
+/// transport. This call cannot send a new paid completion request.
+pub async fn certify_failed_minister_saved_completion(
+    trial:&GameTrial,actor:AgentId,
+    backend:&crate::p5_openrouter::OpenRouterBackend,
+)->Result<(),String>{
+    use hiyal::core::World;
+    let source=retry_source(trial,actor)?.ok_or("missing failed model source")?;
+    let state=read_retry_authorizations(&trial.store.dir)?;
+    if !state.entries.iter().any(|e|e.actor==source.actor
+        && e.quarter==source.quarter && e.phase==source.phase
+        && e.source_event_hash==source.source_event_hash
+        && e.source_receipt_hash==source.source_receipt_hash
+        && e.source_request_sha256==source.source_request_sha256
+        && e.frozen_observation_sha256==source.frozen_observation_sha256){
+        return Err("explicit durable retry authorization required before custody certification".into());
+    }
+    let observation=trial.store.world().observe(actor)?;
+    let route=trial.policy.live_route.as_ref().ok_or("missing pinned live route")?;
+    let EffectSpec::Model(request)=p5_cabinet::request(&observation,route)? else {
+        return Err("minister reconstruction not a model request".into());
+    };
+    use sha2::{Digest,Sha256};
+    let hash=format!("{:x}",Sha256::digest(
+        serde_json::to_vec(&request).map_err(|_|"cannot hash frozen retry request")?));
+    if hash!=source.source_request_sha256 {
+        return Err("frozen retry request differs from original paid response".into());
+    }
+    backend.certify_saved(&request).await
+}
 fn ensure_authorized_failed_ministers(trial:&GameTrial,actors:&[AgentId])->Result<(),String>{
     if trial.live_admission.is_none(){return Ok(());}
     let state=read_retry_authorizations(&trial.store.dir)?;
@@ -670,7 +709,8 @@ fn ensure_authorized_failed_ministers(trial:&GameTrial,actors:&[AgentId])->Resul
                     && auth.phase==source.phase
                     && auth.frozen_observation_sha256==source.frozen_observation_sha256
                     && auth.source_event_hash==source.source_event_hash
-                    && auth.source_receipt_hash==source.source_receipt_hash).count();
+                    && auth.source_receipt_hash==source.source_receipt_hash
+                    && auth.source_request_sha256==source.source_request_sha256).count();
             if matching!=1 {
                 return Err("failed minister requires one explicit durable retry authorization".into());
             }

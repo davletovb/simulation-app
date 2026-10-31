@@ -133,6 +133,23 @@ async fn run(trial_dir: &Path, ledger_dir: &Path, installation: &str) -> Result<
     );
     Ok(())
 }
+fn recovered_trial(
+    trial_dir:&Path,ledger_dir:&Path,installation:&str,
+)->Result<(myth_hiyal_adapter::orchestrator::GameTrial,PinnedRoute),String>{
+    use myth_hiyal_adapter::orchestrator::{resume_live,PlayerCommandTool};
+    let bytes=std::fs::read(trial_dir.join("p5-route.json"))
+        .map_err(|_|"missing immutable trial route")?;
+    let route:PinnedRoute=serde_json::from_slice(&bytes)
+        .map_err(|_|"invalid immutable trial route")?;
+    let ledger=Arc::new(Mutex::new(Allowance::open(ledger_dir,installation)?));
+    let trial=resume_live(trial_dir,true,route.clone(),ledger,Arc::new(PlayerCommandTool))?;
+    Ok((trial,route))
+}
+fn seat_id(value:&str)->Result<hiyal::core::AgentId,String>{
+    let seat=match value {"finance"=>1,"education"=>2,"infrastructure"=>3,
+        _=>return Err("expected finance|education|infrastructure seat".into())};
+    Ok(hiyal::core::AgentId(seat))
+}
 async fn entry() -> Result<(), String> {
     let args: Vec<String> = env::args().skip(1).collect();
     match args.first().map(String::as_str) {
@@ -150,6 +167,30 @@ async fn entry() -> Result<(), String> {
                 "remaining_micro_usd":ledger.remaining_micro_usd()?.to_string()}));
             Ok(())
         }
+        Some("authorize-retry") if args.len()==5 => {
+            if env::var("MYTH_P5_RETRY_AUTHORIZATION").ok().as_deref()!=Some("AUTHORIZE_FAILED_SEAT") {
+                return Err("explicit manual retry approval missing".into());
+            }
+            let (trial,_route)=recovered_trial(Path::new(&args[1]),Path::new(&args[2]),&args[3])?;
+            let actor=seat_id(&args[4])?;
+            myth_hiyal_adapter::orchestrator::authorize_failed_minister_retry(&trial,actor)?;
+            println!("{}",json!({"operation":"explicit_retry_authorized",
+                "actor":actor.0,"paid_dispatch_performed":false}));
+            Ok(())
+        }
+        Some("certify-saved") if args.len()==5 => {
+            if env::var("MYTH_P5_CERTIFY_SAVED").ok().as_deref()!=Some("VERIFY_SAVED_COMPLETION") {
+                return Err("manual saved-completion certification approval missing".into());
+            }
+            let (trial,route)=recovered_trial(Path::new(&args[1]),Path::new(&args[2]),&args[3])?;
+            let actor=seat_id(&args[4])?;
+            let client=OpenRouterBackend::from_env(route)?.with_custody_dir(Path::new(&args[1]));
+            myth_hiyal_adapter::orchestrator::certify_failed_minister_saved_completion(
+                &trial,actor,&client).await?;
+            println!("{}",json!({"operation":"saved_paid_completion_certified",
+                "actor":actor.0,"paid_post_performed":false}));
+            Ok(())
+        }
         Some("inspect") if args.len()==2 => {
             let (hash,chain,sequence)=inspect(Path::new(&args[1]))?;
             println!("{}",json!({
@@ -164,7 +205,7 @@ async fn entry() -> Result<(), String> {
         Some("pilot") if args.len()==4 => {
             run(Path::new(&args[1]),Path::new(&args[2]),&args[3]).await
         }
-        _ => Err("usage: p5-pilot inspect <trial-dir> | pilot <trial-dir> <ledger-dir> <installation-id> | verify-charge <ledger-dir> <installation-id> <call-id> <micro-usd>".into()),
+        _ => Err("usage: p5-pilot inspect <trial-dir> | pilot <trial-dir> <ledger-dir> <installation-id> | authorize-retry <trial-dir> <ledger-dir> <installation-id> <seat> | certify-saved <trial-dir> <ledger-dir> <installation-id> <seat> | verify-charge <ledger-dir> <installation-id> <call-id> <micro-usd>".into()),
     }
 }
 #[tokio::main]
