@@ -1017,7 +1017,10 @@ async fn command(
     if request.kind == CommandKind::ContinueQuarter
         && engine.trial.store.world().phase != myth_contracts::checkpoint::Phase::QuarterOpen
     {
-        return Err(status(StatusCode::CONFLICT, "cannot continue an active cabinet meeting"));
+        return Err(status(
+            StatusCode::CONFLICT,
+            "cannot continue an active cabinet meeting",
+        ));
     }
     if let Some(body) = request
         .kind
@@ -2138,10 +2141,7 @@ mod tests {
     #[test]
     fn p7_quarter_continuation_is_an_explicit_typed_player_action() {
         let world = GameWorld::initial("continue-wire").unwrap();
-        assert_eq!(
-            CommandKind::ContinueQuarter.body(&world).unwrap(),
-            None
-        );
+        assert_eq!(CommandKind::ContinueQuarter.body(&world).unwrap(), None);
     }
     #[tokio::test]
     async fn p7_two_fundable_resolutions_remain_distinct_when_programmes_continue() {
