@@ -43,7 +43,8 @@ fn sha(bytes: &[u8]) -> String {
 /// A deliberate, migration-controlled behavior contract, not raw source text.
 /// Bump when P3 rules, parsing, adapters, scenario selection or model policy change.
 pub const RULES_VERSION: &str = "p4-england-education-rules-v1";
-static FROZEN: OnceLock<Result<(String, String, [u32; 6]), String>> = OnceLock::new();
+type FrozenSource=Result<(String,String,[u32;6]),String>;
+static FROZEN: OnceLock<FrozenSource> = OnceLock::new();
 fn frozen() -> Result<&'static (String, String, [u32; 6]), String> {
     FROZEN
         .get_or_init(|| {
@@ -576,7 +577,7 @@ impl World for GameWorld {
             schema_version: 1,
             synthetic_receipts: self.synthetic_receipts,
             actor: u8::try_from(actor.0).map_err(error)?,
-            phase: self.phase.clone(),
+            phase: self.phase,
             quarter: self.quarter,
             expected_world_version: self.world_version.clone(),
             action,
