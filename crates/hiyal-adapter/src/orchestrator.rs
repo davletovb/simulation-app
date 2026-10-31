@@ -5,10 +5,16 @@
 use crate::{
     ACTORS, ActionKind, GameAction, GameObservation, GameWorld, PERIOD, PLAYER, WORLD_KIND,
 };
+use crate::{
+    p5_allowance::{Allowance, PinnedRoute, Purpose, Scope},
+    p5_backend::{SharedAdmissionBackend, governed_trial},
+    p5_cabinet,
+};
 use hiyal::{
     core::AgentId,
     effects::{EffectResult, Message, ModelRequest, Role, Sampling, Usage},
     experiment::{EffectPolicy, Step, Trial},
+    guard::{ToolExecutor, ToolRule},
     runtime::{Backend, BillingDisposition, BoxResult, EffectSpec, Receipt},
     scheduler::Scheduling,
     storage::Durability,
@@ -30,9 +36,15 @@ pub struct GamePolicy {
     /// Test-only interrupted-after-receipt injection, never configured for live.
     pub fail_once_after_receipt: Option<Arc<AtomicBool>>,
     pub fail_role_once: Option<(AgentId, Arc<AtomicBool>)>,
+    pub live_route: Option<PinnedRoute>,
 }
 impl GamePolicy {
-    fn specification(obs: &GameObservation) -> Result<Vec<EffectSpec>, String> {
+    fn specification(&self, obs: &GameObservation) -> Result<Vec<EffectSpec>, String> {
+        if let Some(route) = &self.live_route
+            && (1..=3).contains(&obs.actor)
+        {
+            return Ok(vec![p5_cabinet::request(obs, route)?]);
+        }
         if obs.synthetic_receipts && (1..=3).contains(&obs.actor) {
             let count = if obs.actor <= 2 { 3 } else { 2 };
             return Ok((0..count)
@@ -91,7 +103,7 @@ impl EffectPolicy<GameWorld> for GamePolicy {
         if actor.0 != u64::from(obs.actor) {
             return Err("observation actor mismatch".into());
         }
-        Self::specification(obs)
+        self.specification(obs)
     }
     fn decide(
         &self,
@@ -102,12 +114,44 @@ impl EffectPolicy<GameWorld> for GamePolicy {
         if actor.0 != u64::from(obs.actor) {
             return Err("forged minister id".into());
         }
-        let expected = Self::specification(obs)?;
+        let expected = self.specification(obs)?;
+        if self.live_route.is_some() && (1..=3).contains(&obs.actor) {
+            if expected.len() != 1
+                || receipts.len() != 1
+                || receipts[0].spec != expected[0]
+                || receipts[0].billing == BillingDisposition::NotCharged
+            {
+                return Err("minister inference receipt missing or mismatched".into());
+            }
+            let (content, effective_model) = match &receipts[0].result {
+                EffectResult::Model {
+                    content,
+                    effective_model,
+                    ..
+                } => (content, effective_model),
+                _ => return Err("minister inference failed; explicit retry required".into()),
+            };
+            if self
+                .live_route
+                .as_ref()
+                .is_none_or(|route| effective_model != &route.model)
+            {
+                return Err("unapproved response model".into());
+            }
+            let mut action = obs.action.clone();
+            action.payload = p5_cabinet::checked_action(obs, content)?;
+            action.model_receipt_digest = Some(receipts[0].content_hash.clone());
+            return Ok(action);
+        }
         if expected.len() != receipts.len() {
             return Err("effect receipt count mismatch".into());
         }
         for (spec, receipt) in expected.iter().zip(receipts) {
-            if receipt.spec != *spec || receipt.billing != BillingDisposition::NotCharged {
+            let allowed_billing = receipt.billing == BillingDisposition::NotCharged
+                || (self.live_route.is_some()
+                    && matches!(spec, EffectSpec::Tool { .. })
+                    && receipt.billing == BillingDisposition::Unknown);
+            if receipt.spec != *spec || !allowed_billing {
                 return Err("incorrect request or billing disposition".into());
             }
             let valid = match (&receipt.result, spec) {
@@ -227,12 +271,41 @@ impl Backend for PlayerCommandTool {
         })
     }
 }
+/// Only the already-validated, read-only P4 player-command echo is
+/// permitted through the live GovernedBackend. It cannot mutate the world.
+impl ToolExecutor for PlayerCommandTool {
+    fn validate(&self, name: &str, input: &serde_json::Value) -> Result<(), String> {
+        if name != "player_command"
+            || input["schema_version"] != 1
+            || input["actor"] != 0
+            || input["command_body"]["schema_version"] != 1
+        {
+            return Err("unapproved player tool".into());
+        }
+        myth_contracts::parse_command(&input["command_body"].to_string())
+            .map_err(|_| "invalid player command for tool".into())
+            .map(|_| ())
+    }
+    fn call<'a>(&'a self, name: &'a str, input: &'a serde_json::Value) -> BoxResult<'a> {
+        Box::pin(async move {
+            Backend::resolve(
+                self,
+                &EffectSpec::Tool {
+                    name: name.into(),
+                    input: input.clone(),
+                },
+            )
+            .await
+        })
+    }
+}
 /// The schedule mirror lives with its exclusive-writer trial, never in a
 /// process-global cache. Resume reconstructs it with one verified journal
 /// inspection outside any lock.
 pub struct GameTrial {
     inner: Trial<GameWorld, GamePolicy>,
     paused: BTreeSet<AgentId>,
+    live_admission: Option<Arc<SharedAdmissionBackend>>,
 }
 impl GameTrial {
     /// Keep the private scheduler mirror synchronized even when a caller
@@ -275,6 +348,7 @@ fn create_world(dir: &Path, name: &str, seed: u64, world: GameWorld) -> Result<G
     Ok(GameTrial {
         inner,
         paused: BTreeSet::new(),
+        live_admission: None,
     })
 }
 pub fn create(dir: &Path, name: &str, seed: u64) -> Result<GameTrial, String> {
@@ -297,7 +371,426 @@ pub fn resume(dir: &Path, replay_only: bool) -> Result<GameTrial, String> {
     Ok(GameTrial {
         inner,
         paused: persisted.schedule.paused,
+        live_admission: None,
     })
+}
+
+/// Persist the pinned live route in the private trial directory. Hiyal's
+/// own immutable per-trial BudgetConfig is separately checked on resume.
+fn staged_route_path(dir: &Path) -> std::path::PathBuf {
+    dir.with_extension("p5-route-stage")
+}
+fn route_bytes(route: &PinnedRoute) -> Result<Vec<u8>, String> {
+    route.validate()?;
+    let bytes = serde_json::to_vec(route).map_err(|_| "invalid route metadata")?;
+    if bytes.len() > 4096 {
+        return Err("route metadata oversized".into());
+    }
+    Ok(bytes)
+}
+fn stage_live_route(dir: &Path, route: &PinnedRoute) -> Result<(), String> {
+    use std::io::Write;
+    if dir.exists() {
+        return Err("live trial directory already exists".into());
+    }
+    let bytes = route_bytes(route)?;
+    let path = staged_route_path(dir);
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(path)
+        .map_err(|_| "preflight route binding already exists or cannot be created")?;
+    file.write_all(&bytes)
+        .map_err(|_| "cannot persist staged immutable route")?;
+    file.sync_all().map_err(|_| "cannot sync staged route")?;
+    if let Some(parent) = dir.parent() {
+        #[cfg(unix)]
+        std::fs::File::open(parent)
+            .and_then(|f| f.sync_all())
+            .map_err(|_| "cannot sync staging directory")?;
+    }
+    Ok(())
+}
+fn bind_live_route(dir: &Path, route: &PinnedRoute, creating: bool) -> Result<(), String> {
+    let bytes = route_bytes(route)?;
+    let bound = dir.join("p5-route.json");
+    let staged = staged_route_path(dir);
+    if bound.is_file() {
+        if std::fs::read(&bound).map_err(|_| "cannot read immutable live route")? != bytes {
+            return Err("live route or pricing differs from saved trial".into());
+        }
+        return Ok(());
+    }
+    if !dir.join("manifest.json").is_file() || !staged.is_file() {
+        return Err("incomplete live trial creation: missing immutable route and staged recovery; do not dispatch".into());
+    }
+    // A trial created before the atomic route rename can be restored only
+    // before its first effect/action; never invent a binding for an active run.
+    if !creating
+        && std::fs::metadata(dir.join("events.jsonl"))
+            .map_err(|_| "missing trial event history")?
+            .len()
+            != 0
+    {
+        return Err(
+            "route recovery rejected: trial has events; manual investigation required".into(),
+        );
+    }
+    if std::fs::read(&staged).map_err(|_| "cannot read staged route")? != bytes {
+        return Err("staged model or price differs from requested route".into());
+    }
+    std::fs::rename(&staged, &bound).map_err(|_| "cannot atomically bind staged route")?;
+    #[cfg(unix)]
+    std::fs::File::open(dir)
+        .and_then(|f| f.sync_all())
+        .map_err(|_| "cannot sync immutable trial route")?;
+    Ok(())
+}
+fn minister_scope(world: &GameWorld) -> Scope {
+    Scope {
+        purpose: Purpose::Minister,
+        campaign_id: Some(world.campaign_id.clone()),
+        quarter: Some(world.quarter),
+        batch_id: None,
+    }
+}
+fn live_governor(provider: Arc<dyn Backend>) -> Result<Arc<dyn Backend>, String> {
+    let governed = governed_trial(provider)
+        .allow_tool(
+            "player_command",
+            ToolRule {
+                max_input_bytes: 12_288,
+                requires_approval: false,
+                has_external_side_effects: false,
+            },
+        )?
+        .with_executor(Arc::new(PlayerCommandTool));
+    Ok(Arc::new(governed))
+}
+/// The caller must open and recover the installation ledger first. Neither
+/// this function nor P1's ordinary loopback service enables live inference.
+pub fn create_live(
+    dir: &Path,
+    name: &str,
+    seed: u64,
+    campaign_id: &str,
+    route: PinnedRoute,
+    ledger: Arc<std::sync::Mutex<Allowance>>,
+    provider: Arc<dyn Backend>,
+) -> Result<GameTrial, String> {
+    let world = GameWorld::initial(campaign_id)?;
+    let governor = live_governor(provider)?;
+    let admitted = Arc::new(SharedAdmissionBackend::new(
+        ledger,
+        governor,
+        route.clone(),
+        minister_scope(&world),
+    )?);
+
+    let route_for_binding = route.clone();
+    // Preflight and fsync the identity before Hiyal commits a trial genesis.
+    // On a crash, resume can atomically complete the staged binding if no
+    // actions have yet been journaled; otherwise admission remains closed.
+    stage_live_route(dir, &route_for_binding)?;
+    let mut inner = Trial::create(
+        dir,
+        name,
+        seed,
+        WORLD_KIND,
+        world,
+        GamePolicy {
+            live_route: Some(route),
+            ..GamePolicy::default()
+        },
+        admitted.clone(),
+        ACTORS.to_vec(),
+        Scheduling::RoundRobin,
+    )?;
+    inner.store.set_durability(Durability::EveryEvent)?;
+    bind_live_route(dir, &route_for_binding, true)?;
+    Ok(GameTrial {
+        inner,
+        paused: BTreeSet::new(),
+        live_admission: Some(admitted),
+    })
+}
+/// Resume with the SAME immutable Hiyal budget and route, and an already
+/// recovered shared allowance. Saved model receipts are never re-dispatched.
+pub fn resume_live(
+    dir: &Path,
+    replay_only: bool,
+    route: PinnedRoute,
+    ledger: Arc<std::sync::Mutex<Allowance>>,
+    provider: Arc<dyn Backend>,
+) -> Result<GameTrial, String> {
+    bind_live_route(dir, &route, false)?;
+    let persisted = hiyal::storage::Store::<GameWorld, GameAction>::inspect_read_only(dir)?;
+    persisted.world.verify()?;
+    let governor = live_governor(provider)?;
+    let admitted = Arc::new(SharedAdmissionBackend::new(
+        ledger,
+        governor,
+        route.clone(),
+        minister_scope(&persisted.world),
+    )?);
+
+    let mut inner = Trial::resume(
+        dir,
+        WORLD_KIND,
+        GamePolicy {
+            live_route: Some(route),
+            ..GamePolicy::default()
+        },
+        admitted.clone(),
+        replay_only,
+    )?;
+    inner.store.set_durability(Durability::EveryEvent)?;
+    inner.store.world().verify()?;
+    Ok(GameTrial {
+        inner,
+        paused: persisted.schedule.paused,
+        live_admission: Some(admitted),
+    })
+}
+
+/// Operator approvals are *not* Hiyal effect receipts. They are separate
+/// fsynced private authorization state; the actual retry gets a new Hiyal
+/// event sequence and therefore a different durable effect call key.
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RetryAuthorization {
+    actor: u64,
+    quarter: u8,
+    phase: Phase,
+    frozen_observation_sha256: String,
+    source_event_hash: String,
+    source_receipt_hash: String,
+    source_request_sha256: String,
+}
+#[derive(Default, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RetryAuthorizations {
+    schema: u8,
+    entries: Vec<RetryAuthorization>,
+}
+fn retry_file(dir: &Path) -> std::path::PathBuf {
+    dir.join("p5-retry-authorizations.json")
+}
+fn read_retry_authorizations(dir: &Path) -> Result<RetryAuthorizations, String> {
+    let path = retry_file(dir);
+    if !path.exists() {
+        return Ok(RetryAuthorizations {
+            schema: 1,
+            entries: Vec::new(),
+        });
+    }
+    let bytes = std::fs::read(path).map_err(|_| "cannot read private retry approvals")?;
+    if bytes.len() > 65_536 {
+        return Err("retry approvals exceed bound".into());
+    }
+    let state: RetryAuthorizations =
+        serde_json::from_slice(&bytes).map_err(|_| "invalid private retry approvals")?;
+    if state.schema != 1 || state.entries.len() > 12 {
+        return Err("invalid retry approval schema or count".into());
+    }
+    Ok(state)
+}
+fn retry_source(trial: &GameTrial, actor: AgentId) -> Result<Option<RetryAuthorization>, String> {
+    use hiyal::{core::World, storage::Outcome};
+    use sha2::{Digest, Sha256};
+    let world = trial.store.world();
+    if !matches!(
+        world.phase,
+        Phase::FirstPositionsFrozen | Phase::FinalPositionsFrozen
+    ) || !world.remaining_ministers().contains(&actor)
+    {
+        return Ok(None);
+    }
+    let observation = world.observe(actor)?;
+    let events = trial.store.read_events()?;
+    let freeze_sequence = events
+        .iter()
+        .rev()
+        .find(|e| e.actor == PLAYER && matches!(e.outcome, Outcome::Accepted { .. }))
+        .map(|e| e.sequence())
+        .ok_or("missing durable frozen player action")?;
+    let failed = events.iter().rev().find(|e| {
+        e.actor == actor
+            && e.sequence() > freeze_sequence
+            && matches!(e.outcome, Outcome::Rejected { .. })
+    });
+    let Some(failure) = failed else {
+        return Ok(None);
+    };
+    let prior = trial.effects.receipts().iter().find(|(key, receipt)| {
+        key.agent_id == actor
+            && key.logical_step == failure.sequence()
+            && matches!(
+                receipt.result,
+                EffectResult::Failed { .. } | EffectResult::UnsupportedCapability { .. }
+            )
+    });
+    let Some((key, receipt)) = prior else {
+        // Invalid *typed* outputs require a separate per-action JSON repair
+        // protocol, not an operational retry.
+        return Err("rejected minister has no operationally failed keyed receipt".into());
+    };
+    if *key
+        != receipt.spec.key(
+            &key.trial_id,
+            key.logical_step,
+            key.agent_id,
+            key.call_index,
+        )?
+    {
+        return Err("prior retry receipt key mismatch".into());
+    }
+    let EffectSpec::Model(model) = &receipt.spec else {
+        return Err("failed minister receipt was not a model request".into());
+    };
+    let source_request_sha256 = format!(
+        "{:x}",
+        Sha256::digest(serde_json::to_vec(model).map_err(|_| "cannot hash failed model request")?)
+    );
+    Ok(Some(RetryAuthorization {
+        actor: actor.0,
+        quarter: world.quarter,
+        phase: world.phase,
+        frozen_observation_sha256: observation.action.observation_sha256.clone(),
+        source_event_hash: failure.hash.clone(),
+        source_receipt_hash: receipt.content_hash.clone(),
+        source_request_sha256,
+    }))
+}
+fn persist_retry_authorizations(dir: &Path, state: &RetryAuthorizations) -> Result<(), String> {
+    use std::io::Write;
+    let bytes = serde_json::to_vec(state).map_err(|_| "cannot encode retry approvals")?;
+    if bytes.len() > 65_536 {
+        return Err("retry approval history full".into());
+    }
+    let tmp = dir.join("p5-retry-authorizations.new");
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open(&tmp)
+        .map_err(|_| "cannot stage retry authorization")?;
+    file.write_all(&bytes)
+        .map_err(|_| "cannot write retry authorization")?;
+    file.sync_all()
+        .map_err(|_| "cannot sync retry authorization")?;
+    std::fs::rename(&tmp, retry_file(dir)).map_err(|_| "cannot commit retry authorization")?;
+    #[cfg(unix)]
+    std::fs::File::open(dir)
+        .and_then(|f| f.sync_all())
+        .map_err(|_| "cannot sync retry directory")?;
+    Ok(())
+}
+/// A retry is player/operator-initiated, never scheduled automatically.
+pub fn authorize_failed_minister_retry(trial: &GameTrial, actor: AgentId) -> Result<(), String> {
+    if trial.live_admission.is_none() {
+        return Err("not a live governed trial".into());
+    }
+    if trial.store.dir.join("pending-round.json").exists() {
+        return Err("cannot authorize while frozen round is unfinished".into());
+    }
+    if !trial.store.world().remaining_ministers().contains(&actor) {
+        return Err("actor has no failed, unfinished minister action".into());
+    }
+    let source = retry_source(trial, actor)?.ok_or("no failed operational effect to retry")?;
+    let mut state = read_retry_authorizations(&trial.store.dir)?;
+    if state
+        .entries
+        .iter()
+        .any(|e| e.actor == source.actor && e.source_event_hash == source.source_event_hash)
+    {
+        return Err("retry for this failed receipt already authorized".into());
+    }
+    if state
+        .entries
+        .iter()
+        .filter(|e| e.quarter == source.quarter)
+        .count()
+        >= 2
+    {
+        return Err("quarterly manual operational retry cap reached".into());
+    }
+    state.entries.push(source);
+    persist_retry_authorizations(&trial.store.dir, &state)
+}
+/// Re-verify a saved paid response using ONLY the OpenRouter generation
+/// metadata GET. A successful certification is separately persisted by the
+/// transport. This call cannot send a new paid completion request.
+pub async fn certify_failed_minister_saved_completion(
+    trial: &GameTrial,
+    actor: AgentId,
+    backend: &crate::p5_openrouter::OpenRouterBackend,
+) -> Result<(), String> {
+    use hiyal::core::World;
+    let source = retry_source(trial, actor)?.ok_or("missing failed model source")?;
+    let state = read_retry_authorizations(&trial.store.dir)?;
+    if !state.entries.iter().any(|e| {
+        e.actor == source.actor
+            && e.quarter == source.quarter
+            && e.phase == source.phase
+            && e.source_event_hash == source.source_event_hash
+            && e.source_receipt_hash == source.source_receipt_hash
+            && e.source_request_sha256 == source.source_request_sha256
+            && e.frozen_observation_sha256 == source.frozen_observation_sha256
+    }) {
+        return Err(
+            "explicit durable retry authorization required before custody certification".into(),
+        );
+    }
+    let observation = trial.store.world().observe(actor)?;
+    let route = trial
+        .policy
+        .live_route
+        .as_ref()
+        .ok_or("missing pinned live route")?;
+    let EffectSpec::Model(request) = p5_cabinet::request(&observation, route)? else {
+        return Err("minister reconstruction not a model request".into());
+    };
+    use sha2::{Digest, Sha256};
+    let hash = format!(
+        "{:x}",
+        Sha256::digest(
+            serde_json::to_vec(&request).map_err(|_| "cannot hash frozen retry request")?
+        )
+    );
+    if hash != source.source_request_sha256 {
+        return Err("frozen retry request differs from original paid response".into());
+    }
+    backend.certify_saved(&request).await
+}
+fn ensure_authorized_failed_ministers(trial: &GameTrial, actors: &[AgentId]) -> Result<(), String> {
+    if trial.live_admission.is_none() {
+        return Ok(());
+    }
+    let state = read_retry_authorizations(&trial.store.dir)?;
+    for &actor in actors {
+        if let Some(source) = retry_source(trial, actor)? {
+            let matching = state
+                .entries
+                .iter()
+                .filter(|auth| {
+                    auth.actor == source.actor
+                        && auth.quarter == source.quarter
+                        && auth.phase == source.phase
+                        && auth.frozen_observation_sha256 == source.frozen_observation_sha256
+                        && auth.source_event_hash == source.source_event_hash
+                        && auth.source_receipt_hash == source.source_receipt_hash
+                        && auth.source_request_sha256 == source.source_request_sha256
+                })
+                .count();
+            if matching != 1 {
+                return Err(
+                    "failed minister requires one explicit durable retry authorization".into(),
+                );
+            }
+        }
+    }
+    Ok(())
 }
 fn enable(trial: &mut GameTrial, allowed: &[AgentId]) -> Result<(), String> {
     for actor in ACTORS {
@@ -323,6 +816,9 @@ fn check_step(step: Step<GameWorld>) -> Result<(), String> {
 /// One explicitly chosen logical action or three frozen minister decisions.
 /// Scheduling changes are Hiyal durable control records, *not* calendar time.
 pub async fn advance_slice(trial: &mut GameTrial) -> Result<bool, String> {
+    if let Some(live) = &trial.live_admission {
+        live.set_scope(minister_scope(trial.store.world()))?;
+    }
     // Hiyal persists a plan before dispatch and removes it *after* all
     // committed entries. A crash after the final commit can leave the plan
     // present even when the P3 phase has already advanced. Drain that plan
@@ -361,6 +857,7 @@ pub async fn advance_slice(trial: &mut GameTrial) -> Result<bool, String> {
             if remaining.is_empty() {
                 return Err("cabinet has no remaining actions".into());
             }
+            ensure_authorized_failed_ministers(trial, &remaining)?;
             enable(trial, &remaining)?;
             let steps = trial.run_round(remaining.len()).await?;
             for step in steps {
@@ -722,7 +1219,7 @@ mod tests {
         let path = temp("tool");
         let trial = create(&path, "tool-receipt", 44).unwrap();
         let obs = trial.store.world().observe(PLAYER).unwrap();
-        let spec = GamePolicy::specification(&obs).unwrap();
+        let spec = GamePolicy::default().specification(&obs).unwrap();
         assert_eq!(spec.len(), 1);
         let backend = PlayerCommandTool;
         let result = backend.resolve(&spec[0]).await.unwrap();
@@ -805,5 +1302,282 @@ mod tests {
             1
         );
         std::fs::remove_dir_all(path).unwrap();
+    }
+    struct FakeDisagreeingCabinet;
+    impl Backend for FakeDisagreeingCabinet {
+        fn resolve<'a>(&'a self, spec: &'a EffectSpec) -> BoxResult<'a> {
+            Box::pin(async move {
+                let EffectSpec::Model(model) = spec else {
+                    return Err("not a model effect".into());
+                };
+                let raw = model
+                    .messages
+                    .last()
+                    .ok_or("no role context")?
+                    .content
+                    .split_once('\n')
+                    .ok_or("missing role context")?
+                    .1;
+                let view: serde_json::Value =
+                    serde_json::from_str(raw).map_err(|_| "bad frozen role view")?;
+                let first = model.response_format.as_ref().is_some_and(|f| {
+                    f["json_schema"]["name"]
+                        .as_str()
+                        .is_some_and(|s| s.starts_with("myth_first_"))
+                });
+                let ministry = view["ministry"].as_str().ok_or("missing seat")?;
+                let mut action = serde_json::json!({
+                    "schema_version":1,"stage":if first {"first"} else {"final"},
+                    "meeting_id":view["meeting_id"],
+                    "proposal_version":view["proposal_version"],
+                    "ministry":ministry,
+                    "position":if ministry=="finance"{"support"}else{"oppose"},
+                    "preferred_allocation":view["allocation"],
+                    "conditions":[],"evidence_ids":[],
+                    "rationale_summary":"Independent fictional cabinet assessment"
+                });
+                if first {
+                    action["counterproposal_source"] = serde_json::json!({"kind":"new_typed"});
+                } else if ministry != "finance" {
+                    action["implementation_effort_permille"] = serde_json::json!(800);
+                }
+                Ok(EffectResult::Model {
+                    content: action.to_string(),
+                    effective_model: model.model.clone(),
+                    usage: None,
+                })
+            })
+        }
+    }
+    #[tokio::test]
+    async fn fake_cabinet_decisions_change_policy_and_replay_after_restart() {
+        use crate::p5_allowance::{Allowance, PinnedRoute};
+        let control = temp("p5-control");
+        let path = temp("p5-model-trial");
+        let ledger_dir = temp("p5-allowance");
+        let mut baseline = create_world(
+            &control,
+            "baseline",
+            97,
+            GameWorld::initial("cabinet-test").unwrap(),
+        )
+        .unwrap();
+        run_until_closed(&mut baseline).await.unwrap();
+        let scripted = baseline
+            .store
+            .world()
+            .actions
+            .iter()
+            .filter(|a| a.payload["command"]["kind"] == "ratify")
+            .count();
+        assert!(scripted > 0);
+        drop(baseline);
+        let allowance = Arc::new(std::sync::Mutex::new(
+            Allowance::open(&ledger_dir, "test").unwrap(),
+        ));
+        let provider: Arc<dyn Backend> = Arc::new(FakeDisagreeingCabinet);
+        let route = PinnedRoute {
+            model: "test/model".into(),
+            provider: "test-provider".into(),
+            input_micro_usd_per_million: 1_000_000,
+            output_micro_usd_per_million: 5_000_000,
+            reasoning_disabled: true,
+            reasoning_parameter_supported: false,
+            response_model: None,
+        };
+        let mut trial = create_live(
+            &path,
+            "fake-model",
+            97,
+            "cabinet-test",
+            route.clone(),
+            allowance.clone(),
+            provider.clone(),
+        )
+        .unwrap();
+        advance_slice(&mut trial).await.unwrap();
+        if let Err(problem) = advance_slice(&mut trial).await {
+            let outcomes: Vec<String> = trial
+                .effects
+                .receipts()
+                .values()
+                .map(|r| format!("{:?}", r.result))
+                .collect();
+            panic!("offline cabinet round failed: {problem}; effect outcomes: {outcomes:?}");
+        }
+        assert_eq!(trial.store.world().phase, Phase::AmendmentWindow);
+        let reservations = allowance.lock().unwrap().calls().len();
+        let remaining = allowance.lock().unwrap().remaining_micro_usd().unwrap();
+        drop(trial);
+        let mut different = route.clone();
+        different.output_micro_usd_per_million = 4_000_000;
+        assert!(resume_live(&path, false, different, allowance.clone(), provider.clone()).is_err());
+        let mut resumed = resume_live(&path, false, route, allowance.clone(), provider).unwrap();
+        assert_eq!(allowance.lock().unwrap().calls().len(), reservations);
+        assert_eq!(
+            allowance.lock().unwrap().remaining_micro_usd().unwrap(),
+            remaining
+        );
+        run_until_closed(&mut resumed).await.unwrap();
+        let modeled = resumed
+            .store
+            .world()
+            .actions
+            .iter()
+            .filter(|a| a.payload["command"]["kind"] == "ratify")
+            .count();
+        assert_eq!(modeled, 0);
+        assert_eq!(resumed.store.world().actions.iter().filter(|a|
+            a.kind==ActionKind::MinisterAction && a.model_receipt_digest.is_some()).count(),36);
+        let hash = resumed.store.world().private_state_sha256.clone();
+        drop(resumed);
+        assert_eq!(inspect(&path).unwrap().0, hash);
+        let replay = resume(&path, true).unwrap();
+        assert_eq!(replay.store.world().private_state_sha256, hash);
+        drop(replay);
+        drop(allowance);
+        std::fs::remove_dir_all(control).unwrap();
+        std::fs::remove_dir_all(path).unwrap();
+        std::fs::remove_dir_all(ledger_dir).unwrap();
+    }
+    struct FailFinanceOnce(std::sync::atomic::AtomicBool);
+    impl Backend for FailFinanceOnce {
+        fn resolve<'a>(&'a self, spec: &'a EffectSpec) -> BoxResult<'a> {
+            Box::pin(async move {
+                if let EffectSpec::Model(model) = spec {
+                    let content = model
+                        .messages
+                        .last()
+                        .map(|x| x.content.as_str())
+                        .unwrap_or("");
+                    if content.contains(r#""ministry":"finance""#)
+                        && self.0.swap(false, Ordering::SeqCst)
+                    {
+                        return Err("fixture network timeout after potential billing".into());
+                    }
+                }
+                FakeDisagreeingCabinet.resolve(spec).await
+            })
+        }
+    }
+    #[tokio::test]
+    async fn failed_seat_requires_manual_durable_authorization_and_new_key() {
+        let path = temp("p5-manual-retry");
+        let allowance_path = temp("p5-retry-allowance");
+        let ledger = Arc::new(std::sync::Mutex::new(
+            Allowance::open(&allowance_path, "retry-owner").unwrap(),
+        ));
+        let provider: Arc<dyn Backend> =
+            Arc::new(FailFinanceOnce(std::sync::atomic::AtomicBool::new(true)));
+        let route = PinnedRoute {
+            model: "test/model".into(),
+            provider: "test-provider".into(),
+            input_micro_usd_per_million: 1_000_000,
+            output_micro_usd_per_million: 5_000_000,
+            reasoning_disabled: true,
+            reasoning_parameter_supported: false,
+            response_model: None,
+        };
+        let mut trial = create_live(
+            &path,
+            "retry",
+            31,
+            "retry-campaign",
+            route.clone(),
+            ledger.clone(),
+            provider.clone(),
+        )
+        .unwrap();
+        advance_slice(&mut trial).await.unwrap(); // first frozen observation
+        assert!(advance_slice(&mut trial).await.is_err()); // three minister effects; one fails
+        let old_receipts = trial.effects.receipts().len();
+        let old_reservations = ledger.lock().unwrap().calls().len();
+        assert_eq!(old_reservations, 3);
+        assert!(advance_slice(&mut trial).await.is_err()); // no operator authorization; no dispatch
+        assert_eq!(old_receipts, trial.effects.receipts().len());
+        assert_eq!(old_reservations, ledger.lock().unwrap().calls().len());
+        assert!(authorize_failed_minister_retry(&trial, crate::EDUCATION).is_err());
+        authorize_failed_minister_retry(&trial, crate::FINANCE).unwrap();
+        assert!(authorize_failed_minister_retry(&trial, crate::FINANCE).is_err());
+        drop(trial);
+        let mut reopened = resume_live(&path, false, route, ledger.clone(), provider).unwrap();
+        assert_eq!(old_reservations, ledger.lock().unwrap().calls().len());
+        advance_slice(&mut reopened).await.unwrap();
+        assert_eq!(reopened.store.world().phase, Phase::AmendmentWindow);
+        assert_eq!(ledger.lock().unwrap().calls().len(), old_reservations + 1);
+        let finance_receipts: Vec<_> = reopened
+            .effects
+            .receipts()
+            .keys()
+            .filter(|k| k.agent_id == crate::FINANCE)
+            .collect();
+        assert_eq!(finance_receipts.len(), 2);
+        assert_ne!(
+            finance_receipts[0].logical_step,
+            finance_receipts[1].logical_step
+        );
+        drop(reopened);
+        drop(ledger);
+        assert!(inspect(&path).is_ok());
+        std::fs::remove_dir_all(path).unwrap();
+        std::fs::remove_dir_all(allowance_path).unwrap();
+    }
+    #[test]
+    fn imaginary_receipt_digest_does_not_bypass_frozen_action_authority() {
+        use hiyal::core::World;
+        let mut world = GameWorld::initial("digest-reject").unwrap();
+        let player = world.observe(PLAYER).unwrap();
+        world.apply(PLAYER, player.action).unwrap();
+        let mut forged = world.observe(crate::FINANCE).unwrap().action;
+        forged.model_receipt_digest = Some("a".repeat(64));
+        forged.payload["meeting_id"] = serde_json::json!("wrong-meeting");
+        assert!(world.apply(crate::FINANCE, forged).is_err());
+        assert_eq!(
+            world
+                .actions
+                .iter()
+                .filter(|a| a.kind == ActionKind::MinisterAction)
+                .count(),
+            0
+        );
+    }
+    #[test]
+    fn staged_route_recovers_only_before_any_journaled_action() {
+        let path = temp("staged-live-route");
+        let ledger_path = temp("staged-ledger");
+        let ledger = Arc::new(std::sync::Mutex::new(
+            crate::p5_allowance::Allowance::open(&ledger_path, "stage-owner").unwrap(),
+        ));
+        let route = crate::p5_allowance::PinnedRoute {
+            model: "test/model".into(),
+            provider: "test-provider".into(),
+            input_micro_usd_per_million: 1_000_000,
+            output_micro_usd_per_million: 5_000_000,
+            reasoning_disabled: true,
+            reasoning_parameter_supported: false,
+            response_model: None,
+        };
+        let backend: Arc<dyn Backend> = Arc::new(PlayerCommandTool);
+        let trial = create_live(
+            &path,
+            "stage-trial",
+            11,
+            "stage-campaign",
+            route.clone(),
+            ledger.clone(),
+            backend.clone(),
+        )
+        .unwrap();
+        drop(trial);
+        std::fs::rename(path.join("p5-route.json"), staged_route_path(&path)).unwrap();
+        let recovered =
+            resume_live(&path, true, route.clone(), ledger.clone(), backend.clone()).unwrap();
+        assert!(path.join("p5-route.json").is_file());
+        drop(recovered);
+        // Once a journaled action exists, a fabricated staged route is
+        // insufficient to authorize a replay or a new provider request.
+        drop(ledger);
+        std::fs::remove_dir_all(path).unwrap();
+        std::fs::remove_dir_all(ledger_path).unwrap();
     }
 }

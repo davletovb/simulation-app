@@ -47,6 +47,10 @@ The separate `myth-contracts` Rust crate validates JSON commands and minister-ac
 
 See [the P1-03 contracts note](docs/p1-03-contracts.md) for accepted shapes, privacy boundaries, generator commands and remaining model-route compatibility checks. The P1-03 transport crate alone is not an operating API; the separate P1d loopback adapter now supplies Rust-calculated optimistic capacity previews, but still does not execute a complete policy simulation.
 
+## P5 OpenRouter cabinet candidate (offline-first)
+
+The experimental P5 Hiyal/OpenRouter integration is being reviewed in [draft PR #12](https://github.com/davletovb/simulation-app/pull/12). The default loopback API and React UI **still do not enable live inference**, and the new manual pilot command is **not called in CI**. The private Hiyal adapter now has a strict typed minister-output path, three cabinet profiles, a shared durable allowance, and independent trial budgets. Fake-provider tests demonstrate role-specific decisions and keyless replay; they are not evidence that any OpenRouter route actually supports the requested strict schema or that a live cabinet behaves acceptably. See the [P5 review packet](docs/p5-admission-foundation.md) and the acceptance gates before authorizing paid Experiment A.
+
 ## Legacy prototype
 
 All pre-framework repository files are preserved on the [archive branch](https://github.com/davletovb/simulation-app/tree/archive), pointing to [79a1bd7](https://github.com/davletovb/simulation-app/commit/79a1bd734c8e04535e1957d267df52e868402863). That snapshot includes the old application, data, images, databases, tests, and frontend submodule reference.
