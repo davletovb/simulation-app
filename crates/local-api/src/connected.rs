@@ -48,12 +48,7 @@ impl Drop for ForkStageGuard {
 
 const MAX_CACHED_CAMPAIGNS: usize = 128;
 const MAX_COMMAND_BYTES: usize = 1024 * 1024;
-fn valid_id(s: &str) -> bool {
-    !s.is_empty()
-        && s.len() <= 64
-        && s.bytes()
-            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == b'-' || c == b'_')
-}
+use myth_contracts::valid_public_id as valid_id;
 fn digest(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
 }
