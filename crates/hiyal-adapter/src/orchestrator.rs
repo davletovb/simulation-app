@@ -536,7 +536,7 @@ mod tests {
         forged.payload["command"]["allocation"]["staff"] = json!(60);
         assert!(world.apply(PLAYER, forged).is_err());
         let mut wrong = planned.clone();
-        wrong.actor = FINANCE.0 as u8;
+        wrong.actor = crate::FINANCE.0 as u8;
         assert!(world.apply(PLAYER, wrong).is_err());
         assert!(world.actions.is_empty());
         world.verify().unwrap();
