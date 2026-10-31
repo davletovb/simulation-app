@@ -1,3 +1,4 @@
+import { ConnectedCabinetReport } from './ConnectedReports'
 import { FAMILIES, MEETING_PHASES, SEATS, VOTES_NEEDED } from '../game'
 import { Icon } from '../components/Icon'
 
@@ -11,6 +12,7 @@ export function CabinetView() {
           budget or a seat’s private choices.</p>
       </header>
 
+      <ConnectedCabinetReport />
       <section className="council" aria-label="Board seats">
         <div className="seats">
           {SEATS.map(seat => {
@@ -31,7 +33,7 @@ export function CabinetView() {
                 </ul>
                 <div className="vote-slot">
                   <span className="vote-token" aria-hidden="true">?</span>
-                  <span><strong>No vote yet</strong>A meeting hasn’t been convened.</span>
+                  <span><strong>No vote yet</strong>Static seat illustration; actual votes appear in the connected report above.</span>
                 </div>
               </article>
             )

@@ -714,3 +714,12 @@ input[type="range"]:focus-visible::-moz-range-thumb { box-shadow: 0 0 0 3px var(
 .connected-assumptions { opacity:.75; font-size:.85rem; margin:.8rem 0 0; overflow-wrap:anywhere; }
 .connected-error { color: #e59b9b; }
 @media(max-width:600px) { .connected-p6 {margin:.65rem 0 1rem;padding:.85rem} }
+
+/* P6 public-only reports. Existing visual tokens remain authoritative. */
+.connected-public {margin:1rem 0; padding:1.25rem; border:1px solid #8793a344; border-radius:1rem;}
+.connected-public-list {padding-left:1.5rem; line-height:1.7;}
+.connected-public-fiscal {display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:1rem;}
+.connected-public-fiscal div {min-width:0; overflow-wrap:anywhere;}
+.connected-public-fiscal dt {font-size:.8rem;opacity:.8;}
+.connected-public-fiscal dd {font-weight:600;margin:.25rem 0 0;}
+.connected-hash {font-family:ui-monospace,SFMono-Regular,monospace;font-size:.76rem;word-break:break-all;}

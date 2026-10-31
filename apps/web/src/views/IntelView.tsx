@@ -1,3 +1,4 @@
+import { ConnectedEvidenceReport } from './ConnectedReports'
 import { EVIDENCE_LINES, OFFLINE_PILOT, type EvidenceKind } from '../contracts'
 import { Icon, type IconName } from '../components/Icon'
 
@@ -20,6 +21,7 @@ export function IntelView() {
           stay visible as gaps.</p>
       </header>
 
+      <ConnectedEvidenceReport />
       <ul className="legend" aria-label="Evidence labels">
         {Object.entries(KIND).map(([kind, k]) => (
           <li key={kind} className={`legend-item evidence-${kind}`}>
@@ -43,7 +45,7 @@ export function IntelView() {
       </div>
 
       <p className="view-foot">
-        Naming a public source isn’t the same as a validated country pack. No figures are ingested in this preview.
+        Naming a public source isn’t the same as a validated country pack. The connected local game uses an authored, versioned synthetic pack; these example dossiers are not independently verified current statistics.
       </p>
     </>
   )

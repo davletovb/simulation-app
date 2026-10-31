@@ -187,8 +187,10 @@ export function CommandView({ allocation, onChange }: {
           </div>
           <Pressures allocation={allocation} preview={preview} />
           <div className="cta-row">
-            <button type="button" className="btn btn-primary" disabled aria-describedby="cta-why">
-              <Icon name="lock" size={18} />Convene the board
+            <button type="button" className="btn btn-primary"
+              onClick={() => document.getElementById('connected-p6-title')?.scrollIntoView({behavior:'smooth'})}
+              aria-describedby="cta-why">
+              <Icon name="command" size={18} />Review and submit in the decision room
             </button>
             <button type="button" className="btn btn-ghost" onClick={() => onChange(DEFAULT_CARD.allocation)}
               disabled={sameAllocation(allocation, DEFAULT_CARD.allocation)}>
@@ -207,7 +209,7 @@ export function CommandView({ allocation, onChange }: {
           </div>
           <p className="panel-lede">The most each family could deliver if this package were ratified before the first
             advance, with full effort and no slowdowns or shocks. For access funding of 10 or more, the optimistic ceiling includes the Community Access Network’s attainable +1 capacity from Q2 onward, which requires its volunteer action. It is not guaranteed; real delivery may be lower.
-            The local Rust service calculates this conditional optimistic ceiling. Actual outcomes still require the P3 simulation engine.</p>
+            The local Rust service calculates this conditional optimistic ceiling. The connected command panel above uses the authoritative P3 simulation engine; this forecast is only an optimistic upper bound.</p>
           <DeliveryForecast allocation={allocation} preview={preview} />
         </section>
       </div>
