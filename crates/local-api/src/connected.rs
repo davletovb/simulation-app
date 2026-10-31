@@ -1153,17 +1153,31 @@ mod tests {
         } else {
             assert_eq!(joined.snapshot.view_version, after.view_version);
         }
-        // Simulate Last-Event-ID falling behind: connection always starts
-        // with a committed snapshot at one verified boundary.
-        let (fallback, mut subsequent) = subscribed_boundary(&owner).await.unwrap();
-        assert_eq!(fallback.snapshot.cursor, after.cursor);
+        // Last-Event-ID fallback gets the *same* deliberately contended
+        // subscribe -> lock -> capture race as the initial connection.
+        let lock = owner.engine.lock().await;
+        let reconnect = {
+            let owner = owner.clone();
+            tokio::spawn(async move { subscribed_boundary(&owner).await.unwrap() })
+        };
+        tokio::task::yield_now().await;
+        drop(lock);
         let next = accepted_step(&service, "race", CommandKind::AdvanceSlice, 2).await;
-        let event = tokio::time::timeout(Duration::from_secs(3), subsequent.recv())
-            .await
-            .unwrap()
-            .unwrap();
-        assert_eq!(event.snapshot.cursor, next.cursor);
-        assert_eq!(event.snapshot.view_version, next.view_version);
+        let (fallback, mut subsequent) = reconnect.await.unwrap();
+        let fallback_cursor = fallback.snapshot.cursor.parse::<u64>().unwrap();
+        let next_cursor = next.cursor.parse::<u64>().unwrap();
+        assert!(fallback_cursor >= after_cursor);
+        assert!(fallback_cursor <= next_cursor);
+        if fallback_cursor < next_cursor {
+            let event = tokio::time::timeout(Duration::from_secs(3), subsequent.recv())
+                .await
+                .unwrap()
+                .unwrap();
+            assert_eq!(event.snapshot.cursor, next.cursor);
+            assert_eq!(event.snapshot.view_version, next.view_version);
+        } else {
+            assert_eq!(fallback.snapshot.view_version, next.view_version);
+        }
         drop(live);
         drop(subsequent);
         drop(joined);
