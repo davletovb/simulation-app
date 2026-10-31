@@ -1,6 +1,6 @@
 # P6 — Connected offline service: implementation and evidence
 
-**Status:** Implemented as a draft, offline-first connected prototype in [PR #14](https://github.com/davletovb/simulation-app/pull/14). **Do not mark the full P6 gate complete:** the live Experiment C′, independently authorized OpenRouter route and measured usage/billing, real-user playthrough, and extended fault matrix remain outstanding. The local API explicitly rejects live mode; no paid model calls are made during CI.
+**Status (31 October 2026):** Offline connected path implemented and regression-tested in [PR #14](https://github.com/davletovb/simulation-app/pull/14). **Do not mark the full P6 gate complete:** the live Experiment C′, independently authorized OpenRouter route and measured usage/billing, real-user playthrough, and extended fault matrix remain outstanding. The local API explicitly rejects live mode; no paid model calls are made during CI.
 
 ## Executable path
 
@@ -51,9 +51,9 @@ An offline fork is accepted only with a matching **committed cursor and world ve
 
 ### Offline tests and what they establish
 
-The PR includes Rust tests for the full typed proposal → first cabinet round → amendment → final round → ratification → consequences → exact save/restore flow; changed-payload conflict and lost acknowledgment across restart; source/branch hashes and independent divergence; concurrent commit at the subscribe/snapshot boundary; duplicate/outdated catch-up handling; SSE cross-campaign isolation; accepted-status crash recovery after an already-committed action; and a mid-round failpoint after effect receipts but before all minister actions. Existing P4/P5 tests additionally validate receipt-bound deterministic replay and fail-closed model admission.
+The PR includes Rust tests for a public evidence and late-quarter decision report that excludes private beliefs, actor efforts and world-state hashes. Browser-facing Cabinet, Campaign and Intel tabs now render the same verified public snapshot via TanStack Query rather than claiming the simulation has not started. The PR includes Rust tests for the full typed proposal → first cabinet round → amendment → final round → ratification → consequences → exact save/restore flow; changed-payload conflict and lost acknowledgment across restart; source/branch hashes and independent divergence; concurrent commit at the subscribe/snapshot boundary; duplicate/outdated catch-up handling; SSE cross-campaign isolation; accepted-status crash recovery after an already-committed action; and a mid-round failpoint after effect receipts but before all minister actions. Existing P4/P5 tests additionally validate receipt-bound deterministic replay and fail-closed model admission.
 
-The loopback smoke now exercises the actual nested command wire format, HTTP 202/200/409 results, committed view, cross-campaign isolation, and foreign-origin rejection.
+The loopback smoke now exercises the actual nested command wire format, HTTP 202/200/409 results, committed view, cross-campaign isolation, and foreign-origin rejection. It independently kills the operating-system API process after a committed proposal, restarts from the same private storage, verifies the exact cursor and idempotent 200 response, and forces SSE `Last-Event-ID` fallback after restart. This does not replace a full process-kill matrix at all intermediate fsync boundaries.
 
 The focused timing test produced one observed measurement on [GitHub Actions CI #41204694487](https://github.com/davletovb/simulation-app/actions/runs/41204694487):
 
@@ -72,8 +72,8 @@ These are single-run, uncalibrated offline samples and **not** user latency guar
 
 ### Outstanding P6 acceptance
 
-1. **P6-03:** Static preview panels still need full connected briefing/evidence, responsive cabinet and outcome/report integration and the declared selective component styling. The connected decision room is functional but not a complete first-playable UX.
-2. **P6-05:** Additional independently terminated multi-process fault cases, exhaustive forced SSE reconnections, privacy/visibility audit, exact numeric round-trip matrix, and late-report assertions remain necessary beyond the executed tests.
+1. **P6-03:** Connected public cabinet/evidence/quarterly reports are now integrated into the existing tabs, and incorrect "nothing is simulated" messages have been replaced. Remaining: the declared selective re-themed Tailwind/shadcn/Base UI component adoption, fuller evidence dossier drill-down, and independent accessibility/usability checks. Static illustrative explanations remain labelled and separate from committed data.
+2. **P6-05:** A real killed/restarted process and saved-command/SSE fallback are verified in CI; a late report, privacy denylist, and per-campaign isolation checks are also executed. Further independent multi-process kills at every acceptance/receipt fsync boundary, forced duplicate/out-of-order browser update injection, and broad exact numeric round-trip assertions are still missing.
 3. **P6-06 / Experiment C′:** The actual capped live connected pilot must be separately authorized, with reviewed model/provider and credentials; record live waiting, invalid responses, previews, restore/verification, and invoiced versus reserved costs against the previously declared P0 targets. No live run is claimed, and the code does not automatically turn on paid inference.
 
-**Gate policy:** Keep PR #14 draft/unmerged until independent review and the missing acceptance conditions are met. A passing offline job is evidence for the offline mechanism, not for LLM behavior, forecasting validity, user comprehension, or live economics.
+**Gate policy:** The reviewed offline connected decision (P6-04) is complete, but the full P6 gate is **not** complete. [CI #41206697738](https://github.com/davletovb/simulation-app/actions/runs/41206697738) passed the new public report tests, killed-process restart smoke, SSE fallback, typechecked React and all original offline gates. Keep PR #14 draft/unmerged until independent review and the missing acceptance conditions are met. A passing offline job is evidence for the offline mechanism, not for LLM behavior, forecasting validity, user comprehension, or live economics.

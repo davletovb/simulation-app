@@ -63,7 +63,7 @@ cargo +1.99.1 run --locked -p myth-local-api
 
 Open `http://127.0.0.1:8787`. The default is `MYTH_MODE=scripted`, and **live model inference remains disabled**. No hosted or paid services are needed for the offline pilot. The private Hiyal campaign directory defaults to `local-data/saves/hiyal-campaigns`; do not expose it as a public asset path.
 
-Read the [P6 implementation and verification record](docs/p6-connected-evidence.md) before interpreting a preview or an outcome. The offline decision path has executed tests, but the P6 gate is **not yet complete**: more user-interface integration, independent fault/power-loss tests and the separately authorized paid Experiment C′ remain open.
+Read the [P6 implementation and verification record](docs/p6-connected-evidence.md) before interpreting a preview or an outcome. The connected Cabinet/Campaign/Intel tabs now show public-only evidence and recorded decisions, with a tested independent-process restart. The offline decision path has passed CI, but the P6 gate is **not yet complete**: component/accessibility finishing work, the remaining hard-crash matrix and the separately authorized paid Experiment C′ remain open.
 
 ## Legacy prototype
 
