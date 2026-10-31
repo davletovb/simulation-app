@@ -30,6 +30,21 @@ export interface Snapshot {
   }
   decisions: {quarter:number; outcome:string; allocation:{staff:number;repairs:number;access:number}|null;
     final_support:number;final_votes:number}[]
+  delivery_history: {
+    quarter:number
+    reported_cumulative:[number,number,number]
+    due_cumulative:[number,number,number]
+    weighted_support_ppm:number
+    staff_slowdown_next:boolean
+    access_bonus_next:boolean
+  }[]
+  comparison: {
+    mode:'exact_recorded_actions'|'fresh_scripted_branch'|'verification_failed'
+    source_campaign_id:string|null
+    source_cursor:string|null
+    inherited_shock_stream:boolean
+    post_fork_actor_actions_fixed:boolean
+  }
   evidence:{case_pack:string;source_cutoff_utc:string;evidence_pack_sha256:string;
     scenario_sha256:string;attribution:string;scope:string}
   outcome: string | null
@@ -63,6 +78,15 @@ function validSnapshot(raw: unknown): raw is Committed {
     typeof s.closed === 'boolean' && s.mode === 'offline_scripted' &&
     Array.isArray(s.votes) && s.votes.length <= 36 &&
     Array.isArray(s.decisions) && s.decisions.length<=6 &&
+    Array.isArray(s.delivery_history) && s.delivery_history.length<=6 &&
+    s.delivery_history.every((r,i)=>r.quarter===i+1 &&
+      Array.isArray(r.reported_cumulative) && r.reported_cumulative.length===3 &&
+      Array.isArray(r.due_cumulative) && r.due_cumulative.length===3 &&
+      [...r.reported_cumulative,...r.due_cumulative].every(n=>Number.isSafeInteger(n) && n>=0 && n<=100) &&
+      Number.isInteger(r.weighted_support_ppm) && r.weighted_support_ppm>=0 && r.weighted_support_ppm<=1000000) &&
+    !!s.comparison && ['exact_recorded_actions','fresh_scripted_branch','verification_failed'].includes(s.comparison.mode) &&
+    typeof s.comparison.inherited_shock_stream==='boolean' &&
+    typeof s.comparison.post_fork_actor_actions_fixed==='boolean' &&
     !!s.evidence && typeof s.evidence.case_pack==='string' &&
     typeof s.evidence.source_cutoff_utc==='string' &&
     typeof s.evidence.scope==='string' &&
@@ -267,7 +291,7 @@ export function ConnectedView({allocation}:{allocation:Allocation}) {
         <>
           <div className="connected-grid">
             <div><small>Local campaign</small><strong>{CAMPAIGN}</strong></div>
-            <div><small>Quarter</small><strong>{snapshot.quarter} / 6</strong></div>
+            <div><small>Quarter</small><strong>{snapshot.quarter} / 6{snapshot.closed ? ' · complete' : ''}</strong></div>
             <div><small>Current phase</small><strong>{snapshot.phase}</strong></div>
             <div><small>Committed cursor</small><strong>{snapshot.cursor}</strong></div>
             <div><small>State version</small><strong>{snapshot.view_version}</strong></div>
@@ -302,6 +326,12 @@ export function ConnectedView({allocation}:{allocation:Allocation}) {
               <p>Audit spending: <strong>{snapshot.treasury.audit_spent}</strong></p>
             </div>
           </div>
+          {snapshot.delivery_history.length>0 && <p className="connected-assumptions">
+            Latest public delivery report: Q{snapshot.delivery_history.at(-1)?.quarter} ·
+            staffing/repair/access reported cumulative:
+            {' '}{snapshot.delivery_history.at(-1)?.reported_cumulative.join(' / ')}.
+            These are reported units, not audited true delivery.
+          </p>}
           <p className="connected-assumptions">{snapshot.assumption}</p>
           <AssumptionsDialog casePack={snapshot.evidence.case_pack}
             cutoff={snapshot.evidence.source_cutoff_utc}
