@@ -30,5 +30,8 @@ export function newer(old, next) {
       }
     }
   }
+  // Preserve the incoming object's identity when no operation merge was
+  // necessary: callers can distinguish a genuinely new committed boundary.
+  if (b > a && operation === next.operation) return next
   return {snapshot:b === a ? old.snapshot : next.snapshot,operation}
 }
