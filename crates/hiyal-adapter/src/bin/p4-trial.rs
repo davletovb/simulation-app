@@ -73,6 +73,7 @@ async fn benchmark(count: usize, stress: bool) -> Result<(), String> {
     let mut verified_hash = None::<String>;
     let mut accepted_actions = 0;
     let mut effect_receipts = 0;
+    let mut observed_durability=None::<&'static str>;
     for i in 0..count {
         let path = id_path(if stress { "stress" } else { "prototype" }, i);
         let mut trial = if stress {
@@ -108,9 +109,12 @@ async fn benchmark(count: usize, stress: bool) -> Result<(), String> {
         trial.checkpoint()?;
         // Read the actual configured mode, and perform an independent
         // explicit fsync probe. This is not proof of every prior syscall.
-        if trial.store.durability() != Durability::EveryEvent {
-            return Err("EveryEvent durability was not configured".into());
-        }
+        let configured=match trial.store.durability(){
+            Durability::EveryEvent=>"every_event",
+            Durability::AtCheckpoint=>"at_checkpoint",
+        };
+        if configured!="every_event" {return Err("EveryEvent durability was not configured".into());}
+        observed_durability=Some(configured);
         trial.store.sync_log()?;
         let elapsed = start.elapsed();
         let hash = trial.store.world().private_state_sha256.clone();
@@ -160,7 +164,7 @@ async fn benchmark(count: usize, stress: bool) -> Result<(), String> {
             "schema_version":1,"experiment":"P4-B-prime",
             "target_os":env::consts::OS,"target_arch":env::consts::ARCH,
             "logical_cpus":hardware,"rustc":toolchain,
-            "durability":"every_event",
+            "durability":observed_durability,
             "explicit_sync_probe":"succeeded",
             "synthetic_stress_records":if stress{1024}else{0},
             "model_receipts_are_zero_cost_synthetic":true,
