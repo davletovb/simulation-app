@@ -16,7 +16,7 @@ use myth_contracts::Allocation as WireAllocation;
 use myth_domain::PolicyFamily;
 use myth_hiyal_adapter::{
     ActionKind, GameWorld,
-    orchestrator::{GameTrial, advance_slice, create_campaign, inspect, resume, run_until_closed},
+    orchestrator::{GameTrial, advance_slice, create_campaign, inspect, resume},
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -65,6 +65,7 @@ pub enum CommandKind {
     Propose { allocation: WireAllocation },
     Amend { allocation: WireAllocation },
     Decide { ratify: bool },
+    OrderAudit { family: myth_contracts::Family, inspected_quarter: u8 },
 }
 impl CommandKind {
     fn body(&self, world: &GameWorld) -> Result<Option<Value>, String> {
@@ -91,6 +92,11 @@ impl CommandKind {
                 "proposal_version":proposal_version()?,
             })),
             Self::Decide { ratify: false } => Some(json!({"kind":"defer"})),
+            Self::OrderAudit { family, inspected_quarter } => Some(json!({
+                "kind": "order_audit",
+                "family": family,
+                "inspected_quarter": inspected_quarter,
+            })),
         })
     }
 }
@@ -307,9 +313,12 @@ struct NewsBundle {
     label: String,
 }
 fn frozen_news(cutoff: &str) -> Result<Vec<PublicNews>, String> {
-    let bundle: NewsBundle = serde_json::from_str(FROZEN_NEWS).map_err(|_| "invalid news bundle")?;
-    if bundle.schema_version != 1 || bundle.cutoff_utc != cutoff
-        || bundle.label.is_empty() || bundle.items.len() > 12
+    let bundle: NewsBundle =
+        serde_json::from_str(FROZEN_NEWS).map_err(|_| "invalid news bundle")?;
+    if bundle.schema_version != 1
+        || bundle.cutoff_utc != cutoff
+        || bundle.label.is_empty()
+        || bundle.items.len() > 12
     {
         return Err("news bundle/country cutoff mismatch".into());
     }
@@ -317,9 +326,14 @@ fn frozen_news(cutoff: &str) -> Result<Vec<PublicNews>, String> {
         let real = item.kind == "real_source_update";
         let fiction = item.kind == "fictional_simulation_news";
         if !(real || fiction)
-            || item.title.is_empty() || item.summary.is_empty()
-            || (real && (item.date.as_str() > cutoff.get(..10).unwrap_or("")
-                || !item.url.as_deref().is_some_and(|url| url.starts_with("https://"))))
+            || item.title.is_empty()
+            || item.summary.is_empty()
+            || (real
+                && (item.date.as_str() > cutoff.get(..10).unwrap_or("")
+                    || !item
+                        .url
+                        .as_deref()
+                        .is_some_and(|url| url.starts_with("https://"))))
             || (fiction && item.url.is_some())
         {
             return Err("unsafe or unclassified archived news".into());
@@ -1163,6 +1177,7 @@ pub fn routes() -> Router<Arc<Connected>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use myth_hiyal_adapter::orchestrator::run_until_closed;
     fn root() -> PathBuf {
         std::env::temp_dir().join(format!(
             "p6-connected-{}-{}",
@@ -1968,6 +1983,21 @@ mod tests {
         drop(service);
         fs::remove_dir_all(dir).unwrap();
     }
+    #[test]
+    fn p7_audit_command_preserves_typed_family_and_quarter() {
+        let world = GameWorld::initial("audit-wire").unwrap();
+        let body = CommandKind::OrderAudit {
+            family: myth_contracts::Family::Repairs,
+            inspected_quarter: 2,
+        }
+        .body(&world)
+        .unwrap()
+        .unwrap();
+        assert_eq!(
+            body,
+            json!({"kind":"order_audit","family":"repairs","inspected_quarter":2})
+        );
+    }
     #[tokio::test]
     async fn p7_complete_scripted_campaign_reports_exactly_six_quarters_and_replays() {
         let dir = root();
@@ -1983,16 +2013,23 @@ mod tests {
             assert_eq!(final_view.quarter, 6);
             assert_eq!(final_view.delivery_history.len(), 6);
             assert_eq!(
-                final_view.delivery_history.iter().map(|r| r.quarter).collect::<Vec<_>>(),
+                final_view
+                    .delivery_history
+                    .iter()
+                    .map(|r| r.quarter)
+                    .collect::<Vec<_>>(),
                 vec![1, 2, 3, 4, 5, 6]
             );
             assert_eq!(final_view.news.len(), 3);
             assert_eq!(final_view.comparison.mode, "exact_recorded_actions");
             let t = &final_view.treasury;
             assert_eq!(
-                u32::from(t.available_credits) + u32::from(t.encumbered_staff)
-                    + u32::from(t.encumbered_repairs) + u32::from(t.encumbered_access)
-                    + u32::from(t.service_spent) + u32::from(t.audit_spent),
+                u32::from(t.available_credits)
+                    + u32::from(t.encumbered_staff)
+                    + u32::from(t.encumbered_repairs)
+                    + u32::from(t.encumbered_access)
+                    + u32::from(t.service_spent)
+                    + u32::from(t.audit_spent),
                 100
             );
             saved_hash = inspect(&engine.trial.store.dir).unwrap().0;
@@ -2006,7 +2043,10 @@ mod tests {
         assert_eq!(view.cursor, final_view.cursor);
         assert_eq!(view.view_version, final_view.view_version);
         assert_eq!(view.delivery_history.len(), 6);
-        assert_eq!(view.treasury.service_spent, final_view.treasury.service_spent);
+        assert_eq!(
+            view.treasury.service_spent,
+            final_view.treasury.service_spent
+        );
         drop(restored);
         drop(reopened);
         fs::remove_dir_all(dir).unwrap();

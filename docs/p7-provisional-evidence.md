@@ -31,3 +31,7 @@ npm --prefix apps/web run build
 ```
 
 The above are **commands to run**, not claimed test results. No Rust compiler is available in the current authoring container; rely on executed GitHub CI and independent review before accepting changes. Live calls and broad OS CI are intentionally excluded.
+
+### Connected audit input (added)
+
+The connected player may issue an idempotent `order_audit` command with a typed family and an inspected, completed quarter. P3 enforces timing, historical eligibility, the first-free/later-two-credit rule, and duplicate audit validation. The public snapshot intentionally **does not reveal player-private audit results or minister-private efforts**; before exposing the player audit ledger, implement an authenticated chair-specific visibility boundary. The audit command's completion status and treasury balance remain observable. This is not P7-01's completed audit/commitment experience.

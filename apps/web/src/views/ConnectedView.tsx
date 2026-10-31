@@ -112,7 +112,8 @@ function makeCommandId(): string {
 /** Connected P6 panel. Rust alone owns all world changes and committed reports.
  * This preview cannot dispatch OpenRouter calls and cannot interpret rules. */
 type PlayerCommand = { kind: 'advance_slice' } | { kind:'propose' | 'amend'; allocation:Allocation } |
-  {kind:'decide';ratify:boolean}
+  {kind:'decide';ratify:boolean} |
+  {kind:'order_audit';family:'staffing'|'repairs'|'access';inspected_quarter:number}
 interface Pending {id:string;version:string;action:PlayerCommand}
 function readPending():Pending|null {
   try {
@@ -143,6 +144,8 @@ export function ConnectedView({allocation}:{allocation:Allocation}) {
   const [pending, setPending] = useState<Pending | null>(readPending)
   const [error, setError] = useState<string | null>(null)
   const [forkId, setForkId] = useState<string|null>(null)
+  const [auditFamily,setAuditFamily] = useState<'staffing'|'repairs'|'access'>('repairs')
+  const [auditQuarter,setAuditQuarter] = useState(1)
   const accept = useCallback((raw: unknown) => {
     if (!validSnapshot(raw)) throw new Error('Incorrect versioned server view')
     cache.setQueryData<Committed>(CACHE_KEY,old=>newer(old??null,raw))
@@ -363,6 +366,28 @@ export function ConnectedView({allocation}:{allocation:Allocation}) {
                 {!snapshot.closed && <ActionButton onClick={() => void advance({kind:'advance_slice'})}>
                   Continue scripted phase</ActionButton>}
               </>
+            )}
+            {!snapshot.closed && snapshot.quarter >= 3 && snapshot.delivery_history.length > 0 && !pending && (
+              <div className="connected-audit">
+                <label>Audit family <select value={auditFamily}
+                  onChange={e=>setAuditFamily(e.target.value as typeof auditFamily)}>
+                  <option value="staffing">Staffing</option><option value="repairs">Repairs</option>
+                  <option value="access">Access</option>
+                </select></label>
+                <label>Completed quarter <select value={Math.min(auditQuarter,snapshot.delivery_history.length)}
+                  onChange={e=>setAuditQuarter(Number(e.target.value))}>
+                  {snapshot.delivery_history.map(r=><option key={r.quarter} value={r.quarter}>
+                    Q{r.quarter}
+                  </option>)}
+                </select></label>
+                <ActionButton onClick={() => void advance({
+                  kind:'order_audit', family:auditFamily,
+                  inspected_quarter:Math.min(auditQuarter,snapshot.delivery_history.length)
+                })}>Request delivery audit</ActionButton>
+                <small>Available from Q3 for an already completed period with scheduled work.
+                  First eligible audit is free, later audits cost 2 pilot credits.
+                  Private audit findings are not broadcast in public SSE.</small>
+              </div>
             )}
             {snapshot.phase==='Resolved' && !pending && <ActionButton onClick={() => void createFork()}>Fork this verified decision</ActionButton>}
             <ActionButton onClick={refresh}>Refresh committed view</ActionButton>
