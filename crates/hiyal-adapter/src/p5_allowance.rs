@@ -202,7 +202,7 @@ impl Allowance {
                     e.epoch_id != value.payload.epoch_id
                         || e.funded_micro_usd != value.payload.epoch_funded_micro_usd
                 })
-                || value.payload.epochs.iter().enumerate().any(|(i,e)| {
+                || value.payload.epochs.iter().enumerate().any(|(i, e)| {
                     e.epoch_id != i as u64 + 1
                         || e.funded_micro_usd == 0
                         || e.funded_micro_usd > INITIAL_MICRO_USD
@@ -224,9 +224,9 @@ impl Allowance {
                     || !reservations.insert(&call.reservation_id)
                     || call.epoch_id == 0
                     || call.epoch_id > value.payload.epoch_id
-                    || call.carried_epoch_id.is_some_and(|e| {
-                        e <= call.epoch_id || e > value.payload.epoch_id
-                    })
+                    || call
+                        .carried_epoch_id
+                        .is_some_and(|e| e <= call.epoch_id || e > value.payload.epoch_id)
                     || call.maximum_micro_usd == 0
                     || call.maximum_micro_usd > INITIAL_MICRO_USD
                     || call.request_sha256.len() != 64
@@ -287,7 +287,8 @@ impl Allowance {
         } else if call.carried_epoch_id == Some(self.state.epoch_id) {
             // If an old unresolved bill is verified during the new epoch,
             // retain its actual verified charge rather than refunding all.
-            call.verified_charge_micro_usd.unwrap_or(call.maximum_micro_usd)
+            call.verified_charge_micro_usd
+                .unwrap_or(call.maximum_micro_usd)
         } else {
             0
         }
@@ -755,21 +756,31 @@ mod tests {
     fn verified_old_liability_keeps_its_real_charge_until_next_funded_epoch() {
         let path = temporary().join("old-liability");
         let mut ledger = Allowance::open(&path, "owner").unwrap();
-        ledger.reserve("old",scope(Purpose::Minister,Some("c"),Some(1)),route(),&request()).unwrap();
-        let maximum=ledger.calls()[0].maximum_micro_usd;
+        ledger
+            .reserve(
+                "old",
+                scope(Purpose::Minister, Some("c"), Some(1)),
+                route(),
+                &request(),
+            )
+            .unwrap();
+        let maximum = ledger.calls()[0].maximum_micro_usd;
         ledger.start_funded_epoch(INITIAL_MICRO_USD).unwrap();
-        assert_eq!(ledger.remaining_micro_usd().unwrap(),INITIAL_MICRO_USD-maximum);
+        assert_eq!(
+            ledger.remaining_micro_usd().unwrap(),
+            INITIAL_MICRO_USD - maximum
+        );
         ledger.mark_dispatched("old").unwrap();
-        ledger.record("old",Some(1),Some(1),None).unwrap();
-        ledger.verify_charge("old",7).unwrap();
-        assert_eq!(ledger.remaining_micro_usd().unwrap(),INITIAL_MICRO_USD-7);
+        ledger.record("old", Some(1), Some(1), None).unwrap();
+        ledger.verify_charge("old", 7).unwrap();
+        assert_eq!(ledger.remaining_micro_usd().unwrap(), INITIAL_MICRO_USD - 7);
         ledger.start_funded_epoch(INITIAL_MICRO_USD).unwrap();
-        assert_eq!(ledger.remaining_micro_usd().unwrap(),INITIAL_MICRO_USD);
-        assert_eq!(ledger.state.epochs.len(),3);
+        assert_eq!(ledger.remaining_micro_usd().unwrap(), INITIAL_MICRO_USD);
+        assert_eq!(ledger.state.epochs.len(), 3);
         drop(ledger);
-        let recovered=Allowance::open(&path,"owner").unwrap();
-        assert_eq!(recovered.state.epochs.len(),3);
-        assert_eq!(recovered.remaining_micro_usd().unwrap(),INITIAL_MICRO_USD);
+        let recovered = Allowance::open(&path, "owner").unwrap();
+        assert_eq!(recovered.state.epochs.len(), 3);
+        assert_eq!(recovered.remaining_micro_usd().unwrap(), INITIAL_MICRO_USD);
         drop(recovered);
         std::fs::remove_dir_all(path).unwrap();
     }
