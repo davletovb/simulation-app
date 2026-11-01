@@ -1,5 +1,5 @@
 {
-  "authored_sha256": "d4475ee5754ab05c513c7f3ce6c9873f8b988b2a8efc6d98a99333064f8762a8",
+  "authored_sha256": "dc7057b39371c5558616025c55890ffead3fd95413f4bc808750e49504367191",
   "country_pack_sha256": "578577433018638561b4ba08cbc8aff3049a4a09154a6faec38974065517a901",
   "coverage": {
     "explicit_missing_variables": 4,
@@ -33,7 +33,7 @@
       "stable_variable_id": "teacher_parent_overlap"
     }
   ],
-  "narrative_diff_sha256": "af07d417e0cccc1cd305e2820aaa3d669ecf2d094c6f91f1cda5b320d1a58cd6",
+  "narrative_diff_sha256": "6071b65b0c9637f765cb1705dc701b4374c327418ab8704ddff8701b2bff906f",
   "news_bundle_sha256": "0d1d1957e5b1c6c3cafabbba8cd2d0843b739c6e3812ca518d042ed86d84a407",
   "observations_sha256": "03d3542e4516584f07f57a937622a4e7b118444b7200d5816db0f260048e5ba3",
   "pack_id": "england-school-delivery-v1",

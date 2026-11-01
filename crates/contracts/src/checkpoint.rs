@@ -1026,6 +1026,22 @@ mod p2_frozen_pack_tests {
             news["relief"]["cut_pct"].as_i64(),
             Some(i64::from(myth_domain::news::RELIEF_CUT_PCT))
         );
+        // Inspections and windfalls (decision 0012).
+        for (key, value) in [
+            ("pct", myth_domain::news::SCRUTINY_PCT),
+            ("step_pct", myth_domain::news::SCRUTINY_STEP_PCT),
+            ("cap_pct", myth_domain::news::SCRUTINY_CAP_PCT),
+        ] {
+            assert_eq!(
+                n(&news["scrutiny"][key]),
+                u64::from(value),
+                "news scrutiny drift: {key}"
+            );
+        }
+        assert_eq!(
+            n(&news["max_windfall_credits"]),
+            u64::from(myth_domain::news::MAX_WINDFALL_CREDITS)
+        );
         for (key, deck, field) in [
             ("bad", &myth_domain::news::BAD[..], "exposure_pct"),
             ("good", &myth_domain::news::GOOD[..], "gain_ppm"),
@@ -1064,6 +1080,35 @@ mod p2_frozen_pack_tests {
                 assert_eq!(
                     file_cut, engine_cut,
                     "news disruption drift: {}",
+                    headline.id
+                );
+                // A bad headline may send inspectors to count promises (decision 0012); a good one may bring credits.
+                let engine_inspection: Option<Vec<&str>> = headline.scrutiny.map(|s| {
+                    ["staffing", "repairs", "access"]
+                        .into_iter()
+                        .zip(s.families)
+                        .filter_map(|(name, counted)| counted.then_some(name))
+                        .collect()
+                });
+                let file_inspection: Option<Vec<&str>> = entry.get("scrutiny").map(|s| {
+                    s["families"]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .map(|f| f.as_str().unwrap())
+                        .collect()
+                });
+                assert_eq!(
+                    file_inspection, engine_inspection,
+                    "news scrutiny drift: {}",
+                    headline.id
+                );
+                assert_eq!(
+                    entry
+                        .get("grant_credits")
+                        .map_or(0, |g| g.as_u64().unwrap()),
+                    u64::from(headline.grant),
+                    "news windfall drift: {}",
                     headline.id
                 );
                 assert!(!entry["title"].as_str().unwrap().is_empty());

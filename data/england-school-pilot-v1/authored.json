@@ -224,6 +224,62 @@
           "keep_pct": 50,
           "quarters": 2
         }
+      },
+      {
+        "id": "teacher_promises_audit",
+        "title": "Watchdog audits teacher promises",
+        "summary": "Inspectors ask how many of the promised teaching posts have actually been filled.",
+        "exposure_pct": [
+          30,
+          30,
+          30,
+          20,
+          20,
+          20
+        ],
+        "scrutiny": {
+          "families": [
+            "staffing"
+          ]
+        }
+      },
+      {
+        "id": "building_promises_audit",
+        "title": "Watchdog checks school building promises",
+        "summary": "Inspectors tour the sites where repairs were promised and count what has been finished.",
+        "exposure_pct": [
+          20,
+          20,
+          20,
+          30,
+          30,
+          30
+        ],
+        "scrutiny": {
+          "families": [
+            "repairs"
+          ]
+        }
+      },
+      {
+        "id": "spot_check_on_every_promise",
+        "title": "Inspectors announce a spot check on every promise",
+        "summary": "Every promise made to schools is checked against what has actually been delivered.",
+        "exposure_pct": [
+          25,
+          25,
+          25,
+          25,
+          25,
+          25
+        ],
+        "scrutiny": {
+          "families": [
+            "staffing",
+            "repairs",
+            "access"
+          ]
+        }
       }
     ],
     "good": [
@@ -278,8 +334,42 @@
           12000,
           12000
         ]
+      },
+      {
+        "id": "education_grant",
+        "title": "Government releases an education grant",
+        "summary": "Extra funds arrive for schools, to spend as you choose.",
+        "gain_ppm": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "grant_credits": 15
+      },
+      {
+        "id": "charity_donation",
+        "title": "Charity donates to the school fund",
+        "summary": "A donation adds a little more to spend on schools.",
+        "gain_ppm": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "grant_credits": 10
       }
-    ]
+    ],
+    "scrutiny": {
+      "pct": 50,
+      "step_pct": 15,
+      "cap_pct": 200
+    },
+    "max_windfall_credits": 15
   },
   "pilot": {
     "credits": 100,

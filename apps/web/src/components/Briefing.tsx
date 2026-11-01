@@ -58,7 +58,7 @@ export function Briefing({ open, onClose }: { open: boolean; onClose: () => void
           <Icon name="token" size={20} />
           <p><strong>{OFFLINE_PILOT.credits} credits a term.</strong>{' '}
             They never refill within a term, but each new term adds a fresh {OFFLINE_PILOT.credits} to anything you did not
-            spend. Credits turn into delivered work over time, and delivered work is spent for good. Work not yet delivered
+            spend, and a grant in the news adds a few more. Credits turn into delivered work over time, and delivered work is spent for good. Work not yet delivered
             can be re-planned: a new plan replaces it.</p>
         </div>
 
@@ -67,9 +67,10 @@ export function Briefing({ open, onClose }: { open: boolean; onClose: () => void
           <p><strong>The news will test you.</strong>{' '}
             Each term brings a few invented headlines. Good ones lift support; bad ones take some of it back, and the
             higher you stand, the more they take. Some also slow or stop one kind of work for a quarter or two, which can
-            push work you have promised past the election. Most are announced a quarter ahead, and at the start of a quarter you can
-            pay credits to take 60% off a bad one: credits that will not become delivered work. A few arrive unannounced.
-            The first term brings good news only.</p>
+            push work you have promised past the election. Others send inspectors to count the promises you have made and not
+            yet kept, so a smaller plan has less to count. A few good ones bring a grant of credits to spend. Most are
+            announced a quarter ahead, and at the start of a quarter you can pay credits to take 60% off a bad one: credits
+            that will not become delivered work. A few arrive unannounced. The first term brings good news only.</p>
         </div>
 
         <h3 className="section-label">You spend it on three things</h3>

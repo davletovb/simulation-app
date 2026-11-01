@@ -63,6 +63,38 @@ export function disruptionText(disruption, { delayedUnits } = {}) {
   return `${base}. About ${delayedUnits} unit${delayedUnits === 1 ? '' : 's'} of the work you have promised would arrive after the election instead of before it.`
 }
 
+/** "A", "A and B", "A, B and C". */
+function listWords(words) {
+  if (words.length <= 1) return words.join('')
+  return `${words.slice(0, -1).join(', ')} and ${words.at(-1)}`
+}
+const WORKS = ['Staffing', 'Repairs', 'Access']
+const units = n => `${n} unit${n === 1 ? '' : 's'}`
+
+/**
+ * What an inspection counts (decision 0012), in words. `owed_units` follows staffing, repairs, access. For news still to
+ * come the count is what would still be owed when the inspectors arrive if nothing changes; once landed it is what they found.
+ */
+export function inspectionText(scrutiny, { landed = false } = {}) {
+  const counted = scrutiny.families.map(f => FAMILY_WORD[f] ?? f)
+  const found = scrutiny.owed_units.map((n, i) => (n > 0 ? `${units(n)} of ${WORKS[i]}` : null)).filter(Boolean)
+  if (landed) {
+    return found.length === 0
+      ? `Inspectors checked ${listWords(counted)} and found no promised work unfinished.`
+      : `Inspectors counted promised work still unfinished: ${listWords(found)}.`
+  }
+  const base = `Inspectors will count promised ${listWords(counted)} work that is still unfinished`
+  return found.length === 0
+    ? `${base}. None of the work you have promised would be unfinished by then.`
+    : `${base}: ${listWords(found)} would still be owed by then. A smaller plan has less to count.`
+}
+
+/** A windfall, in words: the credits it brings. */
+export function windfallText(credits, { landed = false } = {}) {
+  const noun = `credit${credits === 1 ? '' : 's'}`
+  return landed ? `${credits} ${noun} arrived to spend.` : `Brings ${credits} ${noun} to spend, on top of anything you have left.`
+}
+
 /** What an answer buys, in one sentence, for the button's explanation. */
 export function reliefText(headline) {
   if (headline.relief_cost === null) return ''

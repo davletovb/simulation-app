@@ -207,6 +207,20 @@ def authoring_checks(authored):
             need(item in calendar["bad"], "only bad news may stop work")
             need(cut["family"] in ("staffing", "repairs", "access") and 0 <= cut["keep_pct"] <= 100 and cut["quarters"] in (1, 2),
                  "a disruption names a kind of work, a share kept, and one or two quarters")
+        inspection = item.get("scrutiny")
+        if inspection is not None:
+            need(item in calendar["bad"], "only bad news may send inspectors")
+            need(item.get("disrupts") is None, "a headline disrupts work or sends inspectors, not both")
+            families = inspection["families"]
+            need(families and len(set(families)) == len(families) and set(families) <= {"staffing", "repairs", "access"},
+                 "an inspection names which kinds of work it counts, once each")
+        credits = item.get("grant_credits")
+        if credits is not None:
+            need(item in calendar["good"], "only good news may bring credits")
+            need(1 <= credits <= calendar["max_windfall_credits"], "a windfall is between one credit and the stated maximum")
+            need(all(x == 0 for x in item["gain_ppm"]), "a windfall brings credits, not mood")
+    need(calendar["scrutiny"]["pct"] > 0 and calendar["scrutiny"]["step_pct"] >= 0 and calendar["scrutiny"]["cap_pct"] >= calendar["scrutiny"]["pct"],
+         "inspections take a positive share that does not shrink below its start")
     need(authored["board"]["support_votes_required"] == 2, "two-thirds vote")
     need(len(authored["board"]["ministers"]) == 3, "not three ministers")
     board = authored["board"]

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""An independent replica of the news calendar (decision 0010), to check the engine against.
+"""An independent replica of the news calendar (decisions 0010, 0011 and 0012), to check the engine against.
 
 Source of truth: crates/domain/src/news.rs and `Campaign::advance` in crates/domain/src/reducer.rs. This file repeats the
 rules from their description, reads the headlines from `data/england-school-pilot-v1/authored.json` (so the deck cannot drift
@@ -91,10 +91,11 @@ def capacity_kept(seed, quarter, answers=()):
     return keep
 
 
-def deliveries(campaign_id, plans, answers=(), quarters=None):
+def deliveries(campaign_id, plans, answers=(), quarters=None, owed=None):
     """Cumulative [staffing, repairs, access] after each quarter when `plans[t]` (a dict, or None to keep the programme) is
     approved in the first quarter of term t+1, delivered at full effort under the engine's lags and capacities, with the
-    disruptions of this campaign's calendar. Work not delivered by the end of a term is dropped (a new plan replaces it)."""
+    disruptions of this campaign's calendar. Work not delivered by the end of a term is dropped (a new plan replaces it).
+    If `owed` is a list, the promised-and-undelivered units after each quarter are appended to it, as dicts."""
     seed = news_seed(campaign_id)
     quarters = quarters or 6 * len(plans)
     total, out, left = {f: 0 for f in FAMILIES}, [], {f: 0 for f in FAMILIES}
@@ -113,6 +114,8 @@ def deliveries(campaign_id, plans, answers=(), quarters=None):
             left[f] -= d
             total[f] += d
         out.append([total[f] for f in FAMILIES])
+        if owed is not None:
+            owed.append(dict(left))
     return out
 
 
@@ -147,10 +150,25 @@ def relief_cost(shock):
     return max(1, -(-lost * NEWS['relief']['credits_per_point'] // 10_000))
 
 
-def play(cums, campaign_id, quarters, answers=()):
+def scrutiny_pct(term):
+    s, n = NEWS['scrutiny'], max(0, term - 2)
+    return min(s['cap_pct'], s['pct'] + s['step_pct'] * n)
+
+
+def scrutiny_shock(owed, term):
+    """What inspectors take from each group: a share of what the promised-and-undelivered work would have earned it (never
+    more than the shock cap), and nothing from a group that work would have cost more than it gave. `owed` is
+    [staffing, repairs, access] units."""
+    pct = scrutiny_pct(term)
+    return [-min(SHOCK_CAP, max(0, sm.response(ix, owed, **P)) * pct // 100) for ix in range(6)]
+
+
+def play(cums, campaign_id, quarters, answers=(), owed=None):
     """Support after `quarters` quarters of the calendar and the given cumulative deliveries, as the engine does it: each
     quarter's headline lands first, then queued responses, then this quarter's delivery is queued. `answers` are the
-    landing quarters whose headline was paid to soften. Returns (support, settled for election night, landed)."""
+    landing quarters whose headline was paid to soften. `owed` is what `deliveries` reports is still promised after each
+    quarter (an inspection counts it). Returns (support, settled for election night, landed), where each landed entry ends
+    with the credits a windfall brought (zero otherwise)."""
     seed, sup, queue, prev, landed = news_seed(campaign_id), [500_000] * 6, {}, [0, 0, 0], []
     book = {}
     for term in range(1, (quarters - 1) // 6 + 2):
@@ -162,11 +180,17 @@ def play(cums, campaign_id, quarters, answers=()):
         prev = list(cum)
         if q in book:
             tone, index, surprise = book[q]
-            shock = landing_shock(tone, index, (q - 1) // 6 + 1, sup)
+            term = (q - 1) // 6 + 1
+            shock = landing_shock(tone, index, term, sup)
+            headline = NEWS[tone][index]
+            if tone == 'bad' and headline.get('scrutiny'):
+                counted = headline['scrutiny']['families']
+                units = [owed[q - 1][f] if f in counted else 0 for f in FAMILIES]
+                shock = [max(-SHOCK_CAP, a + b) for a, b in zip(shock, scrutiny_shock(units, term))]
             if tone == 'bad' and q in answers:
                 shock = soften(shock)
             sup = [max(0, min(10**6, s + v)) for s, v in zip(sup, shock)]
-            landed.append((q, tone, NEWS[tone][index]['id'], surprise, shock))
+            landed.append((q, tone, headline['id'], surprise, shock, headline.get('grant_credits', 0)))
         for ed in queue.pop(q, []):
             sup = [max(0, min(10**6, s + sm.response(ix, ed, **P))) for ix, s in enumerate(sup)]
         if sum(d) > 0:
@@ -190,8 +214,8 @@ def report():
         sup, settled, landed = first_election(cid)
         held = sum(sm.W[i] for i in range(6) if settled[i] > HELD_ABOVE)
         print(f'{cid:6} seed {news_seed(cid):20} settled {settled} overall {sum(w * s for w, s in zip(sm.W, settled)) // 10**6} held {held}')
-        for q, tone, hid, surprise, shock in landed:
-            print(f'         Q{q} {tone:4} {hid:22} {"surprise" if surprise else "announced":9} {shock}')
+        for q, tone, hid, surprise, shock, credits in landed:
+            print(f'         Q{q} {tone:4} {hid:22} {"surprise" if surprise else "announced":9} {shock}' + (f' +{credits} credits' if credits else ''))
 
 
 def check():
@@ -205,40 +229,77 @@ def check():
         ok &= good
         print(f'{"ok  " if good else "FAIL"} {name}' + ('' if good else f'\n       got  {got}\n       want {want}'))
 
-    expect('schedule, seed 12345, term 1', schedule(12345, 1), [(2, 'good', 3, False), (4, 'good', 0, False)])
+    expect('schedule, seed 12345, term 1', schedule(12345, 1), [(2, 'good', 3, False), (4, 'good', 2, False)])
     expect('schedule, seed 12345, term 2', schedule(12345, 2),
-           [(8, 'bad', 8, False), (9, 'bad', 5, True), (10, 'bad', 6, False), (11, 'bad', 4, False)])
+           [(8, 'bad', 8, False), (9, 'bad', 2, True), (10, 'bad', 9, False), (11, 'bad', 7, False)])
     expect('schedule, seed 12345, term 3', schedule(12345, 3),
-           [(14, 'bad', 7, False), (16, 'bad', 6, False), (17, 'bad', 4, True), (18, 'bad', 2, True)])
+           [(14, 'bad', 13, False), (16, 'bad', 3, False), (17, 'bad', 10, True), (18, 'bad', 5, True)])
     expect('severity, terms 2, 3, 10', [severity(2), severity(3), severity(10)], [(5000, 40), (7500, 48), (20000, 90)])
     expect('bad news taxes the lead', landing_shock('bad', 3, 2, [500000, 500000, 500000, 560000, 520000, 500000]),
            [0, 0, 0, -29000, -13000, -5000])
     expect('a response softens by 60%', soften([-10000, -20000, 0, -30000, 0, 5000]), [-4000, -8000, 0, -12000, 0, 5000])
     expect('a response costs ceil(10 credits a point)', relief_cost([-10000, -20000, 0, -30000, 0, 5000]), 12)
-    # Campaign "dz7" (crates/local-api/src/connected.rs, the election-night test): Balanced in term 1, then 50/35/0 in term 2,
+    # Campaign "dz4827" (crates/local-api/src/connected.rs, the election-night test): Balanced in term 1, then 50/35/0 in term 2,
     # with a flood announced for quarter 11 that stops Repairs for two quarters, answered in quarter 10.
-    cid, plan2 = 'dz7', {'staffing': 50, 'repairs': 35, 'access': 0}
+    cid, plan2 = 'dz4827', {'staffing': 50, 'repairs': 35, 'access': 0}
     sup, settled, landed = play(deliveries(cid, [BALANCED], quarters=6), cid, 6)
-    expect('dz7: support before election night 1', sup, [602120, 613600, 484280, 603536, 620080, 495824])
-    expect('dz7: election night 1', settled, [603800, 624000, 484200, 611240, 637600, 503960])
-    expect('dz7: the headlines of term 1', [(q, h) for q, _, h, _, _ in landed], [(3, 'recruitment_up'), (6, 'attendance_rises')])
+    expect('dz4827: support before election night 1', sup, [590120, 601600, 472280, 616536, 633080, 508824])
+    expect('dz4827: election night 1', settled, [591800, 612000, 472200, 624240, 650600, 516960])
+    expect('dz4827: the headlines of term 1', [(q, h) for q, _, h, _, _, _ in landed], [(3, 'volunteer_surge'), (5, 'attendance_rises')])
+    funding = next(i for i, h in enumerate(NEWS['bad']) if h['id'] == 'funding_row')
+    expect('dz4827: what answering the funding row would cost', relief_cost(landing_shock('bad', funding, 2, sup)), 18)
     sup9, _, _ = play(deliveries(cid, [BALANCED, plan2], quarters=9), cid, 9)
-    expect('dz7: support at the start of quarter 10', sup9, [595420, 611100, 476420, 592156, 614300, 489244])
+    expect('dz4827: support at the start of quarter 10', sup9, [605820, 611500, 464420, 622556, 634700, 499644])
     flood = next(i for i, h in enumerate(NEWS['bad']) if h['id'] == 'flooding_halts_repairs')
     mood = landing_shock('bad', flood, 2, sup9)
     # 25 repair units still to deliver; stopped in quarters 11 and 12 only quarter 10's ten arrive: 15 slip past the election.
     delivery_effect = [-sm.response(ix, [0, 15, 0], **P) for ix in range(6)]
     total = [a + b for a, b in zip(mood, delivery_effect)]
-    expect('dz7: what the delayed work would have earned, taken away', delivery_effect, [1200, -12000, -1200, -10140, -24600, -15060])
-    expect('dz7: the quote for the flood', total, [-3116, -16944, -1700, -22698, -39816, -16560])
-    expect('dz7: ...overall, truncated toward zero', overall_ppm(total), -12208)
-    expect('dz7: ...and what answering costs', relief_cost(total), 13)
+    expect('dz4827: what the delayed work would have earned, taken away', delivery_effect, [1200, -12000, -1200, -10140, -24600, -15060])
+    expect('dz4827: the quote for the flood', total, [-3532, -16960, -1700, -26346, -42264, -16560])
+    expect('dz4827: ...overall, truncated toward zero', overall_ppm(total), -12772)
+    expect('dz4827: ...and what answering costs', relief_cost(total), 13)
     expect('an answer turns a stoppage into a 60% slowdown', capacity_kept(news_seed(cid), 11, answers=(11,))['repairs'], 60)
+    answered_quote = [a + b for a, b in zip(soften(mood), [-sm.response(ix, [0, 3, 0], **P) for ix in range(6)])]
+    expect('dz4827: ...once answered only 3 units slip past, and the loss is softened', answered_quote, [-1652, -4384, -440, -8510, -11985, -3612])
     cums = deliveries(cid, [BALANCED, plan2], answers=(11,), quarters=12)
-    expect('dz7: units delivered by quarter 12 with the answer', cums[-1], [100, 72, 10])
+    expect('dz4827: units delivered by quarter 12 with the answer', cums[-1], [100, 72, 10])
     _, settled12, landed12 = play(cums, cid, 12, answers=(11,))
-    expect('dz7: election night 2', settled12, [632663, 673322, 461560, 609905, 664664, 501697])
-    expect('dz7: the flood, answered', [shock for q, _, _, _, shock in landed12 if q == 11][0], [-1952, -2336, -200, -6819, -8396, -1217])
+    expect('dz4827: election night 2', settled12, [648262, 680358, 450060, 616966, 662205, 489996])
+    expect('dz4827: the flood, answered', [shock for q, _, _, _, shock, _ in landed12 if q == 11][0], [-2118, -2342, -200, -5158, -6255, -600])
+    # Campaign "sc156" (the inspection test): Balanced, then 50/35/0; an education grant lands in quarter 4 of term 1; in term 2
+    # an inspection of building promises (quarter 10) is left alone, a spot check on every promise (quarter 11) is answered,
+    # and a charity donation arrives in quarter 12 (decision 0012).
+    cid = 'sc156'
+    owed = []
+    cums = deliveries(cid, [BALANCED, plan2], quarters=12, owed=owed)
+    sup6, settled1, landed1 = play(cums[:6], cid, 6, owed=owed)
+    expect('sc156: election night 1', settled1, [586800, 617000, 487200, 594240, 630600, 506960])
+    expect('sc156: the grant', [(q, h, c) for q, _, h, _, _, c in landed1], [(3, 'inspectorate_praise', 0), (4, 'education_grant', 15)])
+    audit = next(i for i, h in enumerate(NEWS['bad']) if h['id'] == 'building_promises_audit')
+    sup8, _, _ = play(cums[:8], cid, 8, owed=owed)
+    units = [owed[9][f] if f in NEWS['bad'][audit]['scrutiny']['families'] else 0 for f in FAMILIES]
+    expect('sc156: promised repairs still unkept when the inspectors arrive', units, [0, 15, 0])
+    expect('sc156: the count alone', scrutiny_shock(units, 2), [0, -6000, -600, -5070, -12300, -7530])
+    quote = [max(-SHOCK_CAP, a + b) for a, b in zip(landing_shock('bad', audit, 2, sup8), scrutiny_shock(units, 2))]
+    expect('sc156: the quote for the audit, a quarter ahead', quote, [-5560, -14702, -1600, -14036, -26724, -9865])
+    expect('sc156: ...overall', overall_ppm(quote), -10115)
+    expect('sc156: ...and what answering costs', relief_cost(quote), 11)
+    spot = next(i for i, h in enumerate(NEWS['bad']) if h['id'] == 'spot_check_on_every_promise')
+    sup9, _, _ = play(cums[:9], cid, 9, owed=owed)
+    units = [owed[10][f] for f in FAMILIES]
+    expect('sc156: promised work still unkept at the spot check', units, [2, 5, 0])
+    quote = [max(-SHOCK_CAP, a + b) for a, b in zip(landing_shock('bad', spot, 2, sup9), scrutiny_shock(units, 2))]
+    expect('sc156: the quote for the spot check', quote, [-9479, -15518, -1250, -10200, -17352, -2808])
+    expect('sc156: ...and what answering costs', relief_cost(quote), 10)
+    _, settled12, landed12 = play(cums, cid, 12, answers=(11,), owed=owed)
+    shocks = {q: shock for q, _, _, _, shock, _ in landed12}
+    expect('sc156: the audit, as it landed', shocks[10], [-6751, -15854, -1600, -14715, -27530, -9030])
+    expect('sc156: the spot check, answered', shocks[11], [-4084, -6468, -500, -3988, -6764, -1123])
+    expect('sc156: election night 2', settled12, [605375, 661958, 465900, 590775, 658810, 484347])
+    expect('sc156: the donation', [c for q, _, _, _, _, c in landed12 if q == 12], [10])
+    expect('scrutiny takes a share of what the work would have earned', scrutiny_shock([26, 30, 0], 2), [-14920, -20000, 0, -16276, -20000, -2684])
+    expect('...growing with the term', [scrutiny_pct(t) for t in range(1, 11)], [50, 50, 65, 80, 95, 110, 125, 140, 155, 170])
     return ok
 
 

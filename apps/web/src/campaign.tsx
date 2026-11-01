@@ -129,6 +129,19 @@ export interface Upcoming {
   paid: number | null
   /** Set when the story also stops one kind of work. */
   disruption: Disruption | null
+  /** Set when inspectors will also count the promises that are still unkept (decision 0012). */
+  scrutiny: Scrutiny | null
+  /** Set when it is a windfall: the credits that arrive when it lands. */
+  grant_credits: number | null
+}
+/** What an inspection would count and take. */
+export interface Scrutiny {
+  /** The kinds of work counted. */
+  families: ('staffing' | 'repairs' | 'access')[]
+  /** Units promised and still undelivered in those kinds of work when the inspectors arrive: staffing, repairs, access. */
+  owed_units: number[]
+  /** The part of the loss that is the count, per group (already in `effect_ppm`). */
+  effect_ppm: number[]
 }
 /** What a disruption would do to the work the player has promised. */
 export interface Disruption {
@@ -156,6 +169,10 @@ export interface Landed {
   responded: boolean
   /** Set when the story also stopped one kind of work; `keep_pct` is what was applied, after any answer. */
   disruption: { family: 'staffing' | 'repairs' | 'access'; keep_pct: number; quarters: number } | null
+  /** Set when inspectors counted the promises that were still unkept: the units they found, staffing, repairs, access. */
+  scrutiny: { families: ('staffing' | 'repairs' | 'access')[]; owed_units: number[] } | null
+  /** Set when it was a windfall: the credits that arrived. */
+  grant_credits: number | null
 }
 export interface Operation {
   campaign_id: string

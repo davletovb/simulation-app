@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { canRespond, disruptionText, justIn, landsText, overallText, reliefText, whoItHits } from '../src/news.mjs'
+import { canRespond, disruptionText, inspectionText, justIn, landsText, overallText, reliefText, whoItHits, windfallText } from '../src/news.mjs'
 
 const ids = ['urban_low', 'urban_middle', 'urban_high', 'rural_low', 'rural_middle', 'rural_high']
 const bad = (over = {}) => ({ tone: 'bad', relief_cost: 13, relief_cut_pct: 60, paid: null, ...over })
@@ -75,4 +75,26 @@ test('a disruption says which work, how much it keeps, for how long, and what th
   assert.match(disruptionText(flood, { delayedUnits: 1 }), /About 1 unit of the work/)
   assert.equal(disruptionText(flood, { delayedUnits: 0 }),
     'Repairs work stops for 2 quarters. None of the work you have promised would be delayed past the election.')
+})
+
+test('an inspection says which work it counts and how much would still be owed, before and after it lands', () => {
+  const both = { families: ['staffing', 'repairs'], owed_units: [14, 15, 0] }
+  assert.equal(inspectionText(both),
+    'Inspectors will count promised Staffing and Repairs work that is still unfinished: 14 units of Staffing and 15 units of Repairs would still be owed by then. A smaller plan has less to count.')
+  assert.equal(inspectionText({ families: ['repairs'], owed_units: [0, 1, 0] }),
+    'Inspectors will count promised Repairs work that is still unfinished: 1 unit of Repairs would still be owed by then. A smaller plan has less to count.')
+  assert.equal(inspectionText({ families: ['staffing', 'repairs', 'access'], owed_units: [2, 5, 0] }),
+    'Inspectors will count promised Staffing, Repairs and Access work that is still unfinished: 2 units of Staffing and 5 units of Repairs would still be owed by then. A smaller plan has less to count.')
+  // A player who has promised nothing is told so, not threatened.
+  assert.equal(inspectionText({ families: ['repairs'], owed_units: [0, 0, 0] }),
+    'Inspectors will count promised Repairs work that is still unfinished. None of the work you have promised would be unfinished by then.')
+  assert.equal(inspectionText(both, { landed: true }), 'Inspectors counted promised work still unfinished: 14 units of Staffing and 15 units of Repairs.')
+  assert.equal(inspectionText({ families: ['access'], owed_units: [0, 0, 0] }, { landed: true }),
+    'Inspectors checked Access and found no promised work unfinished.')
+})
+
+test('a windfall says how many credits it brings, and that they have arrived once it has landed', () => {
+  assert.equal(windfallText(15), 'Brings 15 credits to spend, on top of anything you have left.')
+  assert.equal(windfallText(1), 'Brings 1 credit to spend, on top of anything you have left.')
+  assert.equal(windfallText(10, { landed: true }), '10 credits arrived to spend.')
 })

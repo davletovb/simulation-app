@@ -12,8 +12,8 @@ interface Treasury {
 }
 
 /**
- * The budget in everyday terms. Credits are granted 100 at a time, once per term, and never refill
- * within a term, so these four figures plus what is promised always add up to everything granted so far.
+ * The budget in everyday terms. Credits are granted 100 at a time, once per term (plus the odd grant in the news),
+ * and never refill within a term, so these four figures plus what is promised always add up to everything granted so far.
  */
 export function BudgetFigures({ treasury, breakdown = false, compact = false }: {
   treasury: Treasury

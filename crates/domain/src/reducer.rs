@@ -97,6 +97,10 @@ pub struct UpcomingHeadline {
     pub expected: [i32; 6],
     /// What a disruption would do to delivery, if this headline is one.
     pub delivery: Option<DeliveryQuote>,
+    /// What an inspection would count and take, if this headline is one.
+    pub scrutiny: Option<ScrutinyQuote>,
+    /// Credits that arrive when it lands, if it is a windfall.
+    pub grant: u16,
     /// What a response would cost now; `None` for good news, once a response has been paid, and when the headline would
     /// cost this player nothing.
     pub relief_cost: Option<u16>,
@@ -117,9 +121,21 @@ pub struct DeliveryQuote {
     pub effect: [i32; 6],
 }
 
+/// How an inspection would hit the promises the player has made (decision 0012).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ScrutinyQuote {
+    /// Which kinds of work are counted: staffing, repairs, access.
+    pub families: [bool; 3],
+    /// Units promised in those kinds of work and still undelivered when the inspectors arrive, as things stand.
+    pub owed: [u16; 3],
+    /// The part of the loss that is the count (already inside `expected`), per group.
+    pub effect: [i32; 6],
+}
+
 struct Quote {
     total: [i32; 6],
     delivery: Option<DeliveryQuote>,
+    scrutiny: Option<ScrutinyQuote>,
     cost: Option<u16>,
 }
 
@@ -409,6 +425,12 @@ impl Campaign {
                     scheduled,
                     expected: quote.total,
                     delivery: quote.delivery,
+                    scrutiny: quote.scrutiny,
+                    grant: if scheduled.tone == Tone::Good {
+                        scheduled.headline().grant
+                    } else {
+                        0
+                    },
                     relief_cost: (scheduled.tone == Tone::Bad && answered.is_none())
                         .then_some(quote.cost)
                         .flatten(),
@@ -437,8 +459,10 @@ impl Campaign {
             } else {
                 d.keep_pct
             };
-            let usual = self.projected_delivery(d.family, |_| 100)?;
-            let cut = self.projected_delivery(d.family, |q| if during(q) { kept } else { 100 })?;
+            let term_end = scheduled.quarter.term() * crate::TERM_QUARTERS;
+            let usual = self.projected_delivery(d.family, term_end, |_| 100)?;
+            let cut = self
+                .projected_delivery(d.family, term_end, |q| if during(q) { kept } else { 100 })?;
             let delayed = usual.saturating_sub(cut);
             let mut lost = [0_u16; 3];
             lost[news::family_slot(d.family)] = delayed;
@@ -458,20 +482,69 @@ impl Campaign {
                 effect,
             });
         }
+        let mut scrutiny = None;
+        if scheduled.tone == Tone::Bad
+            && let Some(inspection) = scheduled.headline().scrutiny
+        {
+            // What will still be owed when the inspectors arrive: what is owed now, less what the plan delivers up to and
+            // including the quarter they land in. Surprises and disruptions that nobody has announced are not counted.
+            let treasury = self.world.treasury();
+            let mut owed = [0_u16; 3];
+            for family in [
+                PolicyFamily::Staffing,
+                PolicyFamily::Repairs,
+                PolicyFamily::Access,
+            ] {
+                let slot = news::family_slot(family);
+                if inspection.families[slot] {
+                    let coming =
+                        self.projected_delivery(family, scheduled.quarter.value(), |_| 100)?;
+                    owed[slot] = treasury.encumbered(family).saturating_sub(coming);
+                }
+            }
+            let effect = self.inspection_shock(owed, scheduled.quarter.term(), answered)?;
+            for (t, e) in total.iter_mut().zip(effect) {
+                *t = t.saturating_add(e).max(-(SHOCK_CAP_PPM as i32));
+            }
+            scrutiny = Some(ScrutinyQuote {
+                families: inspection.families,
+                owed,
+                effect,
+            });
+        }
         // Nothing to protect, nothing to sell: a headline that would cost this player nothing cannot be answered.
         let cost = (news::overall_loss_ppm(&total, &weights) > 0)
             .then(|| news::relief_cost(&total, &weights));
         Ok(Quote {
             total,
             delivery,
+            scrutiny,
             cost,
         })
     }
-    /// Units of `family` that would be delivered between now and the end of the term, at full effort and with nothing
+    /// What inspectors would take from each group if they counted `owed` units of unfinished work in `term` (decision 0012):
+    /// a multiple of what that work would have earned each group, softened by a response. A group the work would have cost
+    /// more than it gave loses nothing.
+    fn inspection_shock(
+        &self,
+        owed: [u16; 3],
+        term: u8,
+        answered: bool,
+    ) -> Result<[i32; 6], Rejection> {
+        let mut earned = [0_i32; 6];
+        for (ix, e) in earned.iter_mut().enumerate() {
+            let gain = cohort_response_scaled(ix, owed, self.rules.magnitude_percent)?;
+            *e = i32::try_from(gain).map_err(|_| Rejection::Arithmetic)?;
+        }
+        let shock = news::scrutiny_shock(&earned, term);
+        Ok(if answered { news::soften(shock) } else { shock })
+    }
+    /// Units of `family` that would be delivered from now through quarter `through`, at full effort and with nothing
     /// changed in the plan, if the family could deliver only `keep(q)` percent of its usual capacity in quarter `q`.
     fn projected_delivery(
         &self,
         family: PolicyFamily,
+        through: u8,
         keep: impl Fn(u8) -> u32,
     ) -> Result<u16, Rejection> {
         let parts = self.world.private_checkpoint_parts();
@@ -482,9 +555,8 @@ impl Campaign {
             .cloned()
             .collect();
         let now = self.world.quarter();
-        let term_end = now.term() * crate::TERM_QUARTERS;
         let mut total = 0_u16;
-        for q in now.value()..=term_end {
+        for q in now.value()..=through {
             let usual = match family {
                 PolicyFamily::Staffing => self.caps.staff(),
                 PolicyFamily::Repairs if q == 2 => self
@@ -1463,14 +1535,48 @@ impl Campaign {
             let mut shock = news::landing_shock(&scheduled, q.term(), &support);
             let responded = scheduled.tone == Tone::Bad
                 && self.responses.iter().any(|r| r.headline_quarter == q);
+            // Inspectors count the promises still unkept after this quarter's delivery and take a share of what that work
+            // would have earned each group (decision 0012). A response softens the whole headline, mood and count together.
+            let mut owed = [0_u16; 3];
+            if scheduled.tone == Tone::Bad
+                && let Some(inspection) = scheduled.headline().scrutiny
+            {
+                for family in FAMILIES {
+                    let slot = news::family_slot(family);
+                    if inspection.families[slot] {
+                        owed[slot] = parts.treasury.encumbered(family);
+                    }
+                }
+                let counted = self.inspection_shock(owed, q.term(), false)?;
+                for (s, c) in shock.iter_mut().zip(counted) {
+                    *s = s.saturating_add(c).max(-(SHOCK_CAP_PPM as i32));
+                }
+            }
             if responded {
                 shock = news::soften(shock);
+            }
+            // A windfall brings credits that can be planned or spent on answering later headlines.
+            let mut granted = 0_u16;
+            if scheduled.tone == Tone::Good && scheduled.headline().grant > 0 {
+                let room = crate::MAX_CREDITS.saturating_sub(parts.treasury.granted());
+                let credits = scheduled.headline().grant.min(room);
+                if credits > 0 {
+                    let movement = LedgerMove::Grant { credits };
+                    let before = parts.treasury;
+                    parts.treasury = before.apply(movement)?;
+                    receipt
+                        .ledger
+                        .push(LedgerReceipt::new(before, movement, parts.treasury)?);
+                    granted = credits;
+                }
             }
             headline_shock = shock;
             self.landed.push(Landed {
                 scheduled,
                 shock,
                 responded,
+                owed,
+                granted,
             });
         }
         // Frozen exogenous shocks precede previously queued cohort responses.
@@ -3120,12 +3226,18 @@ mod tests {
     #[test]
     fn a_disruption_delays_work_past_the_election_and_is_quoted_before_it_lands() {
         // A flood that stops repairs for two quarters, announced for quarter 11.
+        // (the only disruption of its term, so nothing else changes what is delivered)
         let (seed, flood) = (0..20_000_u64)
             .find_map(|seed| {
-                news::schedule(seed, 2)
-                    .into_iter()
+                let term = news::schedule(seed, 2);
+                let cuts = term
+                    .iter()
+                    .filter(|s| s.tone == Tone::Bad && s.headline().disrupts.is_some())
+                    .count();
+                term.into_iter()
                     .find(|s| {
-                        s.tone == Tone::Bad
+                        cuts == 1
+                            && s.tone == Tone::Bad
                             && !s.surprise
                             && s.quarter.value() == 11
                             && s.headline().disrupts.is_some_and(|d| {
@@ -3187,6 +3299,239 @@ mod tests {
             (1..=20).contains(&cost),
             "an answer the player could afford: {cost}"
         );
+    }
+    /// A seed whose term-2 calendar has exactly one announced inspection landing in quarter 9 to 11, and no disruption (so
+    /// nothing but the plan changes what is delivered).
+    fn seed_with_inspection() -> (u64, Scheduled) {
+        (0..20_000_u64)
+            .find_map(|seed| {
+                let term = news::schedule(seed, 2);
+                let cuts = term
+                    .iter()
+                    .filter(|s| s.tone == Tone::Bad && s.headline().disrupts.is_some())
+                    .count();
+                let inspections: Vec<_> = term
+                    .iter()
+                    .filter(|s| s.tone == Tone::Bad && s.headline().scrutiny.is_some())
+                    .collect();
+                (cuts == 0 && inspections.len() == 1)
+                    .then(|| *inspections[0])
+                    .filter(|s| !s.surprise && (9..=11).contains(&s.quarter.value()))
+                    .map(|s| (seed, s))
+            })
+            .unwrap()
+    }
+    #[test]
+    fn inspectors_count_unfinished_promises_and_a_response_softens_the_story_and_the_count_together()
+     {
+        let (seed, visit) = seed_with_inspection();
+        let counted = visit.headline().scrutiny.unwrap().families;
+        let play = |answer: bool| {
+            let mut c = with_calendar(seed);
+            ratify_balanced_q1(&mut c);
+            coast(&mut c, 6, "t1-");
+            c.apply(player(&c, "begin", PlayerCommand::BeginTerm))
+                .unwrap();
+            // A plan with a reserve, so there is something to answer with.
+            open_meeting_with(&mut c, 7, Allocation::draft(50, 35, 0).unwrap());
+            coast_to(&mut c, visit.quarter.value() - 1, "to-");
+            let quote = c
+                .upcoming_headlines()
+                .into_iter()
+                .find(|u| u.scheduled.quarter == visit.quarter)
+                .expect("announced a quarter ahead");
+            let count = quote.scrutiny.expect("an inspection says what it counts");
+            assert_eq!(count.families, counted);
+            if answer {
+                respond_cmd(&mut c, "answer", visit.quarter).unwrap();
+            }
+            // Just before the inspectors arrive: where support stands and what is still owed.
+            coast_to(&mut c, visit.quarter.value(), "near-");
+            let support = c.support_values();
+            advance(&mut c, "visit").unwrap();
+            let landed = *c.landed_headlines().last().unwrap();
+            assert_eq!(landed.scheduled.quarter, visit.quarter);
+            (c, quote, count, landed, support)
+        };
+        let (c, quote, count, landed, support) = play(false);
+        // The quote promised what the plan then delivered: nothing disrupted it. Owed work is counted only in the named
+        // kinds of work, after the quarter's own delivery.
+        assert_eq!(landed.owed, count.owed);
+        for (slot, counted) in counted.iter().enumerate() {
+            if !counted {
+                assert_eq!(landed.owed[slot], 0, "kind {slot} is not counted");
+            }
+        }
+        assert!(
+            landed.owed.iter().any(|u| *u > 0),
+            "a plan under way owes work"
+        );
+        // What it took: the story's mood plus a share of what that work would have earned each group.
+        let mut earned = [0_i32; 6];
+        for (ix, e) in earned.iter_mut().enumerate() {
+            *e = i32::try_from(
+                cohort_response_scaled(ix, landed.owed, c.rules.magnitude_percent).unwrap(),
+            )
+            .unwrap();
+        }
+        let count_shock = news::scrutiny_shock(&earned, 2);
+        assert_eq!(
+            count.effect, count_shock,
+            "the quote's count is the landing's count"
+        );
+        let mood = news::landing_shock(&visit, 2, &support);
+        let expected: [i32; 6] =
+            std::array::from_fn(|ix| (mood[ix] + count_shock[ix]).max(-(SHOCK_CAP_PPM as i32)));
+        assert_eq!(landed.shock, expected);
+        assert!(
+            landed.shock.iter().zip(mood).any(|(s, m)| *s < m),
+            "the count took something beyond the story"
+        );
+        assert!(quote.relief_cost.is_some());
+        // Answering takes 60% off every loss, mood and count together, and is paid for in credits.
+        let (c2, quote2, count2, landed2, support2) = play(true);
+        assert_eq!(support2, support, "nothing else differs before the visit");
+        assert!(landed2.responded);
+        assert_eq!(landed2.shock, news::soften(expected));
+        assert_eq!(count2.owed, count.owed);
+        assert_eq!(
+            c2.world().treasury().relief_spent(),
+            quote.relief_cost.unwrap()
+        );
+        assert!(
+            quote2
+                .expected
+                .iter()
+                .zip(quote.expected)
+                .all(|(a, b)| *a >= b),
+            "the answered quote shows the softened loss"
+        );
+        c.world().validate().unwrap();
+        c2.world().validate().unwrap();
+    }
+    #[test]
+    fn no_quote_and_no_landing_ever_exceeds_the_bounds_the_browser_accepts() {
+        // The web app refuses a snapshot whose headline effect is beyond these bounds (a refused update freezes the screen), so
+        // the engine must stay inside them: a landed shock is capped at one headline's cap, and a quote is a capped story plus
+        // what delayed work would have earned, which is itself clipped, so at most twice the cap.
+        let cap = SHOCK_CAP_PPM as i32;
+        let mut quotes = 0_u32;
+        let mut biggest = 0_i32;
+        for seed in 0..40_u64 {
+            let mut c = with_calendar(seed);
+            ratify_balanced_q1(&mut c);
+            coast(&mut c, 6, "t1-");
+            c.apply(player(&c, "begin", PlayerCommand::BeginTerm))
+                .unwrap();
+            open_meeting_with(&mut c, 7, Allocation::draft(50, 40, 10).unwrap());
+            for n in 0..5 {
+                for quote in c.upcoming_headlines() {
+                    quotes += 1;
+                    for e in quote.expected {
+                        biggest = biggest.max(e.abs());
+                        assert!(e.abs() <= 2 * cap, "seed {seed}: a quote of {e}");
+                    }
+                }
+                advance(&mut c, &format!("q{n}")).unwrap();
+            }
+            for landed in c.landed_headlines() {
+                for e in landed.shock {
+                    assert!(e.abs() <= cap, "seed {seed}: a landing of {e}");
+                }
+            }
+        }
+        assert!(quotes > 40, "the sweep looked at {quotes} quotes");
+        assert!(
+            biggest > cap,
+            "no quote went past one cap, so the sweep proves nothing about the bound ({biggest})"
+        );
+    }
+    #[test]
+    fn a_player_who_promised_nothing_owes_nothing_to_inspectors() {
+        let (seed, visit) = seed_with_inspection();
+        let mut c = with_calendar(seed);
+        ratify_balanced_q1(&mut c);
+        coast(&mut c, 6, "t1-");
+        c.apply(player(&c, "begin", PlayerCommand::BeginTerm))
+            .unwrap();
+        // Term 2 passes with no new plan: term 1's work is all delivered, so there is nothing left to count.
+        coast_to(&mut c, visit.quarter.value() - 1, "idle-");
+        let count = c
+            .upcoming_headlines()
+            .into_iter()
+            .find(|u| u.scheduled.quarter == visit.quarter)
+            .and_then(|u| u.scrutiny)
+            .expect("an inspection is still announced");
+        assert_eq!(count.owed, [0; 3]);
+        assert_eq!(count.effect, [0; 6]);
+        advance(&mut c, "visit").unwrap();
+        assert_eq!(c.landed_headlines().last().unwrap().owed, [0; 3]);
+    }
+    #[test]
+    fn a_windfall_brings_credits_and_every_credit_stays_in_one_account() {
+        let (seed, grant) = (0..20_000_u64)
+            .find_map(|seed| {
+                news::schedule(seed, 1)
+                    .into_iter()
+                    .find(|s| s.headline().grant > 0)
+                    .map(|s| (seed, s))
+            })
+            .unwrap();
+        let credits = grant.headline().grant;
+        let mut c = with_calendar(seed);
+        ratify_balanced_q1(&mut c);
+        coast_to(&mut c, grant.quarter.value(), "before-");
+        assert_eq!(c.world().treasury().granted(), 100);
+        advance(&mut c, "windfall").unwrap();
+        let landed = *c.landed_headlines().last().unwrap();
+        assert_eq!(
+            (landed.scheduled.quarter, landed.granted),
+            (grant.quarter, credits)
+        );
+        assert_eq!(landed.shock, [0; 6], "a windfall is not mood");
+        assert_eq!(c.world().treasury().granted(), 100 + credits);
+        assert_eq!(c.world().treasury().available(), credits);
+        c.world().validate().unwrap();
+        // It is part of the next term's budget, like anything else left unspent.
+        let mut n = 0;
+        while c.phase() != MeetingPhase::ElectionNight {
+            advance(&mut c, &format!("to-six-{n}")).unwrap();
+            n += 1;
+        }
+        c.apply(player(&c, "begin", PlayerCommand::BeginTerm))
+            .unwrap();
+        assert_eq!(c.world().treasury().granted(), 200 + credits);
+        assert_eq!(c.world().treasury().available(), 100 + credits);
+        c.world().validate().unwrap();
+        // A windfall is announced a quarter ahead like any good news, with the credits it brings.
+        let (seed, _) = (0..20_000_u64)
+            .find_map(|seed| {
+                news::schedule(seed, 2)
+                    .into_iter()
+                    .find(|s| s.headline().grant > 0 && !s.surprise && s.quarter.in_term() >= 2)
+                    .map(|s| (seed, s))
+            })
+            .unwrap();
+        let c = {
+            let mut c = with_calendar(seed);
+            ratify_balanced_q1(&mut c);
+            coast(&mut c, 6, "t1-");
+            c.apply(player(&c, "begin", PlayerCommand::BeginTerm))
+                .unwrap();
+            c
+        };
+        let announced: Vec<_> = (7..=12)
+            .filter_map(|q| {
+                let mut look = c.clone();
+                coast_to(&mut look, q, "look-");
+                look.upcoming_headlines()
+                    .into_iter()
+                    .find(|u| u.grant > 0)
+                    .map(|u| (u.grant, u.relief_cost))
+            })
+            .collect();
+        assert!(!announced.is_empty());
+        assert!(announced.iter().all(|(g, cost)| *g > 0 && cost.is_none()));
     }
     #[test]
     fn a_disruption_to_work_the_player_never_promised_costs_them_nothing_and_cannot_be_answered() {

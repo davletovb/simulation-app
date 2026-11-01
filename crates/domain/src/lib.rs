@@ -29,8 +29,9 @@ pub const MAX_TERMS: u8 = 10;
 pub const MAX_QUARTERS: u8 = TERM_QUARTERS * MAX_TERMS;
 /// Credits granted at the start of each term after the first, added to anything unspent (R3, decision 0005).
 pub const TERM_ALLOCATION_CREDITS: u16 = PILOT_CREDITS;
-/// The most credits one game can ever grant: one allocation per term, up to the ceiling.
-pub const MAX_CREDITS: u16 = PILOT_CREDITS * MAX_TERMS as u16;
+/// The most credits one game can ever grant: one allocation per term, up to the ceiling, and the most that windfalls in the
+/// news can add (decision 0012).
+pub const MAX_CREDITS: u16 = PILOT_CREDITS * MAX_TERMS as u16 + news::MAX_WINDFALL_TOTAL;
 pub const SHARE_DENOMINATOR: u32 = 1_000_000;
 pub const EFFORT_DENOMINATOR: u16 = 1_000;
 
@@ -578,12 +579,10 @@ impl Treasury {
         .iter()
         .try_fold(0_u32, |acc, value| acc.checked_add(u32::from(*value)))
         .ok_or(ContractError::ArithmeticOverflow)?;
-        // Credits are granted in whole terms' allocations, never more than the game allows, and every one
-        // of them is in exactly one account.
-        let whole_terms = self.granted >= PILOT_CREDITS
-            && self.granted <= MAX_CREDITS
-            && self.granted.is_multiple_of(TERM_ALLOCATION_CREDITS);
-        if whole_terms && sum == u32::from(self.granted) {
+        // Credits are granted as a term's allocation or as a windfall in the news, never more than the game allows, and
+        // every one of them is in exactly one account.
+        let granted_ok = self.granted >= PILOT_CREDITS && self.granted <= MAX_CREDITS;
+        if granted_ok && sum == u32::from(self.granted) {
             Ok(())
         } else {
             Err(ContractError::InvalidTreasury)
@@ -1923,7 +1922,7 @@ mod tests {
     }
 
     #[test]
-    fn a_grant_is_the_only_way_credits_enter_and_the_total_is_always_whole_terms() {
+    fn a_grant_is_the_only_way_credits_enter_and_every_credit_is_in_one_account() {
         let start = Treasury::initial();
         assert_eq!(start.granted(), 100);
         let granted = start
@@ -1933,7 +1932,7 @@ mod tests {
             .unwrap();
         assert_eq!((granted.available(), granted.granted()), (200, 200));
         granted.validate().unwrap();
-        // Allocations keep coming, one per term, up to the ceiling; one more than a game can record is refused.
+        // Allocations keep coming, one per term, up to the ceiling...
         let mut most = granted;
         for _ in 3..=MAX_TERMS {
             most = most
@@ -1942,14 +1941,25 @@ mod tests {
                 })
                 .unwrap();
         }
-        assert_eq!(most.granted(), MAX_CREDITS);
+        assert_eq!(most.granted(), PILOT_CREDITS * u16::from(MAX_TERMS));
         most.validate().unwrap();
-        assert!(most.apply(LedgerMove::Grant { credits: 100 }).is_err());
+        // ...and so do windfalls, up to the most the news can bring in a whole game; one more is refused.
+        let windfall = news::MAX_WINDFALL_CREDITS;
+        let mut full = most;
+        for _ in 0..(news::MAX_WINDFALL_TOTAL / windfall) {
+            full = full.apply(LedgerMove::Grant { credits: windfall }).unwrap();
+        }
+        assert_eq!(full.granted(), MAX_CREDITS);
+        full.validate().unwrap();
+        assert!(full.apply(LedgerMove::Grant { credits: 1 }).is_err());
         // Money cannot appear any other way: accounts that add up to 200 need 200 granted.
         assert!(Treasury::from_parts(200, 0, 0, 0, 0, 0).is_err());
         assert!(Treasury::from_parts_granted(200, 200, 0, 0, 0, 0, 0).is_ok());
-        // ...and a part-term total is never valid.
-        assert!(Treasury::from_parts_granted(150, 150, 0, 0, 0, 0, 0).is_err());
+        // ...a windfall makes a total that is not a whole number of terms' allocations, which is fine if it is all accounted for...
+        assert!(Treasury::from_parts_granted(115, 115, 0, 0, 0, 0, 0).is_ok());
+        assert!(Treasury::from_parts_granted(115, 100, 0, 0, 0, 0, 0).is_err());
+        // ...but fewer than the opening allocation never is.
+        assert!(Treasury::from_parts_granted(50, 50, 0, 0, 0, 0, 0).is_err());
         assert!(Treasury::from_parts_granted(0, 0, 0, 0, 0, 0, 0).is_err());
         // Spending and reserving keep the total unchanged.
         let moved = granted

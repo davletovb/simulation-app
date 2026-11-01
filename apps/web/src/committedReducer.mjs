@@ -65,8 +65,10 @@ function validSupport(support, integrityFailure) {
 const MAX_TERMS = 10
 const TERM_QUARTERS = 6
 const MAX_QUARTERS = MAX_TERMS * TERM_QUARTERS
-/** A fresh allocation is granted each term, so nothing the game holds can exceed this. */
-const MAX_CREDITS = 100 * MAX_TERMS
+/** A fresh allocation is granted each term, and windfalls in the news add a few more (at most 15 each, two headlines in the
+ * first term and four in every later one), so nothing the game holds can exceed this. */
+const MAX_WINDFALL = 15
+const MAX_CREDITS = 100 * MAX_TERMS + MAX_WINDFALL * (2 + 4 * (MAX_TERMS - 1))
 
 /**
  * The election. It is a projection while a term runs and a verdict once the term has ended: either the
@@ -110,6 +112,21 @@ const tone = t => t === 'bad' || t === 'good'
 const keepOk = d => !!d && typeof d === 'object' && FAMILIES.includes(d.family) && Number.isInteger(d.keep_pct) && d.keep_pct >= 0 && d.keep_pct <= 100 &&
   (d.quarters === 1 || d.quarters === 2)
 const effectOk = e => sixOf(e, n => Number.isInteger(n) && Math.abs(n) <= 40000)
+/**
+ * What an announced headline is quoted to do to one group. A story takes at most 40,000 ppm (the engine's cap on one
+ * headline) and a disruption adds what the delayed work would have earned, at most another 40,000, which is not capped
+ * again: so a quote can reach twice the cap. A quote beyond that is nonsense. (Refusing a real quote froze the screen on
+ * "Saving…", because the update that would have ended it was rejected.)
+ */
+const quoteOk = e => sixOf(e, n => Number.isInteger(n) && Math.abs(n) <= 80000)
+const unitsOk = u => Array.isArray(u) && u.length === 3 && u.every(n => Number.isInteger(n) && n >= 0 && n <= MAX_CREDITS)
+/** Which kinds of work an inspection counts: at least one, each once. */
+const countedOk = f => Array.isArray(f) && f.length >= 1 && f.length <= 3 && f.every(x => FAMILIES.includes(x)) && new Set(f).size === f.length
+/** What an inspection says it counts (and, before it lands, how much of that it expects to take). A missing field fails. */
+const inspectionOk = (s, expected) => !!s && typeof s === 'object' && countedOk(s.families) && unitsOk(s.owed_units) &&
+  (!expected || effectOk(s.effect_ppm))
+/** A windfall's credits: a whole number, at least one and at most the largest windfall. */
+const grantOk = g => g === null || (Number.isInteger(g) && g >= 1 && g <= MAX_WINDFALL)
 const wordsOk = h => typeof h.id === 'string' && h.id.length > 0 && typeof h.title === 'string' && h.title.length > 0 &&
   typeof h.summary === 'string' && ['invented', 'real'].includes(h.source)
 
@@ -120,7 +137,7 @@ const wordsOk = h => typeof h.id === 'string' && h.id.length > 0 && typeof h.tit
 function validCalendar(calendar, quarter) {
   if (!calendar || !Array.isArray(calendar.upcoming) || !Array.isArray(calendar.recent)) return false
   if (calendar.upcoming.length > 2 || calendar.recent.length > MAX_QUARTERS) return false
-  const upcomingOk = calendar.upcoming.every(h => wordsOk(h) && tone(h.tone) && effectOk(h.effect_ppm) &&
+  const upcomingOk = calendar.upcoming.every(h => wordsOk(h) && tone(h.tone) && quoteOk(h.effect_ppm) &&
     Number.isInteger(h.quarter) && h.quarter >= quarter && h.quarter <= quarter + 1 &&
     Number.isInteger(h.overall_ppm) && ['serious', 'minor', 'welcome'].includes(h.severity) &&
     h.relief_cut_pct >= 0 && h.relief_cut_pct <= 100 &&
@@ -128,6 +145,10 @@ function validCalendar(calendar, quarter) {
     (h.disruption === null || (h.tone === 'bad' && keepOk(h.disruption) &&
       Number.isInteger(h.disruption.delayed_units) && h.disruption.delayed_units >= 0 && h.disruption.delayed_units <= MAX_CREDITS &&
       effectOk(h.disruption.effect_ppm))) &&
+    // Only bad news sends inspectors, and an inspection says which work it counts and how much of it would still be owed.
+    (h.scrutiny === null || (h.tone === 'bad' && h.disruption === null && inspectionOk(h.scrutiny, true))) &&
+    // Only good news brings credits.
+    grantOk(h.grant_credits) && (h.grant_credits === null || h.tone === 'good') &&
     (h.tone === 'good' ? h.relief_cost === null && h.paid === null
       : // Answerable (a price), answered (a payment), or neither because it would cost this player nothing; never both.
         (h.relief_cost === null || h.paid === null) &&
@@ -137,6 +158,8 @@ function validCalendar(calendar, quarter) {
     Number.isInteger(h.quarter) && h.quarter >= 1 && h.quarter <= MAX_QUARTERS && Number.isInteger(h.overall_ppm) &&
     typeof h.surprise === 'boolean' && typeof h.responded === 'boolean' &&
     (h.disruption === null || (h.tone === 'bad' && keepOk(h.disruption))) &&
+    (h.scrutiny === null || (h.tone === 'bad' && h.disruption === null && inspectionOk(h.scrutiny, false))) &&
+    grantOk(h.grant_credits) && (h.grant_credits === null || h.tone === 'good') &&
     (h.tone === 'bad' || !h.responded) && (i === 0 || all[i - 1].quarter < h.quarter))
   return upcomingOk && landedOk
 }

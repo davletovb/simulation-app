@@ -384,6 +384,21 @@ pub struct PublicUpcoming {
     pub paid: Option<u16>,
     /// Set when the story also stops one kind of work (decision 0011).
     pub disruption: Option<PublicDisruption>,
+    /// Set when inspectors will also count the promises that are still unkept (decision 0012).
+    pub scrutiny: Option<PublicScrutiny>,
+    /// Set when it is a windfall: the credits that arrive when it lands (decision 0012).
+    pub grant_credits: Option<u16>,
+}
+/// What an inspection would count and take.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct PublicScrutiny {
+    /// The kinds of work counted: any of `staffing`, `repairs`, `access`.
+    pub families: Vec<String>,
+    /// Units promised and still undelivered in those kinds of work when the inspectors arrive, as things stand, in the
+    /// order staffing, repairs, access (zero for a kind that is not counted).
+    pub owed_units: [u16; 3],
+    /// The part of the loss that is the count, per group (already counted in `effect_ppm`).
+    pub effect_ppm: [i32; 6],
 }
 /// What a disruption would do to the work the player has promised.
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -416,6 +431,16 @@ pub struct PublicLanded {
     pub responded: bool,
     /// Set when the story also stopped one kind of work. `keep_pct` is what was applied, after any response.
     pub disruption: Option<PublicLandedDisruption>,
+    /// Set when inspectors counted the promises that were still unkept.
+    pub scrutiny: Option<PublicLandedScrutiny>,
+    /// Set when it was a windfall: the credits that arrived.
+    pub grant_credits: Option<u16>,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct PublicLandedScrutiny {
+    pub families: Vec<String>,
+    /// Units promised and not yet delivered that the inspectors counted, in the order staffing, repairs, access.
+    pub owed_units: [u16; 3],
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct PublicLandedDisruption {
@@ -979,6 +1004,15 @@ fn capture(trial: &GameTrial) -> Result<PublicView, String> {
         mode:"offline_scripted",
     })
 }
+/// The kinds of work an inspection counts, by name.
+fn counted_families(families: [bool; 3]) -> Vec<String> {
+    ["staffing", "repairs", "access"]
+        .into_iter()
+        .zip(families)
+        .filter(|(_, counted)| *counted)
+        .map(|(name, _)| name.to_owned())
+        .collect()
+}
 fn family_name(family: PolicyFamily) -> &'static str {
     match family {
         PolicyFamily::Staffing => "staffing",
@@ -1037,6 +1071,12 @@ fn public_calendar(campaign: &myth_domain::reducer::Campaign) -> Result<PublicCa
                 delayed_units: delivery.delayed_units,
                 effect_ppm: delivery.effect,
             }),
+            scrutiny: up.scrutiny.map(|count| PublicScrutiny {
+                families: counted_families(count.families),
+                owed_units: count.owed,
+                effect_ppm: count.effect,
+            }),
+            grant_credits: (up.grant > 0).then_some(up.grant),
         });
     }
     let mut recent = vec![];
@@ -1067,6 +1107,16 @@ fn public_calendar(campaign: &myth_domain::reducer::Campaign) -> Result<PublicCa
                     },
                     quarters: cut.quarters,
                 }),
+            scrutiny: landed
+                .scheduled
+                .headline()
+                .scrutiny
+                .filter(|_| landed.scheduled.tone == d::news::Tone::Bad)
+                .map(|count| PublicLandedScrutiny {
+                    families: counted_families(count.families),
+                    owed_units: landed.owed,
+                }),
+            grant_credits: (landed.granted > 0).then_some(landed.granted),
         });
     }
     Ok(PublicCalendar { upcoming, recent })
@@ -3059,7 +3109,9 @@ mod tests {
     async fn p7_two_scripted_terms_report_exactly_twelve_quarters_and_replay() {
         let dir = root();
         let service = Connected::new(dir.clone()).unwrap();
-        let owner = service.owner("six-report", true).await.unwrap();
+        // The calendar of every campaign is fixed by its name (decisions 0010 to 0012). This name was chosen so that the
+        // scripted player wins both terms; another name might meet an inspection or a bad run of news and lose one.
+        let owner = service.owner("six-report-1", true).await.unwrap();
         let final_view;
         let saved_hash;
         {
@@ -3068,7 +3120,7 @@ mod tests {
             // The scripted player begins the next term; only the HTTP API refuses a generic step there.
             advance_slice(&mut engine.trial).await.unwrap();
             run_until_term_end(&mut engine.trial).await.unwrap();
-            final_view = capture_for(&engine.trial, "six-report").unwrap();
+            final_view = capture_for(&engine.trial, "six-report-1").unwrap();
             // Two terms won, so the game is not over: it waits on election night for a third.
             assert!(!final_view.closed);
             assert_eq!(final_view.phase, "ElectionNight");
@@ -3086,6 +3138,13 @@ mod tests {
             assert_eq!(final_view.news.len(), 3);
             assert_eq!(final_view.comparison.mode, "primary_campaign");
             let t = &final_view.treasury;
+            // Two allocations, and any windfalls the news brought on the way (decision 0012).
+            let windfalls: u32 = final_view
+                .calendar
+                .recent
+                .iter()
+                .map(|h| u32::from(h.grant_credits.unwrap_or(0)))
+                .sum();
             assert_eq!(
                 u32::from(t.available_credits)
                     + u32::from(t.encumbered_staff)
@@ -3094,16 +3153,16 @@ mod tests {
                     + u32::from(t.service_spent)
                     + u32::from(t.audit_spent)
                     + u32::from(t.relief_spent),
-                200
+                200 + windfalls
             );
             saved_hash = inspect(&engine.trial.store.dir).unwrap().0;
         }
         drop(owner);
         drop(service);
-        assert_eq!(inspect(&dir.join("six-report")).unwrap().0, saved_hash);
+        assert_eq!(inspect(&dir.join("six-report-1")).unwrap().0, saved_hash);
         let reopened = Connected::new(dir.clone()).unwrap();
-        let restored = reopened.owner("six-report", false).await.unwrap();
-        let view = capture_for(&restored.engine.lock().await.trial, "six-report").unwrap();
+        let restored = reopened.owner("six-report-1", false).await.unwrap();
+        let view = capture_for(&restored.engine.lock().await.trial, "six-report-1").unwrap();
         assert_eq!(view.cursor, final_view.cursor);
         assert_eq!(view.view_version, final_view.view_version);
         assert_eq!(view.delivery_history.len(), 12);
@@ -3240,11 +3299,234 @@ mod tests {
         accepted_step(service, campaign, CommandKind::FinishContinuation, *serial).await
     }
     #[tokio::test]
+    async fn inspections_and_windfalls_match_the_independent_replica() {
+        // Chosen with tools/support-model/news_model.py: in term 1 an education grant lands in quarter 4 (15 credits); in
+        // term 2 an inspection of building promises (quarter 10), a spot check on every promise (quarter 11) and a charity
+        // donation (quarter 12) are all announced a quarter ahead, and nothing disrupts work. Every number is the replica's.
+        let id = "sc156";
+        let dir = root();
+        let service = Connected::new(dir.clone()).unwrap();
+        let mut serial = 0_usize;
+        let balanced = WireAllocation {
+            staff: 50,
+            repairs: 40,
+            access: 10,
+        };
+        let mut view = play_plan(&service, id, balanced, &mut serial).await;
+        for _ in 2..=6 {
+            view = keep_quarter(&service, id, &mut serial).await;
+        }
+        assert_eq!(view.phase, "ElectionNight");
+        assert_eq!(view.election.status, "won");
+        assert_eq!(
+            view.election.settled_group_ppm,
+            [586_800, 617_000, 487_200, 594_240, 630_600, 506_960]
+        );
+        assert_eq!(view.election.weighted_support_ppm, 574_584);
+        // The grant arrived in quarter 4 and nothing has used it: all 100 credits of the plan are spent, so only it is left.
+        let landed: Vec<_> = view
+            .calendar
+            .recent
+            .iter()
+            .map(|h| (h.quarter, h.id.as_str(), h.grant_credits))
+            .collect();
+        assert_eq!(
+            landed,
+            [
+                (3, "inspectorate_praise", None),
+                (4, "education_grant", Some(15))
+            ]
+        );
+        let grant = &view.calendar.recent[1];
+        assert_eq!(grant.effect_ppm, [0; 6], "a windfall is credits, not mood");
+        assert!(grant.scrutiny.is_none() && grant.disruption.is_none());
+        assert_eq!(
+            (view.treasury.available_credits, view.treasury.service_spent),
+            (15, 100)
+        );
+        // Beginning term 2 adds a fresh allocation to it.
+        serial += 1;
+        let second = accepted_step(&service, id, CommandKind::BeginTerm, serial).await;
+        assert_eq!((second.quarter, second.term), (7, 2));
+        assert_eq!(second.treasury.available_credits, 115);
+        // A plan that keeps 30 credits back to answer with.
+        let plan = WireAllocation {
+            staff: 50,
+            repairs: 35,
+            access: 0,
+        };
+        let view = play_plan(&service, id, plan, &mut serial).await;
+        assert_eq!((view.quarter, view.treasury.available_credits), (8, 30));
+        // Quarter 8's cost-of-living story lands; quarter 9 is open.
+        let view = keep_quarter(&service, id, &mut serial).await;
+        assert_eq!(view.quarter, 9);
+        // A quarter ahead of the inspection of building promises, the card says what it will count and what that costs:
+        // 15 repair units still promised after quarter 10's delivery.
+        let audit = view
+            .calendar
+            .upcoming
+            .iter()
+            .find(|h| h.quarter == 10)
+            .expect("announced");
+        assert_eq!(
+            (audit.id.as_str(), audit.tone.as_str()),
+            ("building_promises_audit", "bad")
+        );
+        let count = audit.scrutiny.as_ref().expect("an inspection");
+        assert_eq!(count.families, ["repairs"]);
+        assert_eq!(count.owed_units, [0, 15, 0]);
+        assert_eq!(count.effect_ppm, [0, -6_000, -600, -5_070, -12_300, -7_530]);
+        assert_eq!(
+            audit.effect_ppm,
+            [-5_560, -14_702, -1_600, -14_036, -26_724, -9_865]
+        );
+        assert_eq!(audit.overall_ppm, -10_115);
+        assert_eq!(audit.severity, "minor");
+        assert_eq!(audit.relief_cost, Some(11));
+        assert!(audit.disruption.is_none() && audit.grant_credits.is_none());
+        // Leave it. Quarter 10 opens; the spot check on every promise is now announced too.
+        let view = keep_quarter(&service, id, &mut serial).await;
+        assert_eq!(view.quarter, 10);
+        let audit = view
+            .calendar
+            .upcoming
+            .iter()
+            .find(|h| h.quarter == 10)
+            .unwrap();
+        assert_eq!(
+            audit.effect_ppm,
+            [-6_751, -15_854, -1_600, -14_715, -27_530, -9_030],
+            "the quote moves with where support stands"
+        );
+        let spot = view
+            .calendar
+            .upcoming
+            .iter()
+            .find(|h| h.quarter == 11)
+            .expect("announced");
+        assert_eq!(spot.id, "spot_check_on_every_promise");
+        let count = spot.scrutiny.as_ref().unwrap();
+        assert_eq!(count.families, ["staffing", "repairs", "access"]);
+        assert_eq!(count.owed_units, [2, 5, 0]);
+        assert_eq!(
+            count.effect_ppm,
+            [-1_040, -3_200, 0, -2_162, -4_660, -1_558]
+        );
+        assert_eq!(
+            spot.effect_ppm,
+            [-9_479, -15_518, -1_250, -10_200, -17_352, -2_808]
+        );
+        assert_eq!(spot.overall_ppm, -9_947);
+        assert_eq!(spot.relief_cost, Some(10));
+        // Good news cannot be answered.
+        let refused = command(
+            State(service.clone()),
+            Path(id.to_owned()),
+            Json(Command {
+                command_id: "respond-to-good-news".into(),
+                expected_world_version: view.view_version.clone(),
+                kind: CommandKind::Respond {
+                    headline_quarter: 12,
+                },
+            }),
+        )
+        .await;
+        assert_eq!(refused.unwrap_err().0, StatusCode::CONFLICT);
+        // Answer the spot check, not the audit.
+        serial += 1;
+        let answered = accepted_step(
+            &service,
+            id,
+            CommandKind::Respond {
+                headline_quarter: 11,
+            },
+            serial,
+        )
+        .await;
+        assert_eq!(answered.treasury.relief_spent, 10);
+        assert_eq!(answered.treasury.available_credits, 20);
+        let mut view = answered;
+        for _ in 10..=11 {
+            view = keep_quarter(&service, id, &mut serial).await;
+        }
+        assert_eq!(view.quarter, 12);
+        let landed: Vec<_> = view
+            .calendar
+            .recent
+            .iter()
+            .filter(|h| h.quarter >= 8)
+            .map(|h| (h.quarter, h.id.as_str(), h.responded))
+            .collect();
+        assert_eq!(
+            landed,
+            [
+                (8, "cost_of_living", false),
+                (10, "building_promises_audit", false),
+                (11, "spot_check_on_every_promise", true)
+            ]
+        );
+        let at = |q: u8| {
+            view.calendar
+                .recent
+                .iter()
+                .find(|h| h.quarter == q)
+                .unwrap()
+        };
+        // The unanswered audit took the story and the count, as quoted.
+        assert_eq!(
+            at(10).effect_ppm,
+            [-6_751, -15_854, -1_600, -14_715, -27_530, -9_030]
+        );
+        assert_eq!(at(10).scrutiny.as_ref().unwrap().owed_units, [0, 15, 0]);
+        // The answered spot check took 60% less of both.
+        assert_eq!(
+            at(11).effect_ppm,
+            [-4_084, -6_468, -500, -3_988, -6_764, -1_123]
+        );
+        assert_eq!(at(11).scrutiny.as_ref().unwrap().owed_units, [2, 5, 0]);
+        // The charity donation arrives in the last quarter, and the second election is held on what is left.
+        view = keep_quarter(&service, id, &mut serial).await;
+        assert_eq!(view.phase, "ElectionNight");
+        assert_eq!(view.election.status, "won");
+        assert_eq!(
+            view.election.settled_group_ppm,
+            [605_375, 661_958, 465_900, 590_775, 658_810, 484_347]
+        );
+        assert_eq!(view.election.weighted_support_ppm, 589_998);
+        let donation = view
+            .calendar
+            .recent
+            .iter()
+            .find(|h| h.quarter == 12)
+            .unwrap();
+        assert_eq!(
+            (donation.id.as_str(), donation.grant_credits),
+            ("charity_donation", Some(10))
+        );
+        // Every credit is in exactly one account: 100 + 100 allocated, 15 + 10 from windfalls.
+        let t = &view.treasury;
+        assert_eq!(
+            (t.available_credits, t.service_spent, t.relief_spent),
+            (30, 185, 10)
+        );
+        assert_eq!(
+            u32::from(t.available_credits)
+                + u32::from(t.encumbered_staff)
+                + u32::from(t.encumbered_repairs)
+                + u32::from(t.encumbered_access)
+                + u32::from(t.service_spent)
+                + u32::from(t.audit_spent)
+                + u32::from(t.relief_spent),
+            225
+        );
+        fs::remove_dir_all(dir).unwrap();
+    }
+    #[tokio::test]
     async fn election_night_is_published_and_matches_the_independent_replica() {
-        // Every campaign has its own news calendar, fixed by its name (decisions 0010 and 0011). "dz7" was chosen with
-        // tools/support-model/news_model.py for a second term that has an announced flood stopping Repairs in quarter 11.
-        // Every number below is that independent replica's, to the ppm.
-        let id = "dz7";
+        // Every campaign has its own news calendar, fixed by its name (decisions 0010 to 0012). "dz4827" was chosen with
+        // tools/support-model/news_model.py for a second term that has an announced flood stopping Repairs in quarter 11,
+        // no other disruption, no inspection and no windfall. Every number below is that independent replica's, to the ppm.
+        let id = "dz4827";
         let dir = root();
         let service = Connected::new(dir.clone()).unwrap();
         let mut serial = 0_usize;
@@ -3275,14 +3557,14 @@ mod tests {
         // The first term brings good news only: two headlines, announced a quarter ahead.
         assert_eq!(
             view.election.settled_group_ppm,
-            [603_800, 624_000, 484_200, 611_240, 637_600, 503_960]
+            [591_800, 612_000, 472_200, 624_240, 650_600, 516_960]
         );
-        assert_eq!(view.election.weighted_support_ppm, 582_184);
+        assert_eq!(view.election.weighted_support_ppm, 575_184);
         assert_eq!(view.election.blocs_held_ppm, 780_000);
         // Before the election the last quarter's response has not landed yet.
         assert_eq!(
             view.support.group_ppm,
-            [602_120, 613_600, 484_280, 603_536, 620_080, 495_824]
+            [590_120, 601_600, 472_280, 616_536, 633_080, 508_824]
         );
         let landed: Vec<_> = view
             .calendar
@@ -3301,8 +3583,8 @@ mod tests {
         assert_eq!(
             landed,
             [
-                (3, "recruitment_up", "good", false, false),
-                (6, "attendance_rises", "good", false, false)
+                (3, "volunteer_surge", "good", true, false),
+                (5, "attendance_rises", "good", false, false)
             ]
         );
         assert!(
@@ -3332,7 +3614,7 @@ mod tests {
         assert_eq!(view.election.min_support_ppm, ELECTION_MIN_SUPPORT_PPM);
         assert_eq!(view.past_elections.len(), 1);
         assert!(view.past_elections[0].won);
-        assert_eq!(view.past_elections[0].weighted_support_ppm, 582_184);
+        assert_eq!(view.past_elections[0].weighted_support_ppm, 575_184);
         // What the browser receives.
         let wire = serde_json::to_value(&view).unwrap();
         assert_eq!(wire["election"]["status"], "won");
@@ -3387,7 +3669,7 @@ mod tests {
             (8, "funding_row", "bad")
         );
         assert!(up[0].disruption.is_none());
-        assert_eq!(up[0].relief_cost, Some(19));
+        assert_eq!(up[0].relief_cost, Some(18));
         // Plan with a reserve: 50/35/0 still wins the cabinet and keeps 15 credits back to answer a headline with. (Fewer than 50
         // for Staffing would let the School Staff Association slow it down, which the replica does not model.)
         let reserve = WireAllocation {
@@ -3432,9 +3714,9 @@ mod tests {
         );
         assert_eq!(
             flood.effect_ppm,
-            [-3_116, -16_944, -1_700, -22_698, -39_816, -16_560]
+            [-3_532, -16_960, -1_700, -26_346, -42_264, -16_560]
         );
-        assert_eq!(flood.overall_ppm, -12_208);
+        assert_eq!(flood.overall_ppm, -12_772);
         assert_eq!(flood.severity, "minor");
         assert_eq!(flood.relief_cost, Some(13));
         // Answer it: 13 credits, and the stoppage becomes a slowdown (60% less cut).
@@ -3466,6 +3748,11 @@ mod tests {
             paid.overall_ppm > flood.overall_ppm,
             "an answered headline is expected to cost less"
         );
+        assert_eq!(
+            paid.effect_ppm,
+            [-1_652, -4_384, -440, -8_510, -11_985, -3_612]
+        );
+        assert_eq!(paid.overall_ppm, -3_664);
         // Answering twice, a quarter with nothing announced, and a quarter that does not exist are all refused.
         for (n, quarter) in [(1_u8, 11_u8), (2, 12), (3, 30)] {
             let refused = command(
@@ -3497,9 +3784,9 @@ mod tests {
         assert_eq!(view.election.status, "won");
         assert_eq!(
             view.election.settled_group_ppm,
-            [632_663, 673_322, 461_560, 609_905, 664_664, 501_697]
+            [648_262, 680_358, 450_060, 616_966, 662_205, 489_996]
         );
-        assert_eq!(view.election.weighted_support_ppm, 602_449);
+        assert_eq!(view.election.weighted_support_ppm, 605_939);
         let landed: Vec<_> = view
             .calendar
             .recent
@@ -3511,9 +3798,9 @@ mod tests {
             landed,
             [
                 (8, "funding_row", false),
-                (10, "volunteer_surge", false),
-                (11, "flooding_halts_repairs", true),
-                (12, "broadband_outage", false)
+                (9, "attendance_rises", false),
+                (10, "rural_bus_cuts", false),
+                (11, "flooding_halts_repairs", true)
             ]
         );
         // The answered flood took 60% less, and slowed Repairs to 60% for two quarters instead of stopping it.
@@ -3525,7 +3812,7 @@ mod tests {
             .unwrap();
         assert_eq!(
             flooded.effect_ppm,
-            [-1_952, -2_336, -200, -6_819, -8_396, -1_217]
+            [-2_118, -2_342, -200, -5_158, -6_255, -600]
         );
         let cut = flooded.disruption.as_ref().unwrap();
         assert_eq!(

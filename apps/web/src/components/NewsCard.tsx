@@ -1,6 +1,6 @@
 import { useCampaign, type Landed, type Snapshot, type Upcoming } from '../campaign'
 import { quarterLabel } from '../game'
-import { canRespond, disruptionText, justIn, landsText, overallText, reliefText, whoItHits } from '../news.mjs'
+import { canRespond, disruptionText, inspectionText, justIn, landsText, overallText, reliefText, whoItHits, windfallText } from '../news.mjs'
 import { ActionButton } from './ConnectedControls'
 import { Icon } from './Icon'
 
@@ -18,11 +18,21 @@ function Announced({ headline, snapshot, step }: { headline: Upcoming; snapshot:
         <strong id={labelId}>{headline.title}</strong>
       </div>
       <p className="headline-body">{headline.summary}</p>
-      <p className="headline-facts">
-        Lands {landsText(headline.quarter, snapshot.quarter)} ({quarterLabel(headline.quarter).label}).{' '}
-        {headline.tone === 'bad' ? 'Hits' : 'Helps'}: {whoItHits(headline.effect_ppm, snapshot.support.group_ids)}.{' '}
-        <strong>{overallText(headline.overall_ppm, { approximate: true })}</strong>.
-      </p>
+      {headline.grant_credits !== null ? (
+        <p className="headline-facts">
+          Lands {landsText(headline.quarter, snapshot.quarter)} ({quarterLabel(headline.quarter).label}).{' '}
+          <strong>{windfallText(headline.grant_credits)}</strong>
+        </p>
+      ) : (
+        <p className="headline-facts">
+          Lands {landsText(headline.quarter, snapshot.quarter)} ({quarterLabel(headline.quarter).label}).{' '}
+          {headline.tone === 'bad' ? 'Hits' : 'Helps'}: {whoItHits(headline.effect_ppm, snapshot.support.group_ids)}.{' '}
+          <strong>{overallText(headline.overall_ppm, { approximate: true })}</strong>.
+        </p>
+      )}
+      {headline.scrutiny && (
+        <p className="headline-cut"><Icon name="intel" size={14} />{inspectionText(headline.scrutiny)}</p>
+      )}
       {headline.disruption && (
         <p className="headline-cut"><Icon name="hourglass" size={14} />
           {disruptionText(headline.disruption, { delayedUnits: headline.disruption.delayed_units })}</p>
@@ -53,10 +63,15 @@ function Landed({ headline }: { headline: Landed }) {
       {headline.disruption && (
         <p className="headline-cut"><Icon name="hourglass" size={14} />{disruptionText(headline.disruption)}</p>
       )}
+      {headline.scrutiny && (
+        <p className="headline-cut"><Icon name="intel" size={14} />{inspectionText(headline.scrutiny, { landed: true })}</p>
+      )}
       <p className="headline-facts">
         {headline.surprise ? 'Nobody saw it coming. ' : ''}
         {headline.responded ? 'You answered it. ' : ''}
-        <strong>{overallText(headline.overall_ppm)}</strong>.
+        {headline.grant_credits !== null
+          ? <strong>{windfallText(headline.grant_credits, { landed: true })}</strong>
+          : <><strong>{overallText(headline.overall_ppm)}</strong>.</>}
       </p>
     </li>
   )

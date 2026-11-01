@@ -9,5 +9,10 @@ export function disruptionText(
   disruption: { family: string; keep_pct: number; quarters: number },
   options?: { delayedUnits?: number },
 ): string
+export function inspectionText(
+  scrutiny: { families: readonly string[]; owed_units: readonly number[] },
+  options?: { landed?: boolean },
+): string
+export function windfallText(credits: number, options?: { landed?: boolean }): string
 export function reliefText(headline: { relief_cost: number | null; relief_cut_pct: number }): string
 export function justIn<T extends { quarter: number }>(recent: readonly T[], currentQuarter: number): T[]

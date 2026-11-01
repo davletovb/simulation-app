@@ -9,6 +9,8 @@
 //! good. A third of headlines are surprises that nobody is told about; the rest are announced a quarter ahead and can be
 //! answered with credits. Bad news takes from each group its exposure (a share of the worst case) times a small base plus a
 //! share of the group's lead over 50%, and both the base and the share grow with the term, so a big lead is never a safe one.
+//! Some bad headlines also stop one kind of work (decision 0011) or send inspectors to count the promises that have not been
+//! kept yet (decision 0012); some good ones bring a few credits (a windfall, decision 0012).
 
 use crate::{
     PolicyFamily, Quarter, TERM_QUARTERS, reducer::ELECTION_HELD_ABOVE_PPM, reducer::SHOCK_CAP_PPM,
@@ -38,6 +40,17 @@ pub const SHARE_CAP_PCT: u32 = 90;
 pub const RELIEF_CREDITS_PER_POINT: u32 = 10;
 /// A response takes this many percent off every group's loss.
 pub const RELIEF_CUT_PCT: i32 = 60;
+/// Inspectors take this many percent of what the promised-and-undelivered work would have earned a group, in term 2...
+pub const SCRUTINY_PCT: u32 = 50;
+/// ...growing by this many points each term after the second...
+pub const SCRUTINY_STEP_PCT: u32 = 15;
+/// ...up to this many percent. More than 100 because a broken promise is punished harder than it would have been rewarded.
+pub const SCRUTINY_CAP_PCT: u32 = 200;
+/// The most credits any one windfall brings.
+pub const MAX_WINDFALL_CREDITS: u16 = 15;
+/// The most credits windfalls can bring in a whole game: every headline of every term, if they were all the largest windfall.
+pub const MAX_WINDFALL_TOTAL: u16 = MAX_WINDFALL_CREDITS
+    * (QUIET_TERM_HEADLINES as u16 + HEADLINES_PER_TERM as u16 * (crate::MAX_TERMS as u16 - 1));
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Tone {
@@ -55,14 +68,26 @@ pub struct Disruption {
     pub quarters: u8,
 }
 
+/// A headline that sends inspectors to count the promises that have not been kept yet (decision 0012). When it lands, the work
+/// the player has promised in the named kinds of work and not yet delivered is counted, and each group loses a share of what
+/// that work would have earned it (`scrutiny_pct`).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct Scrutiny {
+    /// Which kinds of work are counted: staffing, repairs, access.
+    pub families: [bool; 3],
+}
+
 /// One kind of headline. For bad news `effect` is each group's exposure, in percent of the worst case; for good news it
 /// is each group's gain in ppm. Groups: urban low, middle, high income, then rural low, middle, high. A bad headline may also
-/// disrupt one kind of work.
+/// disrupt one kind of work or send inspectors; a good one may bring credits.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Headline {
     pub id: &'static str,
     pub effect: [u32; 6],
     pub disrupts: Option<Disruption>,
+    pub scrutiny: Option<Scrutiny>,
+    /// Credits that arrive when this good news lands (a windfall); zero for everything else.
+    pub grant: u16,
 }
 
 const fn story(id: &'static str, effect: [u32; 6]) -> Headline {
@@ -70,6 +95,26 @@ const fn story(id: &'static str, effect: [u32; 6]) -> Headline {
         id,
         effect,
         disrupts: None,
+        scrutiny: None,
+        grant: 0,
+    }
+}
+const fn audit(id: &'static str, effect: [u32; 6], families: [bool; 3]) -> Headline {
+    Headline {
+        id,
+        effect,
+        disrupts: None,
+        scrutiny: Some(Scrutiny { families }),
+        grant: 0,
+    }
+}
+const fn windfall(id: &'static str, credits: u16) -> Headline {
+    Headline {
+        id,
+        effect: [0; 6],
+        disrupts: None,
+        scrutiny: None,
+        grant: credits,
     }
 }
 const fn stoppage(
@@ -87,10 +132,12 @@ const fn stoppage(
             keep_pct,
             quarters,
         }),
+        scrutiny: None,
+        grant: 0,
     }
 }
 
-pub const BAD: [Headline; 12] = [
+pub const BAD: [Headline; 15] = [
     stoppage(
         "teacher_shortage",
         [50, 50, 50, 25, 25, 25],
@@ -145,12 +192,29 @@ pub const BAD: [Headline; 12] = [
         50,
         2,
     ),
+    audit(
+        "teacher_promises_audit",
+        [30, 30, 30, 20, 20, 20],
+        [true, false, false],
+    ),
+    audit(
+        "building_promises_audit",
+        [20, 20, 20, 30, 30, 30],
+        [false, true, false],
+    ),
+    audit(
+        "spot_check_on_every_promise",
+        [25, 25, 25, 25, 25, 25],
+        [true, true, true],
+    ),
 ];
-pub const GOOD: [Headline; 4] = [
+pub const GOOD: [Headline; 6] = [
     story("inspectorate_praise", [15_000; 6]),
     story("volunteer_surge", [0, 0, 0, 25_000, 25_000, 25_000]),
     story("attendance_rises", [20_000, 10_000, 0, 20_000, 10_000, 0]),
     story("recruitment_up", [12_000; 6]),
+    windfall("education_grant", 15),
+    windfall("charity_donation", 10),
 ];
 
 pub const fn deck(tone: Tone) -> &'static [Headline] {
@@ -184,6 +248,10 @@ pub struct Landed {
     /// What it did to each group's support, after any response.
     pub shock: [i32; 6],
     pub responded: bool,
+    /// For an inspection, the units promised and not yet delivered that it counted, per kind of work; zero otherwise.
+    pub owed: [u16; 3],
+    /// For a windfall, the credits that arrived; zero otherwise.
+    pub granted: u16,
 }
 
 /// A response that was paid for.
@@ -290,6 +358,22 @@ pub fn landing_shock(s: &Scheduled, term: u8, support: &[u32; 6]) -> [i32; 6] {
         }
     }
     out
+}
+
+/// How much of what unfinished work would have earned them inspectors take, in a given term, in percent.
+pub fn scrutiny_pct(term: u8) -> u32 {
+    let n = u32::from(term.saturating_sub(2));
+    (SCRUTINY_PCT + SCRUTINY_STEP_PCT * n).min(SCRUTINY_CAP_PCT)
+}
+
+/// What inspectors take from each group, given what the promised-and-undelivered work would have earned it (`earned`, in
+/// ppm, as the delivery rules compute it). A group that the work would have cost more than it gave loses nothing.
+pub fn scrutiny_shock(earned: &[i32; 6], term: u8) -> [i32; 6] {
+    let pct = i64::from(scrutiny_pct(term));
+    earned.map(|e| {
+        let take = (i64::from(e.max(0)) * pct / 100).min(i64::from(SHOCK_CAP_PPM));
+        -i32::try_from(take).unwrap_or(0)
+    })
 }
 
 /// A response takes this much off every loss (toward zero).
@@ -420,24 +504,24 @@ mod tests {
         };
         assert_eq!(
             plan(12345, 1),
-            [(2, Tone::Good, 3, false), (4, Tone::Good, 0, false)]
+            [(2, Tone::Good, 3, false), (4, Tone::Good, 2, false)]
         );
         assert_eq!(
             plan(12345, 2),
             [
                 (8, Tone::Bad, 8, false),
-                (9, Tone::Bad, 5, true),
-                (10, Tone::Bad, 6, false),
-                (11, Tone::Bad, 4, false)
+                (9, Tone::Bad, 2, true),
+                (10, Tone::Bad, 9, false),
+                (11, Tone::Bad, 7, false)
             ]
         );
         assert_eq!(
             plan(12345, 3),
             [
-                (14, Tone::Bad, 7, false),
-                (16, Tone::Bad, 6, false),
-                (17, Tone::Bad, 4, true),
-                (18, Tone::Bad, 2, true)
+                (14, Tone::Bad, 13, false),
+                (16, Tone::Bad, 3, false),
+                (17, Tone::Bad, 10, true),
+                (18, Tone::Bad, 5, true)
             ]
         );
     }
@@ -588,6 +672,69 @@ mod tests {
             carried[family_slot(d.family)] <= d.keep_pct,
             "the first quarter of term 3 is still disrupted"
         );
+    }
+
+    #[test]
+    fn inspectors_take_a_growing_multiple_of_what_unfinished_work_would_have_earned() {
+        // 26 staffing and 30 repair units still owed: what delivering them would earn each group (as the delivery rules
+        // compute it), from tools/support-model/news_model.py.
+        let earned = [29_840, 40_000, -9_040, 32_552, 40_000, 5_368];
+        assert_eq!(
+            scrutiny_shock(&earned, 2),
+            [-14_920, -20_000, 0, -16_276, -20_000, -2_684]
+        );
+        assert_eq!(
+            scrutiny_shock(&earned, 3),
+            [-19_396, -26_000, 0, -21_158, -26_000, -3_489]
+        );
+        // Later terms hit the cap on one group from one headline; a group the work would have cost loses nothing.
+        let late = scrutiny_shock(&earned, 10);
+        assert_eq!(late, [-40_000, -40_000, 0, -40_000, -40_000, -9_125]);
+        assert!(late.iter().all(|x| x.unsigned_abs() <= SHOCK_CAP_PPM));
+        // 50% in term 2, 15 points more each term after, and never more than 200%.
+        let pcts: Vec<u32> = (1..=crate::MAX_TERMS).map(scrutiny_pct).collect();
+        assert_eq!(pcts, [50, 50, 65, 80, 95, 110, 125, 140, 155, 170]);
+        assert_eq!(scrutiny_pct(40), SCRUTINY_CAP_PCT);
+        // Nothing owed, nothing taken.
+        assert_eq!(scrutiny_shock(&[0; 6], 5), [0; 6]);
+    }
+
+    #[test]
+    fn the_deck_keeps_inspections_in_bad_news_and_windfalls_in_good_and_a_whole_game_of_windfalls_fits()
+     {
+        for h in BAD {
+            assert_eq!(h.grant, 0, "{}", h.id);
+            assert!(
+                !(h.disrupts.is_some() && h.scrutiny.is_some()),
+                "{} does one or the other",
+                h.id
+            );
+            if let Some(inspection) = h.scrutiny {
+                assert!(
+                    inspection.families.iter().any(|counted| *counted),
+                    "{}",
+                    h.id
+                );
+            }
+        }
+        let windfalls: Vec<_> = GOOD.iter().filter(|h| h.grant > 0).collect();
+        assert_eq!(windfalls.len(), 2);
+        for h in GOOD {
+            assert!(h.disrupts.is_none() && h.scrutiny.is_none(), "{}", h.id);
+            assert!(h.grant <= MAX_WINDFALL_CREDITS, "{}", h.id);
+            if h.grant > 0 {
+                assert_eq!(h.effect, [0; 6], "a windfall brings credits, not mood");
+            }
+        }
+        assert_eq!(
+            BAD.iter().filter(|h| h.scrutiny.is_some()).count(),
+            3,
+            "three inspections"
+        );
+        // Every headline of every term being the largest windfall still fits inside what a game may hold.
+        let most = crate::PILOT_CREDITS * u16::from(crate::MAX_TERMS) + MAX_WINDFALL_TOTAL;
+        assert_eq!(crate::MAX_CREDITS, most);
+        assert_eq!(MAX_WINDFALL_TOTAL, 15 * (2 + 4 * 9));
     }
 
     #[test]

@@ -199,15 +199,16 @@ test('a later term: every earlier win is on record while it runs',()=>{
 
 test('a long game carries many allocations and many quarters of history',()=>{
   const frame = heldFrame({ term: 10, won: true, closed: true, phase: 'QuarterClosed', ceiling: true })
-  frame.snapshot.treasury.available_credits = 1000
+  // Ten allocations of 100, and the most that windfalls in the news can add (15 each, 2 + 4 x 9 headlines).
+  frame.snapshot.treasury.available_credits = 1570
   frame.snapshot.decisions = Array.from({ length: 60 }, (_, i) => ({ quarter: i + 1, outcome: 'continued', allocation: null, final_support: 0, final_votes: 0 }))
   frame.snapshot.delivery_history = Array.from({ length: 60 }, (_, i) => ({
     quarter: i + 1, reported_cumulative: [i, i, i], due_cumulative: [i, i, i], weighted_support_ppm: 500000,
     staff_slowdown_next: false, access_bonus_next: false }))
   assert.equal(validSnapshot(frame,'demo-england'),true)
-  frame.snapshot.treasury.available_credits = 1001
+  frame.snapshot.treasury.available_credits = 1571
   assert.equal(validSnapshot(frame,'demo-england'),false)
-  frame.snapshot.treasury.available_credits = 1000
+  frame.snapshot.treasury.available_credits = 1570
   frame.snapshot.delivery_history.push({ ...frame.snapshot.delivery_history[0], quarter: 61 })
   assert.equal(validSnapshot(frame,'demo-england'),false)
 })
@@ -216,12 +217,12 @@ test('a long game carries many allocations and many quarters of history',()=>{
 const upcoming = (over = {}) => ({
   quarter: 2, id: 'roof_scare', title: 'Roof scare closes classrooms', summary: 'Surveyors find unsafe ceilings.',
   source: 'invented', tone: 'bad', effect_ppm: [-9462, -11610, -1250, -36310, -40000, -9996], overall_ppm: -13000,
-  severity: 'minor', relief_cost: 13, relief_cut_pct: 60, paid: null, disruption: null, ...over,
+  severity: 'minor', relief_cost: 13, relief_cut_pct: 60, paid: null, disruption: null, scrutiny: null, grant_credits: null, ...over,
 })
 const landed = (over = {}) => ({
   quarter: 2, id: 'roof_scare', title: 'Roof scare closes classrooms', summary: 'Surveyors find unsafe ceilings.',
   source: 'invented', tone: 'bad', effect_ppm: [-3852, -5060, -500, -15448, -16000, -4975], overall_ppm: -5200,
-  surprise: false, responded: true, disruption: null, ...over,
+  surprise: false, responded: true, disruption: null, scrutiny: null, grant_credits: null, ...over,
 })
 test('the news calendar is validated, so a malformed headline never reaches the screen',()=>{
   const withCalendar = calendar => { const f = completeSseFrame(); f.snapshot.quarter = 1; f.snapshot.calendar = calendar; return f }
@@ -239,7 +240,12 @@ test('the news calendar is validated, so a malformed headline never reaches the 
   bad('a bad headline with both a price and a payment', { upcoming: [upcoming({ relief_cost: 13, paid: 13 })], recent: [] })
   bad('a price of nothing', { upcoming: [upcoming({ relief_cost: 0 })], recent: [] })
   bad('good news cannot be answered', { upcoming: [{ ...good, relief_cost: 5 }], recent: [] })
-  bad('an effect beyond the engine\'s cap', { upcoming: [upcoming({ effect_ppm: [-40001, 0, 0, 0, 0, 0] })], recent: [] })
+  bad('an effect beyond what a story and a delay can add up to', { upcoming: [upcoming({ effect_ppm: [-80001, 0, 0, 0, 0, 0] })], recent: [] })
+  // A quote for a disruption is the story (at most 40,000 a group) plus the support the delayed work would have earned (at most
+  // another 40,000): -42,264 and -48,200 were real quotes, and refusing them froze the screen on "Saving…".
+  assert.equal(validSnapshot(withCalendar({ upcoming: [upcoming({ effect_ppm: [-3532, -16960, -1700, -26346, -42264, -16560], overall_ppm: -12772 })], recent: [] }),'demo-england'),true)
+  assert.equal(validSnapshot(withCalendar({ upcoming: [upcoming({ effect_ppm: [-11230, -17650, -1650, -40502, -48200, -9958], overall_ppm: -16119 })], recent: [] }),'demo-england'),true)
+  bad('a landed headline never takes more than the engine\'s cap', { upcoming: [], recent: [landed({ quarter: 1, effect_ppm: [-40001, 0, 0, 0, 0, 0] })] })
   bad('five groups instead of six', { upcoming: [upcoming({ effect_ppm: [0, 0, 0, 0, 0] })], recent: [] })
   bad('an unlabelled source', { upcoming: [upcoming({ source: '' })], recent: [] })
   bad('good news that was answered', { upcoming: [], recent: [landed({ tone: 'good', responded: true })] })
@@ -269,6 +275,40 @@ test('a headline that stops work says so, and only bad news may',()=>{
   bad('a landed headline that is not bad news cannot have stopped work', { upcoming: [], recent: [landed({ tone: 'good', responded: false, disruption: { family: 'repairs', keep_pct: 0, quarters: 1 } })] })
   bad('a disruption field that is missing altogether is an older server', { upcoming: [(() => { const h = upcoming(); delete h.disruption; return h })()], recent: [] })
   bad('both a price and a payment', { upcoming: [upcoming({ relief_cost: 13, paid: 13 })], recent: [] })
+})
+
+const inspection = (over = {}) => ({ families: ['staffing', 'repairs'], owed_units: [14, 15, 0], effect_ppm: [0, -6000, -600, -5070, -12300, -7530], ...over })
+test('an inspection says which work it counts and what would still be owed; only bad news sends inspectors',()=>{
+  const withCalendar = calendar => { const f = completeSseFrame(); f.snapshot.quarter = 1; f.snapshot.calendar = calendar; return f }
+  const ok = c => assert.equal(validSnapshot(withCalendar(c),'demo-england'),true)
+  const bad = (name, c) => assert.equal(validSnapshot(withCalendar(c),'demo-england'),false,name)
+  ok({ upcoming: [upcoming({ scrutiny: inspection() })], recent: [] })
+  ok({ upcoming: [upcoming({ scrutiny: inspection({ owed_units: [0, 0, 0], effect_ppm: [0, 0, 0, 0, 0, 0] }), relief_cost: null })], recent: [] })
+  ok({ upcoming: [], recent: [landed({ quarter: 1, scrutiny: { families: ['repairs'], owed_units: [0, 15, 0] } })] })
+  bad('no kind of work counted', { upcoming: [upcoming({ scrutiny: inspection({ families: [] }) })], recent: [] })
+  bad('the same kind of work twice', { upcoming: [upcoming({ scrutiny: inspection({ families: ['repairs', 'repairs'] }) })], recent: [] })
+  bad('an unknown kind of work', { upcoming: [upcoming({ scrutiny: inspection({ families: ['defence'] }) })], recent: [] })
+  bad('units owed for only two kinds of work', { upcoming: [upcoming({ scrutiny: inspection({ owed_units: [1, 2] }) })], recent: [] })
+  bad('units owed that are not whole numbers', { upcoming: [upcoming({ scrutiny: inspection({ owed_units: [1.5, 0, 0] }) })], recent: [] })
+  bad('a negative count', { upcoming: [upcoming({ scrutiny: inspection({ owed_units: [-1, 0, 0] }) })], recent: [] })
+  bad('good news cannot send inspectors', { upcoming: [upcoming({ tone: 'good', severity: 'welcome', relief_cost: null, scrutiny: inspection() })], recent: [] })
+  bad('a headline cannot both stop work and send inspectors', { upcoming: [upcoming({ disruption: flood(), scrutiny: inspection() })], recent: [] })
+  bad('a landed headline that is not bad news cannot have sent inspectors', { upcoming: [], recent: [landed({ tone: 'good', responded: false, scrutiny: { families: ['repairs'], owed_units: [0, 1, 0] } })] })
+  bad('a scrutiny field that is missing altogether is an older server', { upcoming: [(() => { const h = upcoming(); delete h.scrutiny; return h })()], recent: [] })
+})
+test('a windfall brings a whole number of credits, and only good news can',()=>{
+  const withCalendar = calendar => { const f = completeSseFrame(); f.snapshot.quarter = 1; f.snapshot.calendar = calendar; return f }
+  const ok = c => assert.equal(validSnapshot(withCalendar(c),'demo-england'),true)
+  const bad = (name, c) => assert.equal(validSnapshot(withCalendar(c),'demo-england'),false,name)
+  const grant = upcoming({ tone: 'good', severity: 'welcome', relief_cost: null, effect_ppm: [0, 0, 0, 0, 0, 0], overall_ppm: 0, grant_credits: 15 })
+  ok({ upcoming: [grant], recent: [] })
+  ok({ upcoming: [], recent: [landed({ quarter: 1, tone: 'good', responded: false, effect_ppm: [0, 0, 0, 0, 0, 0], overall_ppm: 0, grant_credits: 10 })] })
+  bad('no credits at all', { upcoming: [{ ...grant, grant_credits: 0 }], recent: [] })
+  bad('more than the largest windfall', { upcoming: [{ ...grant, grant_credits: 16 }], recent: [] })
+  bad('half a credit', { upcoming: [{ ...grant, grant_credits: 1.5 }], recent: [] })
+  bad('bad news cannot bring credits', { upcoming: [upcoming({ grant_credits: 5 })], recent: [] })
+  bad('a landed bad headline cannot have brought credits', { upcoming: [], recent: [landed({ quarter: 1, grant_credits: 5 })] })
+  bad('a grant field that is missing altogether is an older server', { upcoming: [(() => { const h = { ...grant }; delete h.grant_credits; return h })()], recent: [] })
 })
 
 test('credits spent answering headlines are part of the treasury and must be a whole number',()=>{
