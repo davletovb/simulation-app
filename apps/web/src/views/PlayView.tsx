@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react'
-import { CAMPAIGN, useCampaign, type AuditFamily, type Snapshot } from '../campaign'
+import { freshCampaignName, useCampaign, type AuditFamily, type Snapshot } from '../campaign'
+import { headline as electionHeadline, verdict } from '../election.mjs'
 import { OFFLINE_PILOT } from '../contracts'
 import {
   FAMILIES, POLICY_CARDS, QUARTERS, STEP_HELP, VOTES_NEEDED, committed, draftStatus, sameAllocation,
@@ -10,6 +11,8 @@ import { STEPS, advanceKind, currentProgramme, fundableCredits, turnState, undel
 import { ActionButton } from '../components/ConnectedControls'
 import { BudgetFigures } from '../components/BudgetFigures'
 import { CabinetStrip } from '../components/CabinetStrip'
+import { ElectionNight } from '../components/ElectionNight'
+import { ElectionOutlook } from '../components/ElectionOutlook'
 import { Icon } from '../components/Icon'
 import { PlanBuilder } from '../components/PlanBuilder'
 import { StepTracker } from '../components/StepTracker'
@@ -38,8 +41,6 @@ function PlanSummary({ plan, label }: { plan: Allocation; label: string }) {
 function Gate() {
   const { loadState, createCampaign, refresh, error, staleSave } = useCampaign()
   const problem = error && <p role="alert" className="alert alert-danger"><Icon name="alert" size={16} /><span>{error}</span></p>
-  // A fresh, valid name: lowercase letters, digits and hyphens only (the same rule the service enforces).
-  const freshName = `${CAMPAIGN.slice(0, 40)}-${Date.now().toString(36)}`
   if (loadState === 'loading') {
     return (
       <section className="panel gate" role="status">
@@ -58,7 +59,7 @@ function Gate() {
         {problem}
         <div className="room-buttons">
           <ActionButton tone={staleSave ? 'normal' : 'primary'} onClick={() => void createCampaign()}>Start new campaign</ActionButton>
-          {staleSave && <ActionButton tone="primary" onClick={() => { window.location.search = `?campaign=${freshName}` }}>
+          {staleSave && <ActionButton tone="primary" onClick={() => { window.location.search = `?campaign=${freshCampaignName()}` }}>
             Start fresh under a new name</ActionButton>}
         </div>
       </section>
@@ -120,11 +121,12 @@ function Headline({ snapshot, turn }: { snapshot: Snapshot; turn: TurnState }) {
       lede: `You played all ${OFFLINE_PILOT.total_quarters} quarters. See Progress for what was decided and delivered.`,
     },
   }
-  const { title, lede } = copy[turn.step] ?? copy.done!
+  // A finished campaign is election night: the headline is the result.
+  const { title, lede } = snapshot.closed ? electionHeadline(snapshot.election) : (copy[turn.step] ?? copy.done!)
   return (
     <header className="view-head" aria-live="polite">
       <p className="kicker">
-        {snapshot.closed ? 'Finished' : `Quarter ${q} of ${OFFLINE_PILOT.total_quarters} · ${QUARTERS[q - 1]?.label ?? ''}`}
+        {snapshot.closed ? 'Election night' : `Quarter ${q} of ${OFFLINE_PILOT.total_quarters} · ${QUARTERS[q - 1]?.label ?? ''}`}
         {!snapshot.closed && turn.step !== 'done' && !turn.keeping && ` · Step ${turn.index + 1} of ${STEPS.length}`}
       </p>
       <h1>{title}</h1>
@@ -299,15 +301,17 @@ export function PlayView({ allocation, onChange }: { allocation: Allocation; onC
       actions = go(nextQuarter ? `End quarter ${q} and start quarter ${q + 1}` : `End the final quarter (Q${q})`,
         turn.keeping ? () => void send({ kind: 'finish_continuation' }) : advance)
       break
-    default:
-      body = <div className="finish">
-        <p className="room-hint">{snapshot.decisions.length} decision{snapshot.decisions.length === 1 ? '' : 's'} recorded · {snapshot.treasury.service_spent} credits
-          of work delivered · {snapshot.treasury.audit_spent} spent on audits.</p>
-        {snapshot.decisions.length > 0 && <ol className="finish-list">
-          {snapshot.decisions.map((d, i) => <li key={i}><strong>Q{d.quarter}</strong> {outcomeLabel(d.outcome)}
-            {d.allocation && ` · ${committed(d.allocation)} credits`}</li>)}
-        </ol>}
-      </div>
+    default: {
+      const result = verdict(snapshot.election)
+      body = <>
+        <ElectionNight snapshot={snapshot} />
+        <p className="room-hint">{result.won
+          ? 'You were re-elected. A second term is coming, but it is not playable yet.'
+          : 'The public has voted you out, and the game ends here.'}</p>
+      </>
+      actions = !result.won && <ActionButton tone="primary"
+        onClick={() => { window.location.search = `?campaign=${freshCampaignName()}` }}>Start a new campaign</ActionButton>
+    }
   }
 
   // While you are responding to the ministers, their reactions matter more than the budget.
@@ -354,6 +358,7 @@ export function PlayView({ allocation, onChange }: { allocation: Allocation; onC
             <h2 id="cabinet-title" className="section-label">Your cabinet</h2>
             <CabinetStrip snapshot={snapshot} />
           </section>
+          {!snapshot.closed && <ElectionOutlook snapshot={snapshot} />}
           {latest && (
             <section className="panel side-card" aria-labelledby="report-title">
               <h2 id="report-title" className="section-label">Latest report · Q{latest.quarter}</h2>

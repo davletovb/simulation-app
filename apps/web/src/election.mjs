@@ -1,0 +1,148 @@
+/**
+ * Election night, in words and numbers. Pure and dependency-free so `node --test` can check it
+ * without a browser. The engine decides the result; this module only describes it.
+ *
+ * Every per-group array follows `support.group_ids`: urban low, middle, high, then rural.
+ */
+
+export const GROUP_LABELS = Object.freeze({
+  urban_low: 'Urban, low income',
+  urban_middle: 'Urban, middle income',
+  urban_high: 'Urban, high income',
+  rural_low: 'Rural, low income',
+  rural_middle: 'Rural, middle income',
+  rural_high: 'Rural, high income',
+})
+
+/** A defeat at or above this overall support is "narrow" rather than "heavy" (decision 0004). */
+export const NARROW_DEFEAT_PPM = 520000
+
+/**
+ * Parts per million as a percentage, truncated to one decimal. Truncating (not rounding) keeps the
+ * screen honest next to a bar: 549,999 is "54.9%", never "55.0%", so a number that looks like it
+ * meets a bar always does.
+ */
+export function pct(ppm) {
+  return Math.floor(ppm / 1000) / 10
+}
+export function pctText(ppm) {
+  return `${pct(ppm).toFixed(1)}%`
+}
+/**
+ * How far below a bar a value is, in points, rounded **up** to one decimal: being short by a single
+ * ppm must read "0.1", never "0.0" (which would look like having met it).
+ */
+export function shortByText(shortfallPpm) {
+  return (Math.ceil(Math.max(0, shortfallPpm) / 1000) / 10).toFixed(1)
+}
+/** A signed change in percentage points, truncated toward zero: "+1.2" or "−0.9". */
+export function pointsText(deltaPpm) {
+  const points = Math.trunc(deltaPpm / 1000) / 10
+  if (points === 0) return '0.0'
+  return `${points > 0 ? '+' : '−'}${Math.abs(points).toFixed(1)}`
+}
+
+/** The two bars, each with how far the player got and whether it was met. */
+export function bars(election) {
+  return [
+    {
+      key: 'support',
+      label: 'Overall support',
+      value: election.weighted_support_ppm,
+      need: election.min_support_ppm,
+      met: election.weighted_support_ppm >= election.min_support_ppm,
+    },
+    {
+      key: 'blocs',
+      label: 'Voters in groups backing you',
+      value: election.blocs_held_ppm,
+      need: election.min_blocs_ppm,
+      met: election.blocs_held_ppm >= election.min_blocs_ppm,
+    },
+  ]
+}
+
+/**
+ * The verdict as the player should read it. While the campaign runs this is an outlook ("if the
+ * election were held now"); once it has closed it is the result.
+ *
+ * @returns {{ key: 'reelected'|'narrow'|'heavy'|'on-course'|'behind', label: string, final: boolean, won: boolean }}
+ */
+export function verdict(election) {
+  const both = bars(election).every(b => b.met)
+  if (election.status === 'won') return { key: 'reelected', label: 'Re-elected', final: true, won: true }
+  if (election.status === 'lost') {
+    return election.weighted_support_ppm >= NARROW_DEFEAT_PPM
+      ? { key: 'narrow', label: 'Narrow defeat', final: true, won: false }
+      : { key: 'heavy', label: 'Heavy defeat', final: true, won: false }
+  }
+  return both
+    ? { key: 'on-course', label: 'On course to win', final: false, won: true }
+    : { key: 'behind', label: 'Behind', final: false, won: false }
+}
+
+/** The headline and one sentence of explanation, naming the bar that decided it. */
+export function headline(election) {
+  const v = verdict(election)
+  const [support, blocs] = bars(election)
+  const supportText = `${pctText(support.value)} overall support`
+  const blocsText = `${pctText(blocs.value)} of voters in groups behind you`
+  if (v.key === 'reelected') {
+    return {
+      title: 'You’ve been re-elected',
+      lede: `You cleared both bars: ${supportText} (${pctText(support.need)} needed) and ${blocsText} (${pctText(blocs.need)} needed).`,
+    }
+  }
+  const missed = []
+  if (!support.met) missed.push(`${supportText} was short of the ${pctText(support.need)} you needed`)
+  if (!blocs.met) missed.push(`only ${blocsText} (${pctText(blocs.need)} needed)`)
+  const why = missed.join(', and ')
+  if (v.key === 'narrow') return { title: 'A narrow defeat', lede: `So close: ${why}.` }
+  if (v.key === 'heavy') return { title: 'A heavy defeat', lede: `${why.charAt(0).toUpperCase()}${why.slice(1)}.` }
+  return {
+    title: v.won ? 'On course to win' : 'Behind',
+    lede: v.won ? 'If the election were held now, you would win.' : `If the election were held now you would lose: ${why}.`,
+  }
+}
+
+/**
+ * The six groups as a tidy list for the screen.
+ * @param {'current'|'settled'} when `current` is support as of the last quarter; `settled` is once
+ *   every queued response has landed (election night).
+ */
+export function groups(snapshot, when = 'settled') {
+  const { support, election } = snapshot
+  const values = when === 'current' ? support.group_ppm : election.settled_group_ppm
+  return support.group_ids.map((id, i) => ({
+    id,
+    label: GROUP_LABELS[id] ?? id,
+    ppm: values[i],
+    weight: support.weight_ppm[i],
+    held: values[i] > election.held_above_ppm,
+    /** What is already queued to land next quarter. */
+    pending: support.pending_delta_ppm[i],
+  }))
+}
+
+/** Groups that did not back the player, largest first: "who was left behind". */
+export function leftBehind(snapshot) {
+  return groups(snapshot, 'settled').filter(g => !g.held).sort((a, b) => b.weight - a.weight)
+}
+
+/**
+ * Legacy: how much of the credits the player was given became delivered work (decision 0001's second
+ * line). Version 0 uses only what the treasury already reports; timeliness needs a per-quarter series
+ * the snapshot does not carry yet.
+ */
+export function legacy(snapshot) {
+  const t = snapshot.treasury
+  const unfinished = t.encumbered_staff + t.encumbered_repairs + t.encumbered_access
+  const delivered = t.service_spent
+  const total = delivered + unfinished + t.available_credits + t.audit_spent
+  const share = total === 0 ? 0 : (delivered / total) * 100
+  const [key, label] = share >= 90 ? ['delivered', 'Mandate delivered']
+    : share >= 70 ? ['partly', 'Partly delivered']
+    : share >= 40 ? ['short', 'Falling short']
+    : ['missed', 'Mandate missed']
+  return { delivered, unfinished, unspent: t.available_credits, audits: t.audit_spent, total, share, key, label }
+}

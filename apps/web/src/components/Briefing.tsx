@@ -1,5 +1,7 @@
 import { useEffect, useRef, type MouseEvent } from 'react'
+import { useCampaign } from '../campaign'
 import { OFFLINE_PILOT } from '../contracts'
+import { pctText } from '../election.mjs'
 import { FAMILIES, STEP_HELP } from '../game'
 import { STEPS } from '../turn.mjs'
 import { Icon } from './Icon'
@@ -7,6 +9,9 @@ import { Icon } from './Icon'
 /** First-visit "how to play"; also opened from the help button or the `?` key. */
 export function Briefing({ open, onClose }: { open: boolean; onClose: () => void }) {
   const ref = useRef<HTMLDialogElement>(null)
+  // The bars come from the game itself, so the text can never disagree with the rule. Before the first
+  // load there are no numbers to quote, and the sentence simply leaves them out.
+  const election = useCampaign().snapshot?.election
 
   useEffect(() => {
     const dialog = ref.current
@@ -32,6 +37,15 @@ export function Briefing({ open, onClose }: { open: boolean; onClose: () => void
           You run a fictional school-services pilot in {OFFLINE_PILOT.jurisdiction}. Each quarter is one turn:
           you make a spending plan, your three ministers vote on it, and then time moves on and work is delivered.
         </p>
+
+        <div className="briefing-rule briefing-goal">
+          <Icon name="banner" size={20} />
+          <p><strong>Your goal: win the election.</strong>{' '}
+            After the last quarter the public votes. To stay in power you need{' '}
+            {election ? <>at least {pctText(election.min_support_ppm)} overall support <em>and</em> groups backing you that hold at
+              least {pctText(election.min_blocs_ppm)} of the voters.</> : <>enough overall support <em>and</em> enough groups backing you.</>}
+            {' '}A group backs you above 50%. Delivering work earns support, but it also costs some groups more than it gives them.</p>
+        </div>
 
         <div className="briefing-rule">
           <Icon name="token" size={20} />

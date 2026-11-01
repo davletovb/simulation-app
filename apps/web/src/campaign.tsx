@@ -116,6 +116,8 @@ const requestedCampaign = new URLSearchParams(window.location.search).get('campa
 export const CAMPAIGN = requestedCampaign && /^[a-z0-9_-]{1,64}$/.test(requestedCampaign)
   ? requestedCampaign : 'demo-england'
 export const root = '/api/campaigns/' + CAMPAIGN
+/** A fresh, valid campaign name (lowercase letters, digits and hyphens: the rule the service enforces). */
+export const freshCampaignName = () => `${CAMPAIGN.slice(0, 40)}-${Date.now().toString(36)}`
 const PENDING_KEY = 'myth-p6.pending-' + CAMPAIGN
 export const CACHE_KEY = ['committed-campaign', CAMPAIGN] as const
 

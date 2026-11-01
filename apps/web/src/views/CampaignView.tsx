@@ -1,11 +1,14 @@
 import { ConnectedCampaignReport, usePublicView } from './ConnectedReports'
 import { OFFLINE_PILOT } from '../contracts'
 import {
-  COHORT_AREAS, COHORT_CELLS, COHORT_INCOMES, COHORT_START_SUPPORT, FACTIONS, FAMILIES, FIRST_FREE_AUDIT_QUARTER,
+  COHORT_CELLS, FACTIONS, FAMILIES, FIRST_FREE_AUDIT_QUARTER,
   QUARTERS, lastQuarterLabel,
 } from '../game'
+import { BlocMap } from '../components/BlocMap'
+import { ElectionBars } from '../components/ElectionBars'
 import { Icon } from '../components/Icon'
 import { Mechanics } from '../components/Mechanics'
+import { groups } from '../election.mjs'
 
 /** Things that become possible, or change, in a given quarter (from the fixed delivery delays). */
 const QUARTER_EVENTS: readonly string[][] = QUARTERS.map((_, i) => [
@@ -82,30 +85,17 @@ export function CampaignView() {
         <section className="panel" aria-labelledby="cohorts-title">
           <div className="panel-head">
             <h2 id="cohorts-title">The public you serve</h2>
-            <span className="tag">Starting point</span>
+            <span className="tag">{snapshot ? 'Live' : 'Not loaded'}</span>
           </div>
-          <table className="cohorts">
-            <caption className="sr-only">{COHORT_CELLS} groups of the public and their starting support for your plans</caption>
-            <thead>
-              <tr><th scope="col"><span className="sr-only">Area</span></th>
-                {COHORT_INCOMES.map(i => <th key={i} scope="col">{i} income</th>)}</tr>
-            </thead>
-            <tbody>
-              {COHORT_AREAS.map(area => (
-                <tr key={area}>
-                  <th scope="row">{area}</th>
-                  {COHORT_INCOMES.map(income => (
-                    <td key={income}>
-                      <span className="cohort-value">{COHORT_START_SUPPORT}%</span>
-                      <span className="cohort-note">at the start</span>
-                    </td>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          <p className="panel-foot">Everyone starts at {COHORT_START_SUPPORT}% support. That is a game setting, not a poll.
-            Support then moves as work is delivered; the latest overall figure is in the progress reports above.</p>
+          {snapshot ? (
+            <>
+              <BlocMap groups={groups(snapshot, 'current')} showMood moodWhen={snapshot.closed ? 'on election night' : 'next quarter'} />
+              <p className="panel-foot">Support as of the last finished quarter, starting from 50% for everyone. The change shown is
+                already on its way and lands {snapshot.closed ? 'on election night' : 'next quarter'}. A group backs you above 50%.</p>
+              <h3 className="section-label report-gap">If the election were held now</h3>
+              <ElectionBars election={snapshot.election} />
+            </>
+          ) : <p className="forecast-empty"><Icon name="hourglass" size={20} /><span>Start or reconnect to the game to see how the public feels.</span></p>}
         </section>
       </div>
     </>

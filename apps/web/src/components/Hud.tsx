@@ -16,7 +16,7 @@ export function Hud({ allocation, onHelp }: { allocation: Allocation; onHelp: ()
     : snapshot.closed ? 'Complete'
     : QUARTERS[snapshot.quarter - 1]?.label ?? ''
   const stepNote = !turn ? '—'
-    : turn.step === 'done' ? 'Campaign complete'
+    : turn.step === 'done' ? 'Election night'
     : turn.keeping ? 'Keeping programme'
     : `Step ${turn.index + 1} of ${STEPS.length} · ${STEPS[turn.index]?.label}`
   const trouble = loadState === 'down' || transport === 'reconnecting' || transport === 'unavailable'
