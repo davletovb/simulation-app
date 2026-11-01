@@ -3,7 +3,7 @@ use hiyal::storage::Durability;
 use myth_contracts::checkpoint::Phase;
 use myth_hiyal_adapter::orchestrator::{
     advance_slice, benchmark_sequential_cabinet, create, create_stress, inspect, resume,
-    run_until_closed,
+    run_until_term_end,
 };
 use serde_json::json;
 use std::{
@@ -201,7 +201,7 @@ async fn entry() -> Result<(), String> {
             } else {
                 create(path, "p4-verified", 42)?
             };
-            run_until_closed(&mut trial).await?;
+            run_until_term_end(&mut trial).await?;
             let hash = trial.store.world().private_state_sha256.clone();
             trial.checkpoint()?;
             drop(trial);
@@ -213,7 +213,7 @@ async fn entry() -> Result<(), String> {
         "resume" => {
             let path = Path::new(args.get(1).ok_or("missing trial directory")?);
             let mut trial = resume(path, false)?;
-            run_until_closed(&mut trial).await?;
+            run_until_term_end(&mut trial).await?;
             let hash = trial.store.world().private_state_sha256.clone();
             drop(trial);
             if inspect(path)?.0 != hash {

@@ -1334,7 +1334,8 @@ impl Campaign {
         self.world = WorldSnapshot::from_parts(parts)?;
         if q.ends_term() {
             // Election night: the verdict is derived from the settled state and recorded. A loss ends the
-            // game; so does a win at the end of the last term. Any other win waits for BeginTerm.
+            // game. A win waits for BeginTerm, however many terms came before: the game goes on for as long
+            // as the player keeps winning. Only the technical ceiling (MAX_TERMS) ends a won game.
             let projection = self.election_projection()?;
             let won = projection.is_win();
             self.elections.push(ElectionRecord {
@@ -1403,7 +1404,9 @@ fn cohort_response_scaled(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{CounterproposalOrigin, PlayerCommand, PreferredAllocation};
+    use crate::{
+        CounterproposalOrigin, MAX_TERMS, PILOT_CREDITS, PlayerCommand, PreferredAllocation,
+    };
 
     fn campaign() -> Campaign {
         Campaign::new(
@@ -2523,31 +2526,68 @@ mod tests {
         );
     }
     #[test]
-    fn the_second_election_ends_the_game_and_there_is_no_third_term() {
+    fn terms_go_on_for_as_long_as_the_player_keeps_winning() {
         let mut c = campaign();
         ratify_balanced_q1(&mut c);
         coast(&mut c, 6, "t1-");
-        c.apply(player(&c, "begin", PlayerCommand::BeginTerm))
+        c.apply(player(&c, "begin-2", PlayerCommand::BeginTerm))
             .unwrap();
         coast(&mut c, 6, "t2-");
-        // Six more quarters with the same programme: the second term ends with its own election.
+        // Six more quarters with the same programme: the second term ends with its own election, won again.
         assert_eq!(c.world().quarter().value(), 12);
         assert_eq!(c.elections().len(), 2);
         assert_eq!(c.elections()[1].term, 2);
         assert!(c.elections()[1].won);
-        // A win at the end of the last term still ends the game: there is nowhere further to go.
+        // A second win does not end the game: nothing is special about the second term.
+        assert_eq!(c.phase(), MeetingPhase::ElectionNight);
+        assert_eq!(
+            advance(&mut c, "too-soon").err(),
+            Some(Rejection::InvalidPhase)
+        );
+        c.apply(player(&c, "begin-3", PlayerCommand::BeginTerm))
+            .unwrap();
+        assert_eq!(c.world().quarter().value(), 13);
+        assert_eq!(c.world().quarter().term(), 3);
+        assert_eq!(c.phase(), MeetingPhase::QuarterOpen);
+        // Credits are conserved however long it goes on: three grants, every credit in exactly one account.
+        c.world().validate().unwrap();
+        assert_eq!(c.world().treasury().granted(), 300);
+    }
+    #[test]
+    fn only_the_technical_ceiling_ends_a_won_game() {
+        let mut c = campaign();
+        ratify_balanced_q1(&mut c);
+        for term in 1..=MAX_TERMS {
+            coast(&mut c, 6, &format!("t{term}-"));
+            assert_eq!(c.elections().len(), usize::from(term));
+            assert!(c.elections().last().unwrap().won, "term {term} is won");
+            if term < MAX_TERMS {
+                assert_eq!(c.phase(), MeetingPhase::ElectionNight, "term {term}");
+                c.apply(player(
+                    &c,
+                    &format!("begin-{term}"),
+                    PlayerCommand::BeginTerm,
+                ))
+                .unwrap();
+            }
+        }
+        // The longest tenure the engine records: there is nowhere further to go.
+        assert_eq!(c.world().quarter().value(), MAX_QUARTERS);
         assert_eq!(c.phase(), MeetingPhase::QuarterClosed);
         assert_eq!(
             advance(&mut c, "past-the-end").err(),
             Some(Rejection::InvalidPhase)
         );
         assert_eq!(
-            c.apply(player(&c, "third", PlayerCommand::BeginTerm)).err(),
+            c.apply(player(&c, "one-more", PlayerCommand::BeginTerm))
+                .err(),
             Some(Rejection::InvalidPhase)
         );
-        // Credits are conserved over the whole game: 200 granted, every one in exactly one account.
         c.world().validate().unwrap();
-        assert_eq!(c.world().treasury().granted(), 200);
+        assert_eq!(
+            c.world().treasury().granted(),
+            PILOT_CREDITS * u16::from(MAX_TERMS)
+        );
     }
     #[test]
     fn the_free_audit_comes_back_each_term() {

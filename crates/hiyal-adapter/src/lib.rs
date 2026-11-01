@@ -35,7 +35,8 @@ pub const EDUCATION: AgentId = AgentId(2);
 pub const INFRASTRUCTURE: AgentId = AgentId(3);
 pub const PERIOD: AgentId = AgentId(4);
 pub const ACTORS: [AgentId; 5] = [PLAYER, FINANCE, EDUCATION, INFRASTRUCTURE, PERIOD];
-const MAX_ACCEPTED_ACTIONS: usize = 512;
+// A full term of meetings is about 60 actions, so this holds the longest game (MAX_TERMS terms) with room to spare.
+const MAX_ACCEPTED_ACTIONS: usize = 1024;
 const MAX_ACTION_BYTES: usize = 12_288;
 const PACK: &str = include_str!("../../../data/england-school-pilot-v1/country-pack.json");
 const SCENARIO: &str = include_str!("../../../data/england-school-pilot-v1/authored.json");
@@ -46,7 +47,7 @@ fn sha(bytes: &[u8]) -> String {
 }
 /// A deliberate, migration-controlled behavior contract, not raw source text.
 /// Bump when P3 rules, parsing, adapters, scenario selection or model policy change.
-pub const RULES_VERSION: &str = "p4-england-education-rules-v3";
+pub const RULES_VERSION: &str = "p4-england-education-rules-v4";
 type FrozenSource = Result<(String, String, [u32; 6]), String>;
 static FROZEN: OnceLock<FrozenSource> = OnceLock::new();
 fn frozen() -> Result<&'static (String, String, [u32; 6]), String> {

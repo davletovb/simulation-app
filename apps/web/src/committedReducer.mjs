@@ -60,11 +60,13 @@ function validSupport(support, integrityFailure) {
     (shares === 1000000 || (integrityFailure && shares === 0))
 }
 
-const TERMS = 2
+// Terms go on for as long as the player keeps winning. Only the engine's technical ceiling bounds them, and the
+// browser needs it just to reject nonsense.
+const MAX_TERMS = 10
 const TERM_QUARTERS = 6
-const MAX_QUARTERS = TERMS * TERM_QUARTERS
-/** A fresh allocation is granted each term, so the whole game never handles more than this. */
-const MAX_CREDITS = 100 * TERMS
+const MAX_QUARTERS = MAX_TERMS * TERM_QUARTERS
+/** A fresh allocation is granted each term, so nothing the game holds can exceed this. */
+const MAX_CREDITS = 100 * MAX_TERMS
 
 /**
  * The election. It is a projection while a term runs and a verdict once the term has ended: either the
@@ -73,7 +75,8 @@ const MAX_CREDITS = 100 * TERMS
 function validElection(election, held) {
   return !!election && ['projected', 'won', 'lost'].includes(election.status) &&
     (election.status === 'projected') === !held &&
-    Number.isInteger(election.term) && election.term >= 1 && election.term <= TERMS && election.terms === TERMS &&
+    Number.isInteger(election.term) && election.term >= 1 && election.term <= MAX_TERMS &&
+    election.ceiling === (election.term === MAX_TERMS) &&
     sixOf(election.settled_group_ppm, ppm) &&
     ppm(election.weighted_support_ppm) && ppm(election.blocs_held_ppm) &&
     ppm(election.min_support_ppm) && ppm(election.min_blocs_ppm) && ppm(election.held_above_ppm)
@@ -86,10 +89,10 @@ function validElection(election, held) {
 function validTerms(s, held) {
   const e = s.election
   const past = s.past_elections
-  if (!(Number.isInteger(s.term) && s.term >= 1 && s.term <= TERMS && s.terms === TERMS && s.term_quarters === TERM_QUARTERS &&
+  if (!(Number.isInteger(s.term) && s.term >= 1 && s.term <= MAX_TERMS && s.term_quarters === TERM_QUARTERS &&
     // Quarter 0 only appears in the zeroed integrity-failure frame.
     (s.quarter === 0 || Math.ceil(s.quarter / TERM_QUARTERS) === s.term) &&
-    e.term === s.term && Array.isArray(past) && past.length <= TERMS)) return false
+    e.term === s.term && Array.isArray(past) && past.length <= MAX_TERMS)) return false
   const wellFormed = past.every((r, i) => !!r && r.term === i + 1 && r.quarter === (i + 1) * TERM_QUARTERS &&
     typeof r.won === 'boolean' && ppm(r.weighted_support_ppm) && ppm(r.blocs_held_ppm))
   if (!wellFormed) return false
@@ -98,8 +101,8 @@ function validTerms(s, held) {
   return past.length === s.term && !!last && last.quarter === s.quarter && last.won === (e.status === 'won') &&
     last.weighted_support_ppm === e.weighted_support_ppm && last.blocs_held_ppm === e.blocs_held_ppm &&
     past.slice(0, -1).every(r => r.won) &&
-    // A win ends the game only at the end of the last term; otherwise it waits on election night.
-    (s.closed ? (e.status === 'lost' || s.term === TERMS) : (s.phase === 'ElectionNight' && e.status === 'won'))
+    // A win ends the game only at the engine's ceiling; any other win waits on election night.
+    (s.closed ? (e.status === 'lost' || e.ceiling) : (s.phase === 'ElectionNight' && e.status === 'won'))
 }
 
 /** Validate the real SSE/snapshot envelope before admitting it to the cache. */

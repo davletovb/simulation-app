@@ -958,16 +958,6 @@ pub async fn benchmark_sequential_cabinet(trial: &mut GameTrial) -> Result<Vec<u
     trial.store.world().verify()?;
     Ok(times)
 }
-pub async fn run_until_closed(trial: &mut GameTrial) -> Result<(), String> {
-    // A whole game is two terms of six quarters, so the bound is twice what one term needed.
-    for _ in 0..200 {
-        if !advance_slice(trial).await? {
-            trial.checkpoint()?;
-            return Ok(());
-        }
-    }
-    Err("bounded scripted run did not close".into())
-}
 /// Plays the scripted game up to the end of the current term: until its election has been held and the
 /// player would have to begin the next term, or until the game has closed. It never begins a term itself.
 pub async fn run_until_term_end(trial: &mut GameTrial) -> Result<(), String> {
@@ -1056,18 +1046,22 @@ mod tests {
         std::fs::remove_dir_all(path).unwrap();
     }
     #[tokio::test]
-    async fn a_whole_game_is_two_terms_and_replays_identically() {
-        let path = temp("two-terms");
+    async fn a_won_game_goes_on_into_further_terms_and_replays_identically() {
+        let path = temp("further-terms");
         let hash;
         {
             let mut trial = create(&path, "scripted-pilot", 44).unwrap();
             run_until_term_end(&mut trial).await.unwrap();
             assert_eq!(trial.store.world().phase, Phase::ElectionNight);
             assert_eq!(trial.store.world().quarter, 6);
-            // A generic step is the scripted player; it is the HTTP API that refuses it on election night.
-            run_until_closed(&mut trial).await.unwrap();
+            // A generic step is the scripted player, who begins the next term; it is the HTTP API that
+            // refuses it on election night. A won game is never "closed": it waits for the next term.
+            advance_slice(&mut trial).await.unwrap();
+            assert_eq!(trial.store.world().quarter, 7);
+            run_until_term_end(&mut trial).await.unwrap();
             let world = trial.store.world();
-            assert!(world.is_closed());
+            assert!(!world.is_closed());
+            assert_eq!(world.phase, Phase::ElectionNight);
             assert_eq!(world.quarter, 12);
             let count = |kind: &str| {
                 world
@@ -1088,14 +1082,11 @@ mod tests {
             let campaign = world.fold().unwrap();
             let elections = campaign.elections();
             assert_eq!(elections.len(), 2);
-            assert!(
-                elections[0].won,
-                "the first term is won by the scripted plan"
-            );
+            assert!(elections[0].won && elections[1].won);
             assert_eq!(elections[1].quarter.value(), 12);
             hash = world.private_state_sha256.clone();
         }
-        // The whole 12-quarter journal replays to the same private state.
+        // The whole twelve-quarter journal replays to the same private state.
         assert_eq!(inspect(&path).unwrap().0, hash);
         assert_eq!(
             resume(&path, true)
@@ -1136,7 +1127,7 @@ mod tests {
                 .count(),
             3
         );
-        run_until_closed(&mut restored).await.unwrap();
+        run_until_term_end(&mut restored).await.unwrap();
         let hash = restored.store.world().private_state_sha256.clone();
         drop(restored);
         assert_eq!(inspect(&path).unwrap().0, hash);
@@ -1500,7 +1491,7 @@ mod tests {
             GameWorld::initial("cabinet-test").unwrap(),
         )
         .unwrap();
-        run_until_closed(&mut baseline).await.unwrap();
+        run_until_term_end(&mut baseline).await.unwrap();
         let scripted = baseline
             .store
             .world()
@@ -1556,7 +1547,7 @@ mod tests {
             allowance.lock().unwrap().remaining_micro_usd().unwrap(),
             remaining
         );
-        run_until_closed(&mut resumed).await.unwrap();
+        run_until_term_end(&mut resumed).await.unwrap();
         let modeled = resumed
             .store
             .world()

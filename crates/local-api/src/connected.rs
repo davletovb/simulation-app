@@ -42,7 +42,8 @@ use std::{
 };
 use tokio::sync::{Mutex as AsyncMutex, broadcast};
 
-const MAX_COMMANDS: usize = 512;
+// A full quarter is about eight commands, so this holds the longest game (MAX_TERMS terms) with room to spare.
+const MAX_COMMANDS: usize = 1024;
 const FROZEN_NEWS: &str = include_str!("../../../data/england-school-pilot-v1/news-bundle.json");
 const FROZEN_COUNTRY: &str =
     include_str!("../../../data/england-school-pilot-v1/country-pack.json");
@@ -590,9 +591,11 @@ pub struct PublicSupport {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct PublicElection {
     pub status: String,
-    /// The term this election ends (1-based) and how many terms there are in all.
+    /// The term this election ends (1-based). There is no fixed number of terms: a win starts another.
     pub term: u8,
-    pub terms: u8,
+    /// True only for the election at the technical ceiling (the longest tenure the engine records): winning it
+    /// ends the game instead of starting another term.
+    pub ceiling: bool,
     pub settled_group_ppm: [u32; 6],
     pub weighted_support_ppm: u32,
     pub blocs_held_ppm: u32,
@@ -605,7 +608,7 @@ impl PublicElection {
         Self {
             status: status.into(),
             term,
-            terms: d::TERMS,
+            ceiling: term == d::MAX_TERMS,
             settled_group_ppm: settled,
             weighted_support_ppm: weighted,
             blocs_held_ppm: held,
@@ -645,7 +648,6 @@ pub struct PublicView {
     /// Elections already held, oldest first. Empty during the first term.
     pub past_elections: Vec<PublicPastElection>,
     pub term: u8,
-    pub terms: u8,
     pub term_quarters: u8,
     pub news: Vec<PublicNews>,
     pub comparison: PublicComparison,
@@ -881,7 +883,6 @@ fn capture(trial: &GameTrial) -> Result<PublicView, String> {
         election,
         past_elections,
         term: quarter_now.term(),
-        terms: d::TERMS,
         term_quarters: d::TERM_QUARTERS,
         news: frozen_news(&world.source_cutoff_utc)?,
         comparison: PublicComparison {
@@ -1205,7 +1206,6 @@ fn schedule(owner: Arc<Owner>) {
                         election: PublicElection::bars("projected", 1, [0; 6], 0, 0),
                         past_elections: vec![],
                         term: 1,
-                        terms: d::TERMS,
                         term_quarters: d::TERM_QUARTERS,
                         news: vec![],
                         comparison: PublicComparison {
@@ -1715,7 +1715,7 @@ pub fn routes() -> Router<Arc<Connected>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use myth_hiyal_adapter::orchestrator::run_until_closed;
+    use myth_hiyal_adapter::orchestrator::run_until_term_end;
     fn root() -> PathBuf {
         std::env::temp_dir().join(format!(
             "p6-connected-{}-{}",
@@ -2851,7 +2851,7 @@ mod tests {
         fs::remove_dir_all(dir).unwrap();
     }
     #[tokio::test]
-    async fn p7_complete_scripted_game_reports_exactly_twelve_quarters_and_replays() {
+    async fn p7_two_scripted_terms_report_exactly_twelve_quarters_and_replay() {
         let dir = root();
         let service = Connected::new(dir.clone()).unwrap();
         let owner = service.owner("six-report", true).await.unwrap();
@@ -2859,9 +2859,14 @@ mod tests {
         let saved_hash;
         {
             let mut engine = owner.engine.lock().await;
-            run_until_closed(&mut engine.trial).await.unwrap();
+            run_until_term_end(&mut engine.trial).await.unwrap();
+            // The scripted player begins the next term; only the HTTP API refuses a generic step there.
+            advance_slice(&mut engine.trial).await.unwrap();
+            run_until_term_end(&mut engine.trial).await.unwrap();
             final_view = capture_for(&engine.trial, "six-report").unwrap();
-            assert!(final_view.closed);
+            // Two terms won, so the game is not over: it waits on election night for a third.
+            assert!(!final_view.closed);
+            assert_eq!(final_view.phase, "ElectionNight");
             assert_eq!(final_view.quarter, 12);
             assert_eq!(final_view.past_elections.len(), 2);
             assert_eq!(final_view.delivery_history.len(), 12);
@@ -3034,7 +3039,8 @@ mod tests {
         // The first term is won, so the game waits on election night for the player to begin the second.
         assert!(!view.closed);
         assert_eq!(view.phase, "ElectionNight");
-        assert_eq!((view.quarter, view.term, view.terms), (6, 1, 2));
+        assert_eq!((view.quarter, view.term), (6, 1));
+        assert!(!view.election.ceiling);
         // Expected values come from tools/support-model, an independent implementation.
         assert_eq!(view.election.status, "won");
         assert_eq!(view.election.term, 1);
@@ -3072,7 +3078,11 @@ mod tests {
         let wire = serde_json::to_value(&view).unwrap();
         assert_eq!(wire["election"]["status"], "won");
         assert_eq!(wire["support"]["group_ids"][5], "rural_high");
-        assert_eq!(wire["terms"], 2);
+        assert!(
+            wire.get("terms").is_none(),
+            "the number of terms is not announced: it is not fixed"
+        );
+        assert_eq!(wire["election"]["ceiling"], false);
         // A generic step must never begin the second term on the person's behalf, and neither may
         // the other quarter commands.
         for (n, kind) in [
@@ -3133,24 +3143,21 @@ mod tests {
             serial += 1;
             view = accepted_step(&service, "term", CommandKind::FinishContinuation, serial).await;
         }
-        assert!(view.closed);
+        // A second win does not end the game: terms go on for as long as the player keeps winning.
+        assert!(!view.closed);
+        assert_eq!(view.phase, "ElectionNight");
         assert_eq!((view.quarter, view.term), (12, 2));
+        assert!(!view.election.ceiling);
         assert_eq!(view.past_elections.len(), 2);
-        assert_eq!(
-            view.election.status,
-            if view.past_elections[1].won {
-                "won"
-            } else {
-                "lost"
-            }
-        );
+        assert!(view.past_elections.iter().all(|e| e.won));
+        assert_eq!(view.election.status, "won");
         assert_eq!(
             view.election.weighted_support_ppm,
             view.past_elections[1].weighted_support_ppm
         );
-        // KNOWN LIMITATION (decision 0007): nothing erodes support yet, so after a first-term win a second
-        // term spent doing nothing returns the very same result and wins again. When the second term gets
-        // pressure (decay, events or a higher bar), these are the assertions that should change.
+        // KNOWN LIMITATION (decisions 0007 and 0008): nothing erodes support yet, so after a first-term win a
+        // later term spent doing nothing returns the very same result and wins again, term after term. When
+        // terms get pressure (decay, events or a rising bar), these are the assertions that should change.
         assert_eq!(view.election.status, "won");
         assert_eq!(view.election.weighted_support_ppm, 559_584);
         assert_eq!(
@@ -3158,6 +3165,16 @@ mod tests {
             [571_800, 602_000, 472_200, 579_240, 615_600, 491_960]
         );
         assert_eq!(view.delivery_history.len(), 12);
+        // And so a third term can begin, with its own fresh allocation and both earlier wins on record.
+        let before = view.treasury.available_credits;
+        serial += 1;
+        let third = accepted_step(&service, "term", CommandKind::BeginTerm, serial).await;
+        assert_eq!((third.quarter, third.term), (13, 3));
+        assert_eq!(third.phase, "QuarterOpen");
+        assert_eq!(third.treasury.available_credits, before + 100);
+        assert_eq!(third.election.status, "projected");
+        assert_eq!((third.election.term, third.election.ceiling), (3, false));
+        assert_eq!(third.past_elections.len(), 2);
         fs::remove_dir_all(dir).unwrap();
     }
 }

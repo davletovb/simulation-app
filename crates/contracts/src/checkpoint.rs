@@ -897,23 +897,21 @@ mod p2_frozen_pack_tests {
             authored["quarters"].as_u64(),
             Some(u64::from(myth_domain::TERM_QUARTERS))
         );
-        // Two terms, and the election that ends each. The bars decide whether the game continues, so
-        // they live in this hashed file and the engine's constants must say the same.
-        assert_eq!(
-            authored["terms"].as_u64(),
-            Some(u64::from(myth_domain::TERMS))
-        );
+        // Terms of six quarters, each ended by an election, for as long as the player keeps winning. The bars
+        // decide whether the game continues, so they live in this hashed file and the engine's constants must say
+        // the same. The number of terms is deliberately not a rule; only a technical ceiling is recorded.
+        assert!(authored.get("terms").is_none());
         let election = &authored["election"];
-        let ends: Vec<u64> = (1..=myth_domain::TERMS)
-            .map(|term| u64::from(term) * u64::from(myth_domain::TERM_QUARTERS))
-            .collect();
-        let held: Vec<u64> = election["held_after_quarters"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|v| v.as_u64().unwrap())
-            .collect();
-        assert_eq!(held, ends, "election timing drift");
+        assert_eq!(
+            election["held_after_every_quarters"].as_u64(),
+            Some(u64::from(myth_domain::TERM_QUARTERS)),
+            "election timing drift"
+        );
+        assert_eq!(
+            election["technical_ceiling_terms"].as_u64(),
+            Some(u64::from(myth_domain::MAX_TERMS)),
+            "term ceiling drift"
+        );
         assert_eq!(
             election["min_weighted_support_ppm"].as_u64(),
             Some(u64::from(myth_domain::reducer::ELECTION_MIN_SUPPORT_PPM)),

@@ -32,7 +32,7 @@ export function Briefing({ open, onClose }: { open: boolean; onClose: () => void
           <button type="submit" className="icon-btn" aria-label="Close how to play"><Icon name="close" size={18} /></button>
         </form>
         <p className="kicker">How to play · {OFFLINE_PILOT.case_title}</p>
-        <h2 id="briefing-title">You chair a cabinet for up to {OFFLINE_PILOT.terms} terms of {OFFLINE_PILOT.quarters_per_term} quarters.</h2>
+        <h2 id="briefing-title">You chair a cabinet, one {OFFLINE_PILOT.quarters_per_term}-quarter term at a time.</h2>
         <p className="briefing-lede">
           You run a fictional school-services pilot in {OFFLINE_PILOT.jurisdiction}. Each quarter is one turn:
           you make a spending plan, your three ministers vote on it, and then time moves on and work is delivered.
@@ -49,15 +49,15 @@ export function Briefing({ open, onClose }: { open: boolean; onClose: () => void
 
         <div className="briefing-rule">
           <Icon name="people" size={20} />
-          <p><strong>Win and you get a second term; lose and the game is over.</strong>{' '}
-            The second term runs another six quarters with the same public, the same ministers and any work you left
-            unfinished, and it ends with its own election. Win that one for a final victory.</p>
+          <p><strong>Win and another term begins; lose and the game is over.</strong>{' '}
+            A new term runs another six quarters with the same public, the same ministers and any work you left
+            unfinished, and it ends with its own election. Keep winning and it keeps going.</p>
         </div>
 
         <div className="briefing-rule">
           <Icon name="token" size={20} />
           <p><strong>{OFFLINE_PILOT.credits} credits a term.</strong>{' '}
-            They never refill within a term, but a second term adds a fresh {OFFLINE_PILOT.credits} to anything you did not
+            They never refill within a term, but each new term adds a fresh {OFFLINE_PILOT.credits} to anything you did not
             spend. Credits turn into delivered work over time, and delivered work is spent for good. Work not yet delivered
             can be re-planned: a new plan replaces it.</p>
         </div>

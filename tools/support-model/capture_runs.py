@@ -92,7 +92,7 @@ if __name__ == '__main__':
         for quarter in quarters:
             quarter(game)
         state = game.snap()
-        # The first term is what is captured: a win waits on election night for the second term (rules v3),
+        # The first term is what is captured: a win waits on election night for the next term,
         # a loss closes the game.
         assert state['closed'] or state['phase'] == 'ElectionNight', f'{name}: the first term did not finish'
         runs[name] = [{'q': r['quarter'], 'cum': r['reported_cumulative'], 'support': r['weighted_support_ppm']}

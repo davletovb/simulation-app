@@ -64,8 +64,8 @@ export const DEFAULT_CARD: PolicyCard = POLICY_CARDS[0]!
 export const committed = (a: Allocation): number => a.staff + a.repairs + a.access
 export const available = (a: Allocation): number => OFFLINE_PILOT.credits - committed(a)
 
-/** Everything a player is ever given across both terms: no plan can exceed it. */
-export const MOST_CREDITS = OFFLINE_PILOT.credits * OFFLINE_PILOT.terms
+/** No single plan can exceed this: each of the three lines is capped at one term's allocation. */
+export const MOST_CREDITS = OFFLINE_PILOT.credits * 3
 
 /**
  * `budget` is what the player can fund right now (unspent credits plus the undelivered work a new plan
@@ -82,26 +82,28 @@ export const sameAllocation = (a: Allocation, b: Allocation): boolean =>
 
 const [startYear = 2027, startQuarter = 1] = OFFLINE_PILOT.start.split(' Q').map(Number)
 
-/** Quarter labels for the campaign, e.g. `Q1 2027` … `Q2 2028`. */
-export const QUARTERS: readonly { short: string; year: number; label: string }[] =
-  Array.from({ length: OFFLINE_PILOT.total_quarters }, (_, i) => {
-    const offset = startQuarter - 1 + i
-    const year = startYear + Math.floor(offset / 4)
-    const short = `Q${(offset % 4) + 1}`
-    return { short, year, label: `${short} ${year}` }
-  })
+export interface QuarterLabel { short: string; year: number; label: string }
 
-export const lastQuarterLabel = (): string => QUARTERS[QUARTERS.length - 1]?.label ?? ''
+/**
+ * The label of any quarter of the game (1-based): `Q1 2027`, `Q2 2027`, … The game has no fixed end, so labels
+ * are computed rather than listed.
+ */
+export function quarterLabel(quarter: number): QuarterLabel {
+  const offset = startQuarter - 1 + (quarter - 1)
+  const year = startYear + Math.floor(offset / 4)
+  const short = `Q${(offset % 4) + 1}`
+  return { short, year, label: `${short} ${year}` }
+}
 
-/** Which term a quarter (1-based) belongs to: Q1-Q6 are term 1, Q7-Q12 term 2. */
+/** Which term a quarter (1-based) belongs to: Q1-Q6 are term 1, Q7-Q12 term 2, and so on. */
 export const termOf = (quarter: number): number => Math.max(1, Math.ceil(quarter / OFFLINE_PILOT.quarters_per_term))
 /** A quarter's place within its term, 1 to 6. */
 export const quarterInTerm = (quarter: number): number => ((Math.max(1, quarter) - 1) % OFFLINE_PILOT.quarters_per_term) + 1
 /** The labels of the quarters in a term. */
-export const termQuarters = (term: number): typeof QUARTERS =>
-  QUARTERS.slice((term - 1) * OFFLINE_PILOT.quarters_per_term, term * OFFLINE_PILOT.quarters_per_term)
+export const termQuarters = (term: number): QuarterLabel[] =>
+  Array.from({ length: OFFLINE_PILOT.quarters_per_term }, (_, i) => quarterLabel((term - 1) * OFFLINE_PILOT.quarters_per_term + i + 1))
 /** The last quarter of a term: when its election is held. */
-export const termEndLabel = (term: number): string => termQuarters(term).at(-1)?.label ?? ''
+export const termEndLabel = (term: number): string => quarterLabel(term * OFFLINE_PILOT.quarters_per_term).label
 
 /**
  * When work funded by a plan approved in `quarter` (1-based) can first arrive,
@@ -111,7 +113,7 @@ export const termEndLabel = (term: number): string => termQuarters(term).at(-1)?
  */
 export function firstDeliveryLabel(family: FamilyInfo, quarter: number): string | null {
   const arrives = quarter + family.lag
-  return termOf(arrives) === termOf(quarter) ? QUARTERS[arrives - 1]?.label ?? null : null
+  return termOf(arrives) === termOf(quarter) ? quarterLabel(arrives).label : null
 }
 
 /** First quarter of a term (1-based, within the term) in which the term's free audit can be used. */

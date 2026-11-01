@@ -97,15 +97,12 @@ mod tests {
 
     #[test]
     fn budget_overflow_rejected_before_any_projection() {
-        // More than both terms' allocations together can never be funded.
-        let over = Allocation::draft(100, 100, 10).unwrap();
-        assert_eq!(
-            optimistic_preview(over),
-            Err(ContractError::InsufficientAvailableFunds)
-        );
-        // 110 is more than one term's allocation but can be funded in the second term, when the
-        // unspent first-term credits are still there, so it still gets a forecast.
+        // A single line can never exceed one term's allocation, which is what keeps any plan fundable at all.
+        assert!(Allocation::draft(101, 0, 0).is_err());
+        // 110 is more than one term's allocation but can be funded in a later term, when unspent credits from
+        // earlier terms are still there, so it still gets a forecast.
         assert!(optimistic_preview(Allocation::draft(60, 40, 10).unwrap()).is_ok());
+        assert!(optimistic_preview(Allocation::draft(100, 100, 100).unwrap()).is_ok());
     }
 
     #[test]

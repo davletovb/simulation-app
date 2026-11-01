@@ -1,6 +1,6 @@
 import type { Snapshot } from '../campaign'
 import { MINISTERS } from '../game'
-import { groups, leftBehind, legacy, pctText, termName, verdict } from '../election.mjs'
+import { groups, leftBehind, legacy, pctText, verdict } from '../election.mjs'
 import { outcomeLabel } from '../format'
 import { BlocMap } from './BlocMap'
 import { ElectionBars } from './ElectionBars'
@@ -19,11 +19,11 @@ export function ElectionNight({ snapshot }: { snapshot: Snapshot }) {
 
       {snapshot.past_elections.length > 1 && (
         <section aria-labelledby="night-record">
-          <h2 id="night-record" className="section-label">Your two elections</h2>
+          <h2 id="night-record" className="section-label">Your elections</h2>
           <ul className="behind-list">
             {snapshot.past_elections.map(r => (
               <li key={r.term}>
-                <strong>{termName(r.term).replace(/^./, c => c.toUpperCase())} term, {r.won ? 'won' : 'lost'}:</strong>{' '}
+                <strong>Term {r.term}, {r.won ? 'won' : 'lost'}:</strong>{' '}
                 {pctText(r.weighted_support_ppm)} overall support, with {pctText(r.blocs_held_ppm)} of the voters in groups behind you.
               </li>
             ))}

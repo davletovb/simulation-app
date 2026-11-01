@@ -1,13 +1,13 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  GROUP_LABELS, NARROW_DEFEAT_PPM, bars, groups, headline, isLastTerm, leftBehind, legacy, pct, pctText, pointsText, shortByText, termName, verdict,
+  GROUP_LABELS, NARROW_DEFEAT_PPM, bars, groups, headline, isCeiling, leftBehind, legacy, pct, pctText, pointsText, shortByText, verdict,
 } from '../src/election.mjs'
 
 /** A won election: the real engine's numbers for Balanced in Q1 (see tools/support-model). */
 const settled = [571800, 602000, 472200, 579240, 615600, 491960]
 const election = (over = {}) => ({
-  status: 'won', term: 1, terms: 2, settled_group_ppm: settled, weighted_support_ppm: 559584, blocs_held_ppm: 730000,
+  status: 'won', term: 1, ceiling: false, settled_group_ppm: settled, weighted_support_ppm: 559584, blocs_held_ppm: 730000,
   min_support_ppm: 550000, min_blocs_ppm: 600000, held_above_ppm: 500000, ...over,
 })
 const snapshot = (over = {}, treasury = {}) => ({
@@ -61,24 +61,29 @@ test('a result is re-elected, a narrow defeat or a heavy defeat; narrow starts a
   assert.equal(lost({ weighted_support_ppm: 540000 }).final, true)
 })
 
-test('winning the first election re-elects you; winning the last one is the final victory', () => {
-  const first = election()
-  assert.equal(isLastTerm(first), false)
-  assert.equal(verdict(first).key, 'reelected')
-  assert.equal(headline(first).title, 'You’ve been re-elected')
-  const last = election({ term: 2 })
-  assert.equal(isLastTerm(last), true)
-  assert.equal(verdict(last).key, 'victory')
-  assert.equal(verdict(last).label, 'Final victory')
-  assert.equal(verdict(last).lastTerm, true)
-  assert.equal(headline(last).title, 'Final victory')
-  assert.match(headline(last).lede, /both bars again: 55\.9% overall support/)
+test('every win is a re-election: terms go on for as long as the player wins, so no election is "the last"', () => {
+  for (const term of [1, 2, 3, 7]) {
+    const e = election({ term })
+    assert.equal(isCeiling(e), false)
+    assert.equal(verdict(e).key, 'reelected', `term ${term}`)
+    assert.equal(verdict(e).label, 'Re-elected')
+    assert.equal(headline(e).title, 'You’ve been re-elected')
+    assert.doesNotMatch(headline(e).lede, /final|last|second|both bars again/i)
+  }
   // A defeat reads the same whichever term it ends.
-  const lostLast = verdict(election({ term: 2, status: 'lost', weighted_support_ppm: 540000 }))
-  assert.equal(lostLast.key, 'narrow')
-  assert.equal(lostLast.lastTerm, true)
-  assert.equal(termName(1), 'first')
-  assert.equal(termName(2), 'second')
+  assert.equal(verdict(election({ term: 4, status: 'lost', weighted_support_ppm: 540000 })).key, 'narrow')
+  assert.equal(verdict(election({ term: 4, status: 'lost', weighted_support_ppm: 500000 })).key, 'heavy')
+})
+
+test('only the engine\'s ceiling ends a won game, and only then does the screen say so', () => {
+  const top = election({ term: 10, ceiling: true })
+  assert.equal(isCeiling(top), true)
+  assert.equal(verdict(top).key, 'tenure')
+  assert.equal(verdict(top).label, 'Longest tenure')
+  assert.equal(headline(top).title, 'The longest tenure on record')
+  assert.match(headline(top).lede, /served 10 terms, the most this version can record/)
+  // At the ceiling a loss is still just a defeat.
+  assert.equal(verdict(election({ term: 10, ceiling: true, status: 'lost', weighted_support_ppm: 540000 })).key, 'narrow')
 })
 
 test('while the campaign runs the verdict is an outlook, never a result', () => {

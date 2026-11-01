@@ -20,14 +20,16 @@ pub const SCHEMA_VERSION: u16 = 1;
 pub const PILOT_CREDITS: u16 = 100;
 /// Quarters in one term. A term ends with an election (decisions 0002 and 0005).
 pub const TERM_QUARTERS: u8 = 6;
-/// Terms in a game. Winning the election at the end of every term but the last starts the next one.
-pub const TERMS: u8 = 2;
-/// Quarters in a whole game.
-pub const MAX_QUARTERS: u8 = TERM_QUARTERS * TERMS;
+/// The most terms one game can record. This is a **technical ceiling, not a rule**: terms go on for as long as
+/// the player keeps winning elections (decision 0008), but every game is a journal that is replayed, and the
+/// journal has a size limit. Winning the election at the end of this many terms ends the game.
+pub const MAX_TERMS: u8 = 10;
+/// The last quarter any game can reach.
+pub const MAX_QUARTERS: u8 = TERM_QUARTERS * MAX_TERMS;
 /// Credits granted at the start of each term after the first, added to anything unspent (R3, decision 0005).
 pub const TERM_ALLOCATION_CREDITS: u16 = PILOT_CREDITS;
-/// The most credits one game can ever grant: the opening 100 plus one allocation per later term.
-pub const MAX_CREDITS: u16 = PILOT_CREDITS * TERMS as u16;
+/// The most credits one game can ever grant: one allocation per term, up to the ceiling.
+pub const MAX_CREDITS: u16 = PILOT_CREDITS * MAX_TERMS as u16;
 pub const SHARE_DENOMINATOR: u32 = 1_000_000;
 pub const EFFORT_DENOMINATOR: u16 = 1_000;
 
@@ -1877,8 +1879,18 @@ mod tests {
             .unwrap();
         assert_eq!((granted.available(), granted.granted()), (200, 200));
         granted.validate().unwrap();
-        // A third allocation would exceed what a game can ever grant.
-        assert!(granted.apply(LedgerMove::Grant { credits: 100 }).is_err());
+        // Allocations keep coming, one per term, up to the ceiling; one more than a game can record is refused.
+        let mut most = granted;
+        for _ in 3..=MAX_TERMS {
+            most = most
+                .apply(LedgerMove::Grant {
+                    credits: TERM_ALLOCATION_CREDITS,
+                })
+                .unwrap();
+        }
+        assert_eq!(most.granted(), MAX_CREDITS);
+        most.validate().unwrap();
+        assert!(most.apply(LedgerMove::Grant { credits: 100 }).is_err());
         // Money cannot appear any other way: accounts that add up to 200 need 200 granted.
         assert!(Treasury::from_parts(200, 0, 0, 0, 0, 0).is_err());
         assert!(Treasury::from_parts_granted(200, 200, 0, 0, 0, 0, 0).is_ok());
@@ -1916,10 +1928,11 @@ mod tests {
     }
     #[test]
     fn future_due_quarters_and_canonical_disclosures() {
-        // A game is two terms of six quarters; quarter 12 is the last.
+        // Terms of six quarters go on for as long as the player wins, up to the engine's ceiling.
         assert!(Quarter::new(0).is_err());
-        assert!(Quarter::new(12).is_ok());
-        assert!(Quarter::new(13).is_err());
+        assert!(Quarter::new(13).is_ok());
+        assert!(Quarter::new(MAX_QUARTERS).is_ok());
+        assert!(Quarter::new(MAX_QUARTERS + 1).is_err());
         assert_eq!(DueQuarter::new(8).unwrap().value(), 8);
         assert_eq!(DueQuarter::new(0), Err(ContractError::InvalidQuarter));
         let roles = EvidenceRecipients::new(vec![

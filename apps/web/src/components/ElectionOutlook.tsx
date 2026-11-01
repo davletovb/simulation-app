@@ -1,5 +1,5 @@
 import type { Snapshot } from '../campaign'
-import { termName, verdict } from '../election.mjs'
+import { verdict } from '../election.mjs'
 import { termEndLabel } from '../game'
 import { ElectionBars } from './ElectionBars'
 
@@ -13,8 +13,8 @@ export function ElectionOutlook({ snapshot }: { snapshot: Snapshot }) {
         <strong>{v.label}</strong><span> if it were held now</span>
       </p>
       <ElectionBars election={snapshot.election} compact />
-      <p className="hint">The {termName(snapshot.election.term)} election is held after {termEndLabel(snapshot.election.term)}. This counts
-        the work already on its way, final quarter included.</p>
+      <p className="hint">The election ending term {snapshot.election.term} is held after {termEndLabel(snapshot.election.term)}. This
+        counts the work already on its way, final quarter included.</p>
     </section>
   )
 }

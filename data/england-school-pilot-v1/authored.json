@@ -5,14 +5,14 @@
   "locale": "en-GB",
   "start": "2027-Q1",
   "quarters": 6,
-  "terms": 2,
   "election": {
-    "held_after_quarters": [6, 12],
+    "held_after_every_quarters": 6,
     "min_weighted_support_ppm": 550000,
     "min_blocs_ppm": 600000,
     "bloc_held_above_ppm": 500000,
-    "on_win": "next term begins with a new allocation added to anything unspent; a win in the last term ends the game",
-    "on_loss": "game over"
+    "on_win": "another term begins with a new allocation added to anything unspent; terms continue for as long as the player keeps winning",
+    "on_loss": "game over",
+    "technical_ceiling_terms": 10
   },
   "warning": "Illustrative game mechanics, not an official England policy, survey, population reconstruction, or forecast.",
   "pilot": {

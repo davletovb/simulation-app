@@ -272,10 +272,14 @@ mod tests {
             Err(StoreError::InvalidRecord)
         ));
         let mut bad = record("safe");
-        // Two full lines plus the access line: more than both terms' allocations together.
-        bad.choices[0].allocation.staff = 100;
-        bad.choices[0].allocation.repairs = 100;
+        // No single line may exceed one term's allocation: that is what keeps a plan fundable at all, however
+        // many terms have been won (a plan's total can be larger, using credits carried over).
+        bad.choices[0].allocation.staff = 101;
         assert!(matches!(store.put(bad), Err(StoreError::InvalidRecord)));
+        let mut big = record("big");
+        big.choices[0].allocation.staff = 100;
+        big.choices[0].allocation.repairs = 100;
+        assert!(store.put(big).is_ok());
         let mut dup = record("safe");
         dup.choices.push(dup.choices[0].clone());
         assert!(matches!(store.put(dup), Err(StoreError::InvalidRecord)));

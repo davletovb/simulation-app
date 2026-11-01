@@ -9,9 +9,10 @@ export function shortByText(shortfallPpm: number): string
 
 export interface ElectionLike {
   status: 'projected' | 'won' | 'lost'
-  /** The term this election ends (1-based) and how many terms there are. */
+  /** The term this election ends (1-based). There is no fixed number of terms: a win starts another. */
   term: number
-  terms: number
+  /** The longest tenure the engine can record: winning this election ends the game. */
+  ceiling: boolean
   settled_group_ppm: readonly number[]
   weighted_support_ppm: number
   blocs_held_ppm: number
@@ -22,13 +23,11 @@ export interface ElectionLike {
 export interface Bar { key: 'support' | 'blocs'; label: string; value: number; need: number; met: boolean }
 export function bars(election: ElectionLike): [Bar, Bar]
 
-/** The election that ends the last term: winning it ends the game in victory. */
-export function isLastTerm(election: ElectionLike): boolean
-/** "first", "second": how a term is named on screen. */
-export function termName(term: number): string
+/** The election at the engine's limit: winning it ends the game instead of starting another term. */
+export function isCeiling(election: ElectionLike): boolean
 
-export type VerdictKey = 'reelected' | 'victory' | 'narrow' | 'heavy' | 'on-course' | 'behind'
-export interface Verdict { key: VerdictKey; label: string; final: boolean; won: boolean; lastTerm: boolean }
+export type VerdictKey = 'reelected' | 'tenure' | 'narrow' | 'heavy' | 'on-course' | 'behind'
+export interface Verdict { key: VerdictKey; label: string; final: boolean; won: boolean; ceiling: boolean }
 export function verdict(election: ElectionLike): Verdict
 export function headline(election: ElectionLike): { title: string; lede: string }
 

@@ -1,5 +1,5 @@
 import { OFFLINE_PILOT } from '../contracts'
-import { PLACE_LABEL, QUARTERS, committed, quarterInTerm, type Allocation } from '../game'
+import { PLACE_LABEL, committed, quarterInTerm, quarterLabel, termQuarters, type Allocation } from '../game'
 import { useCampaign } from '../campaign'
 import { STEPS, turnState, undeliveredCredits } from '../turn.mjs'
 import { Icon } from './Icon'
@@ -14,12 +14,10 @@ export function Hud({ allocation, onHelp }: { allocation: Allocation; onHelp: ()
   const quarter = snapshot?.quarter ?? 1
   const term = snapshot?.term ?? 1
   const night = turn?.step === 'night'
-  // One allocation is granted per term begun, so what the player has been given is a whole number of them.
-  const granted = OFFLINE_PILOT.credits * term
   const quarterNote = !snapshot ? '—'
     : snapshot.closed ? 'Finished'
     : night ? `Term ${term} won`
-    : QUARTERS[snapshot.quarter - 1]?.label ?? ''
+    : quarterLabel(snapshot.quarter).label
   const stepNote = !turn ? '—'
     : turn.step === 'done' || night ? 'Election night'
     : turn.keeping ? 'Keeping programme'
@@ -41,7 +39,7 @@ export function Hud({ allocation, onHelp }: { allocation: Allocation; onHelp: ()
           <dt><Icon name="token" size={16} />Budget</dt>
           <dd>
             <strong>{snapshot?.treasury.available_credits ?? '—'}</strong>
-            <span className="hud-sub">left of {granted}</span>
+            <span className="hud-sub">left to spend</span>
             {draft > 0 && <span className="hud-delta" title="New credits your unsent plan would commit">plan −{draft}</span>}
           </dd>
         </div>
@@ -49,12 +47,12 @@ export function Hud({ allocation, onHelp }: { allocation: Allocation; onHelp: ()
           <dt><Icon name="hourglass" size={16} />Quarter</dt>
           <dd>
             <span className="qpips" aria-hidden="true">
-              {QUARTERS.map((q, i) => (
-                <span key={q.label} className={`qpip${i === OFFLINE_PILOT.quarters_per_term ? ' is-term-start' : ''}${snapshot && (snapshot.closed || i < quarter - 1 || (night && i === quarter - 1)) ? ' is-done' : snapshot && i === quarter - 1 ? ' is-now' : ''}`} />
+              {termQuarters(term).map((q, i) => (
+                <span key={q.label} className={`qpip${snapshot && (snapshot.closed || i < quarterInTerm(quarter) - 1 || (night && i === quarterInTerm(quarter) - 1)) ? ' is-done' : snapshot && i === quarterInTerm(quarter) - 1 ? ' is-now' : ''}`} />
               ))}
             </span>
             <span className="hud-sub">{snapshot
-              ? `Term ${term} of ${OFFLINE_PILOT.terms} · ${snapshot.closed || night ? quarterNote : `quarter ${quarterInTerm(quarter)} of ${OFFLINE_PILOT.quarters_per_term} · ${quarterNote}`}`
+              ? `Term ${term} · ${snapshot.closed || night ? quarterNote : `quarter ${quarterInTerm(quarter)} of ${OFFLINE_PILOT.quarters_per_term} · ${quarterNote}`}`
               : quarterNote}</span>
           </dd>
         </div>

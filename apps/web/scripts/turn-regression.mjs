@@ -87,7 +87,7 @@ test('election night after a won term is its own step: nothing but beginning the
   assert.equal(turnState(snap('ElectionNight', { closed: true })).step, 'done')
 })
 
-test('the first quarter of the second term is an ordinary plan step that may keep the programme', () => {
+test('the first quarter of a later term is an ordinary plan step that may keep the programme', () => {
   const q7 = turnState(snap('QuarterOpen', { quarter: 7 }))
   assert.equal(q7.step, 'plan')
   assert.equal(q7.canKeepProgramme, true)

@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { newer, validSnapshot } from './committedReducer.mjs'
 import type { Allocation } from './game'
@@ -50,9 +50,8 @@ export interface Snapshot {
     /** Each group's share of the voters; sums to 1,000,000. */
     weight_ppm: number[]
   }
-  /** 1 or 2, and how many terms there are in all. Each term is six quarters and ends with an election. */
+  /** The term being played, from 1. Each term is six quarters and ends with an election; a win starts another. */
   term: number
-  terms: number
   term_quarters: number
   /** Elections already held, oldest first. Empty during the first term. */
   past_elections: { term: number; quarter: number; won: boolean; weighted_support_ppm: number; blocs_held_ppm: number }[]
@@ -64,7 +63,8 @@ export interface Snapshot {
     status: 'projected' | 'won' | 'lost'
     /** The term this election ends. */
     term: number
-    terms: number
+    /** Only at the engine's limit on tenure: winning this election ends the game instead of starting a term. */
+    ceiling: boolean
     settled_group_ppm: number[]
     weighted_support_ppm: number
     blocs_held_ppm: number
@@ -157,7 +157,7 @@ function failureFor(action: PlayerCommand | undefined): string {
     return 'The audit couldn’t be ordered. Only the first audit of each term is free; each later one costs 2 credits from “Left to spend”, which must be at least 2.'
   }
   if (action?.kind === 'begin_term') {
-    return 'The second term couldn’t begin. It can only start from election night after a win, and only once.'
+    return 'The next term couldn’t begin. It can only start from election night after a win, and only once.'
   }
   if (action?.kind === 'decide' && action.ratify) {
     return 'The ministers’ votes don’t allow approving this plan. Postpone it instead.'
@@ -240,6 +240,9 @@ function useCampaignSession(): Session {
   const [error, setErrorText] = useState<string | null>(null)
   const [errorDetail, setErrorDetail] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
+  // True from the moment a move is sent until the server has answered. A durable-lookup 404 means nothing
+  // while the POST is still being admitted (the longer the game, the longer admission takes).
+  const sending = useRef(false)
   const [forkId, setForkId] = useState<string | null>(null)
   const [integrityFailure, setIntegrityFailure] = useState(false)
   const [staleSave, setStaleSave] = useState(false)
@@ -330,6 +333,7 @@ function useCampaignSession(): Session {
     writeStored(PENDING_KEY, JSON.stringify(operation))
     clearError()
     setSubmitting(true)
+    sending.current = true
     try {
       const response = await fetch(root + '/commands', {
         method: 'POST',
@@ -367,6 +371,7 @@ function useCampaignSession(): Session {
       fail(known ? (reason as Error).message : MSG.rejected, reason instanceof Error && !known ? reason.message : null)
       // Retain original operation ID after a lost acknowledgment.
     } finally {
+      sending.current = false
       setSubmitting(false)
     }
   }, [cache, clearError, fail, load, pending])
@@ -380,7 +385,8 @@ function useCampaignSession(): Session {
       try {
         const response = await fetch(root + '/commands/' + encodeURIComponent(pending.id), { cache: 'no-store' })
         if (stopped) return
-        if (response.status === 404) { fail(MSG.notFound); return }
+        // Not found while the move is still being sent just means the server has not admitted it yet.
+        if (response.status === 404) { if (!sending.current) fail(MSG.notFound); return }
         if (!response.ok) return
         const status = await response.json() as Operation
         if (status.command_id !== pending.id) return
