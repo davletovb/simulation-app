@@ -1,6 +1,6 @@
 # 0002. One election at the end; a win continues, a loss ends the game
 
-- **Status:** Accepted in principle. **One part is undefined: what "continues" means.**
+- **Status:** Accepted. What "continues" means is answered by [0005](0005-a-win-starts-a-second-term.md) (a second term); its budget rule is still open.
 - **Date:** 2026-11-01
 - **Decided by:** the project owner, in conversation. Their words: *"one election at the end and
   if win then continues, if fail game end."* This record was written by Claude from that conversation.
@@ -15,7 +15,7 @@
 - There is **no mid-term poll at Q3 as a gate**. (A non-binding poll as a warning was offered and
   not chosen; it can be added later without changing this decision.)
 
-## Open question: what does "continues" mean?
+## Question that was open: what does "continues" mean?  (Answered: option A, see 0005)
 
 The engine has no second term. Today the campaign simply closes after Q6. Options, none chosen:
 
@@ -25,7 +25,7 @@ The engine has no second term. Today the campaign simply closes after Q6. Option
 | B. Repeating terms | Re-election every six quarters until the player loses | Becomes an endless mode. Needs scaling, so later terms stay winnable |
 | C. Marked won | The campaign ends as a win and a sandbox continues | Smallest change; a win is then only a label |
 
-Until this is answered, the engine will report the election result at campaign close and **not**
+Answered on 2026-11-01: **option A**. Until a second term is built, the engine will report the election result at campaign close and **not**
 start a second term. A loss is already consistent with "game ends".
 
 ## Consequences

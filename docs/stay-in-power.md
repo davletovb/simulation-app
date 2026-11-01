@@ -140,9 +140,11 @@ takes to show it to a player.
 Asked on 2026-11-01 and answered by the owner (full records in [`decisions/`](decisions/README.md)):
 
 1. **Power as the headline, Legacy as the second line:** yes. ([0001](decisions/0001-goal-stay-in-power.md))
-2. **One election at the end; a win continues, a loss ends the game.** No mid-term gate. **Still open:**
-   what "continues" means: a second term, repeating terms, or just a label.
-   ([0002](decisions/0002-single-election-win-continues-loss-ends.md))
+2. **One election at the end; a win continues, a loss ends the game.** No mid-term gate. "Continues" means
+   **a second term of six quarters** carrying over support, lobbies, minister beliefs and unfinished
+   promises. **Still open:** whether the budget refills for term 2 (recommended: a new allocation added to
+   anything unspent). ([0002](decisions/0002-single-election-win-continues-loss-ends.md),
+   [0005](decisions/0005-a-win-starts-a-second-term.md))
 3. **Change the frozen engine numbers and regenerate the pinned report in the same change:** yes, and done.
    ([0003](decisions/0003-recalibrate-the-support-model.md))
 4. **The win bar:** the owner is not sure, so 55% overall and 60% of voters stays provisional, with the
