@@ -72,8 +72,11 @@ brings good news only.
 
 - **Most headlines are announced a quarter ahead** in the **News** card: who it hits, about how many points of overall support it would
   cost, and its price to answer. **A few arrive unannounced** and cannot be answered.
-- **Answer it** (at the start of a quarter, before you plan) takes 60% off the loss for credits: 10 for every point of overall support it
-  would have taken. Those credits do not become delivered work, so you need a **reserve** of unspent credits, and they count against
+- **Some headlines also stop work.** A flood can stop Repairs for two quarters; a strike ballot can stop Staffing. Nothing is lost: what
+  could not be delivered waits. But work that slips past the election cannot help you win it, and the card says how many of *your*
+  promised units that would be. A stoppage that touches work you have not promised costs you nothing.
+- **Answer it** (at the start of a quarter, before you plan) takes 60% off the loss, and turns a stoppage into a slowdown, for credits:
+  10 for every point of overall support it would have taken (mood and delayed work together). Those credits do not become delivered work, so you need a **reserve** of unspent credits, and they count against
   your Legacy. Do it for the big ones, or when your lead is thin.
 - The Progress screen keeps the whole **news log**.
 

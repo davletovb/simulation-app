@@ -20,7 +20,7 @@
 - **A calendar for every campaign and every term.** Each term has headlines in its quarters 2 to 6: two in term 1 (good news
   only), four in every later term (30% good). A third are surprises. The calendar is a pure function of the campaign's identity and
   the term (SplitMix64, integers only), so a replay and a what-if branch see exactly the same headlines, and no list of 60 quarters
-  had to be written. The deck is eight bad and four good headlines, all invented (`authored.json` has the words; `news.rs` the numbers).
+  had to be written. The deck was eight bad and four good headlines in stage 1 (four more bad ones arrived in stage 2), all invented (`authored.json` has the words; `news.rs` the numbers).
 - **Bad news takes a share of what you have built.** For each group: exposure to that headline times a small base plus a share of the
   group's lead over 50%. The base grows 50% a term (to four times) and the share grows 8 points a term (from 40% to 90%) after term 2,
   so a big lead is never a safe lead and every term is heavier than the last. One headline never takes more than 4 points from one
@@ -71,8 +71,8 @@ and doing nothing lost the second term at 54.4%.
 
 ## Not built yet (and why)
 
-- **Disruption headlines** (one kind of work delivers less for a quarter), **scrutiny** (unfinished promises cost support) and
-  **windfalls** (extra credits): stages 2 and 3 in the plan, on the same machinery.
+- **Disruption headlines** (one kind of work delivers less for a quarter): **built in stage 2, see [0011](0011-disruption-headlines.md).**
+  **Scrutiny** (unfinished promises cost support) and **windfalls** (extra credits): stage 3 in the plan, on the same machinery.
 - **Real-world news.** The data and screens carry a `source` field (`invented` today; `real` is accepted and must be labelled), so a
   real lane can be added without reshaping anything. It needs its own decision: whether such items only inform or also move support,
   and how that stays reproducible for a saved game.
