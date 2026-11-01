@@ -43,14 +43,18 @@ does not (52.98%). 48 of the 72 accepted variants clear 55%; all 72 clear 52% an
 
 ## To change
 
-The bars are now named constants in `crates/domain/src/reducer.rs` (`ELECTION_MIN_SUPPORT_PPM = 550_000`,
+The bars are named constants in `crates/domain/src/reducer.rs` (`ELECTION_MIN_SUPPORT_PPM = 550_000`,
 `ELECTION_MIN_BLOCS_PPM = 600_000`, `ELECTION_HELD_ABOVE_PPM = 500_000`), mirrored in
-`tools/support-model/support_model.py` (`BAR_SUPPORT_PCT`, `BAR_BLOCS_PCT`). **They are deliberately not in the
-hashed `authored.json`** (see [0006](0006-what-the-snapshot-exposes.md)): they only read a final state, so
-changing them does **not** invalidate saved games, and a change is a single edit plus the tests below.
+`tools/support-model/support_model.py` (`BAR_SUPPORT_PCT`, `BAR_BLOCS_PCT`) and, since [0007](0007-two-terms-in-one-campaign.md),
+**in the hashed `authored.json`** (`election.min_weighted_support_ppm`, `min_blocs_ppm`, `bloc_held_above_ppm`), because the
+verdict decides whether the game continues. A test fails if the file and the constants disagree, and **changing a bar
+invalidates saved games**: bump `RULES_VERSION` and regenerate the manifest (`tools/p2/build_pack.py --write`).
 
-To change a bar: edit the constant, update the tool, then run `cargo test -p myth-domain -p myth-local-api`;
+To change a bar: edit the constant and `authored.json`, update the tool, then run `cargo test --workspace`;
 the tests that pin a result (`balanced_term_wins_...`, `election_night_is_published_...`) will tell you if a
 change flips the headline cases. Record the change as a new decision and mark this one superseded.
 
-**Status update (2026-11-01):** implemented in the engine as the rule above, **still provisional**.
+**Status update (2026-11-01):** the owner accepted 55% / 60% and it is implemented. **Evidence that the second bar decides
+nothing today:** `tools/support-model/coalition_sweep.py` plays 1,771 opening plans and about 163,000 mid-term changes of
+course; every play that clears 55% overall also clears the 60% coalition bar, so the second bar has never been the reason
+for a defeat. It is the first bar alone that decides, and the same four or five groups are always the ones above 50%.
