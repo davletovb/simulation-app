@@ -369,7 +369,95 @@
       "step_pct": 15,
       "cap_pct": 200
     },
-    "max_windfall_credits": 15
+    "max_windfall_credits": 15,
+    "mixed_one_in": 5,
+    "mixed": [
+      {
+        "id": "funding_formula_shift",
+        "title": "Funding formula shifts money to village schools",
+        "summary": "Ministers change how school money is shared: rural schools gain, and city schools lose out.",
+        "exposure_pct": [
+          40,
+          40,
+          40,
+          0,
+          0,
+          0
+        ],
+        "winners_ppm": [
+          0,
+          0,
+          0,
+          20000,
+          20000,
+          20000
+        ]
+      },
+      {
+        "id": "school_costs_tax_rise",
+        "title": "Tax rise to pay for schools",
+        "summary": "Lower and middle earners welcome the money; the highest earners are unhappy at the bill.",
+        "exposure_pct": [
+          0,
+          0,
+          60,
+          0,
+          0,
+          60
+        ],
+        "winners_ppm": [
+          10000,
+          10000,
+          0,
+          10000,
+          10000,
+          0
+        ]
+      },
+      {
+        "id": "free_meals_widened",
+        "title": "Free school meals widened to more families",
+        "summary": "Families on lower incomes gain; higher earners resent who pays.",
+        "exposure_pct": [
+          0,
+          0,
+          30,
+          0,
+          0,
+          30
+        ],
+        "winners_ppm": [
+          25000,
+          10000,
+          0,
+          25000,
+          10000,
+          0
+        ]
+      },
+      {
+        "id": "small_schools_merged",
+        "title": "Small village schools to be merged",
+        "summary": "Villages lose their local school, while the savings please town and city voters.",
+        "exposure_pct": [
+          0,
+          0,
+          0,
+          70,
+          70,
+          40
+        ],
+        "winners_ppm": [
+          0,
+          8000,
+          12000,
+          0,
+          0,
+          0
+        ]
+      }
+    ],
+    "mixed_from_term": 3
   },
   "pilot": {
     "credits": 100,

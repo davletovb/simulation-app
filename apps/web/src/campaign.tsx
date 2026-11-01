@@ -58,6 +58,8 @@ export interface Snapshot {
     pending_delta_ppm: number[]
     /** Each group's share of the voters; sums to 1,000,000. */
     weight_ppm: number[]
+    /** What one delivered credit of each kind of work adds to each group's support, net of its cost to them: [group][staffing, repairs, access]. */
+    net_per_credit_ppm: number[][]
   }
   /** The term being played, from 1. Each term is six quarters and ends with an election; a win starts another. */
   term: number

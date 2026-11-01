@@ -1026,6 +1026,51 @@ mod p2_frozen_pack_tests {
             news["relief"]["cut_pct"].as_i64(),
             Some(i64::from(myth_domain::news::RELIEF_CUT_PCT))
         );
+        // Trade-off stories (decision 0014): the same words and numbers in the file and the engine.
+        assert_eq!(n(&news["mixed_one_in"]), myth_domain::news::MIXED_ONE_IN);
+        assert_eq!(
+            n(&news["mixed_from_term"]),
+            u64::from(myth_domain::news::MIXED_FROM_TERM)
+        );
+        let mixed = news["mixed"].as_array().unwrap();
+        assert_eq!(
+            mixed.len(),
+            myth_domain::news::MIXED.len(),
+            "trade-off deck size drift"
+        );
+        for (entry, headline) in mixed.iter().zip(myth_domain::news::MIXED) {
+            assert_eq!(entry["id"].as_str(), Some(headline.id));
+            let numbers = |key: &str| -> Vec<u64> {
+                entry[key]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|v| v.as_u64().unwrap())
+                    .collect()
+            };
+            assert_eq!(
+                numbers("exposure_pct"),
+                headline
+                    .effect
+                    .iter()
+                    .map(|v| u64::from(*v))
+                    .collect::<Vec<_>>(),
+                "trade-off exposure drift: {}",
+                headline.id
+            );
+            assert_eq!(
+                numbers("winners_ppm"),
+                headline
+                    .winners
+                    .iter()
+                    .map(|v| u64::from(*v))
+                    .collect::<Vec<_>>(),
+                "trade-off winners drift: {}",
+                headline.id
+            );
+            assert!(!entry["title"].as_str().unwrap().is_empty());
+            assert!(!entry["summary"].as_str().unwrap().is_empty());
+        }
         // Inspections and windfalls (decision 0012).
         for (key, value) in [
             ("pct", myth_domain::news::SCRUTINY_PCT),

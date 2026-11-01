@@ -68,9 +68,18 @@ pub fn headline_text(tone: d::news::Tone, index: usize) -> Option<(String, Strin
         entry["summary"].as_str()?.to_owned(),
     ))
 }
+/// The words of a trade-off story (decision 0014), from the frozen scenario file: `(title, summary)`.
+pub fn tradeoff_text(index: usize) -> Option<(String, String)> {
+    let scenario: Value = serde_json::from_str(SCENARIO).ok()?;
+    let entry = scenario["news_calendar"]["mixed"].get(index)?;
+    Some((
+        entry["title"].as_str()?.to_owned(),
+        entry["summary"].as_str()?.to_owned(),
+    ))
+}
 /// A deliberate, migration-controlled behavior contract, not raw source text.
 /// Bump when P3 rules, parsing, adapters, scenario selection or model policy change.
-pub const RULES_VERSION: &str = "p4-england-education-rules-v9";
+pub const RULES_VERSION: &str = "p4-england-education-rules-v10";
 type FrozenSource = Result<(String, String, [u32; 6]), String>;
 static FROZEN: OnceLock<FrozenSource> = OnceLock::new();
 fn frozen() -> Result<&'static (String, String, [u32; 6]), String> {

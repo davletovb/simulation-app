@@ -16,6 +16,17 @@ export function whoItHits(effectPpm, groupIds) {
   return named.length === groupIds.length ? 'Every group' : named.map(id => GROUP_LABELS[id] ?? id).join('; ')
 }
 
+/** A trade-off story (decision 0014): it helps some groups and hurts others at once. */
+export function isTradeOff(effectPpm) {
+  return effectPpm.some(x => x > 0) && effectPpm.some(x => x < 0)
+}
+
+/** Which groups a story helps and which it hurts, in words, from the signs of what it does to each. */
+export function whoGainsAndLoses(effectPpm, groupIds) {
+  const names = pick => groupIds.filter((_, i) => pick(effectPpm[i])).map(id => GROUP_LABELS[id] ?? id).join('; ')
+  return { helps: names(x => x > 0), hurts: names(x => x < 0) }
+}
+
 /** "about −1.3 points overall" for news still to land, "−1.3 points overall" once it has. */
 export function overallText(overallPpm, { approximate = false } = {}) {
   const points = pointsText(overallPpm)

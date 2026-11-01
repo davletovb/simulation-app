@@ -1162,3 +1162,17 @@ code { font-family: var(--font-mono); font-size: .92em; color: var(--text); }
 .headline-real a { color: var(--repairs); text-decoration: underline; text-underline-offset: 2px; }
 .headline-source { color: var(--repairs); border-color: #73b4ff66; background: #73b4ff14; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; }
 .real-news-log .ledger-votes a { color: var(--repairs); text-decoration: underline; text-underline-offset: 2px; }
+/* Who a plan helps and who pays (decision 0014), and stories that cut both ways. */
+.interests { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 8px; }
+.interests-summary { margin: 0; font-size: 14px; line-height: 1.45; color: var(--text); }
+.interests-list { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.interest { display: grid; grid-template-columns: minmax(130px, 1.2fr) 2fr 52px; align-items: center; gap: 10px; font-size: 13px; color: var(--text-2); }
+.interest-bar { display: block; height: 8px; border-radius: 4px; background: var(--panel-2); overflow: hidden; }
+.interest-bar > span { display: block; height: 100%; border-radius: 4px; background: var(--text-3); }
+.interest.is-gain .interest-bar > span { background: var(--ok); }
+.interest.is-cost .interest-bar > span { background: var(--danger); }
+.interest-value { text-align: right; font-variant-numeric: tabular-nums; font-weight: 700; color: var(--text); }
+.interest.is-cost .interest-value { color: var(--danger); }
+.interest.is-gain .interest-value { color: var(--ok); }
+.headline-tone.is-trade { color: var(--repairs); border-color: #73b4ff55; }
+@media (max-width: 560px) { .interest { grid-template-columns: 1fr 1fr 48px; } }

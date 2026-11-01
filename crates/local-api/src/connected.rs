@@ -23,6 +23,7 @@ use myth_hiyal_adapter::{
     orchestrator::{
         GameTrial, advance_slice, advance_unmodified_quarter, create_campaign, inspect, resume,
     },
+    tradeoff_text,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -722,6 +723,10 @@ pub struct PublicSupport {
     pub pending_delta_ppm: [i32; 6],
     /// Each group's share of the voters, in parts per million. Sums to 1,000,000.
     pub weight_ppm: [u32; 6],
+    /// What one delivered credit of each kind of work adds to each group's support, net of what it costs them, in parts per
+    /// million: `[group][staffing, repairs, access]`. A negative number is a group that pays more than it gains. A plan's
+    /// whole effect is the sum of its units times these, before news (decision 0014).
+    pub net_per_credit_ppm: [[i32; 3]; 6],
 }
 /// What an election returns. `projected` while a term is running (every queued response lands, nothing new
 /// is delivered); `won` or `lost` once the term has ended and the verdict is recorded.
@@ -984,6 +989,9 @@ fn capture(trial: &GameTrial) -> Result<PublicView, String> {
         group_ppm: current,
         pending_delta_ppm,
         weight_ppm: *campaign.world().cohort_weights().parts_ppm(),
+        net_per_credit_ppm: campaign
+            .net_support_per_unit_ppm()
+            .map_err(|_| "support response unavailable")?,
     };
     let election = PublicElection::bars(
         status,
@@ -1073,6 +1081,9 @@ fn public_calendar(campaign: &myth_domain::reducer::Campaign) -> Result<PublicCa
             .get(usize::from(slot.item))
             .map(|item| (item.title.clone(), item.summary.clone()))
             .ok_or_else(|| "real headline text missing".to_string()),
+        None if s.mixed => {
+            tradeoff_text(s.index).ok_or_else(|| "trade-off text missing".to_string())
+        }
         None => headline_text(s.tone, s.index).ok_or_else(|| "headline text missing".to_string()),
     };
     let real_source = |s: &d::news::Scheduled| -> Option<PublicRealSource> {
@@ -1554,6 +1565,7 @@ fn schedule(owner: Arc<Owner>) {
                             group_ppm: [0; 6],
                             pending_delta_ppm: [0; 6],
                             weight_ppm: [0; 6],
+                            net_per_credit_ppm: [[0; 3]; 6],
                         },
                         election: PublicElection::bars("projected", 1, [0; 6], 0, 0),
                         past_elections: vec![],
@@ -3473,6 +3485,141 @@ mod tests {
         accepted_step(service, campaign, CommandKind::ContinueQuarter, *serial).await;
         *serial += 1;
         accepted_step(service, campaign, CommandKind::FinishContinuation, *serial).await
+    }
+    #[tokio::test]
+    async fn a_trade_off_story_helps_some_groups_and_hurts_others_and_matches_the_independent_replica()
+     {
+        // Chosen with tools/support-model/news_model.py: "tf2966". Balanced every term wins the first two elections (57.7% and
+        // 62.4%); the third term has a trade-off story in quarter 14 (small village schools merged: the rural groups lose, urban
+        // middle and high income gain) and an ordinary bad headline in quarter 15. Every number is the replica's, to the ppm.
+        let id = "tf2966";
+        let dir = root();
+        let service = Connected::new(dir.clone()).unwrap();
+        let mut serial = 0_usize;
+        let balanced = WireAllocation {
+            staff: 50,
+            repairs: 40,
+            access: 10,
+        };
+        let mut view = play_plan(&service, id, balanced.clone(), &mut serial).await;
+        for _ in 2..=6 {
+            view = keep_quarter(&service, id, &mut serial).await;
+        }
+        assert_eq!(view.election.weighted_support_ppm, 576_584);
+        serial += 1;
+        accepted_step(&service, id, CommandKind::BeginTerm, serial).await;
+        let mut view = play_plan(&service, id, balanced.clone(), &mut serial).await;
+        for _ in 8..=12 {
+            view = keep_quarter(&service, id, &mut serial).await;
+        }
+        assert_eq!(
+            (view.phase.as_str(), view.election.status.as_str()),
+            ("ElectionNight", "won")
+        );
+        assert_eq!(view.election.weighted_support_ppm, 623_698);
+        // Terms 1 and 2 carry no trade-off story at all: they begin in term 3.
+        assert!(view.calendar.recent.iter().all(|h| !matches!(
+            h.id.as_str(),
+            "funding_formula_shift"
+                | "school_costs_tax_rise"
+                | "free_meals_widened"
+                | "small_schools_merged"
+        )));
+        serial += 1;
+        accepted_step(&service, id, CommandKind::BeginTerm, serial).await;
+        let view = play_plan(&service, id, balanced, &mut serial).await;
+        assert_eq!((view.quarter, view.term), (14, 3));
+        // The groups are pulled in different directions by the same work: what one delivered credit of each kind adds to each
+        // group, net of what it costs them (the engine's own response to one unit). High earners pay more than they get from
+        // Staffing and Access; rural groups gain most from Access.
+        assert_eq!(
+            view.support.net_per_credit_ppm,
+            [
+                [1_240, -80, 1_300],
+                [1_200, 800, 1_000],
+                [-440, 80, -900],
+                [472, 676, 2_860],
+                [560, 1_640, 2_200],
+                [-952, 1_004, -60]
+            ]
+        );
+        // The trade-off story is announced like any other, and says who gains and who loses by its signs.
+        let story = view
+            .calendar
+            .upcoming
+            .iter()
+            .find(|h| h.quarter == 14)
+            .expect("announced");
+        assert_eq!(
+            (
+                story.id.as_str(),
+                story.tone.as_str(),
+                story.source.as_str()
+            ),
+            ("small_schools_merged", "bad", "invented")
+        );
+        assert_eq!(story.title, "Small village schools to be merged");
+        assert_eq!(
+            story.effect_ppm,
+            [0, 8_000, 12_000, -40_000, -40_000, -9_979]
+        );
+        assert_eq!(
+            (story.overall_ppm, story.severity.as_str()),
+            (-1_298, "minor")
+        );
+        assert!(story.effect_ppm.iter().any(|e| *e > 0) && story.effect_ppm.iter().any(|e| *e < 0));
+        // Only what is lost is priced: 7 credits, though the plan left none to pay it with.
+        assert_eq!(story.relief_cost, Some(7));
+        assert_eq!(view.treasury.available_credits, 0);
+        let ordinary = view
+            .calendar
+            .upcoming
+            .iter()
+            .find(|h| h.quarter == 15)
+            .unwrap();
+        assert_eq!(ordinary.id, "exam_results_row");
+        assert_eq!(
+            ordinary.effect_ppm,
+            [0, -40_000, -5_625, 0, -40_000, -12_474]
+        );
+        assert_eq!(
+            (ordinary.overall_ppm, ordinary.relief_cost),
+            (-17_861, Some(18))
+        );
+        let refused = command(
+            State(service.clone()),
+            Path(id.to_owned()),
+            Json(Command {
+                command_id: "answer-without-credits".into(),
+                expected_world_version: view.view_version.clone(),
+                kind: CommandKind::Respond {
+                    headline_quarter: 14,
+                },
+            }),
+        )
+        .await;
+        assert_eq!(refused.unwrap_err().0, StatusCode::CONFLICT);
+        let view = keep_quarter(&service, id, &mut serial).await;
+        assert_eq!(view.quarter, 15);
+        let landed = view
+            .calendar
+            .recent
+            .iter()
+            .find(|h| h.quarter == 14)
+            .unwrap();
+        assert_eq!(landed.id, "small_schools_merged");
+        assert_eq!(
+            landed.effect_ppm,
+            [0, 8_000, 12_000, -40_000, -40_000, -9_979]
+        );
+        assert_eq!(landed.overall_ppm, -1_298);
+        assert!(!landed.responded && landed.real.is_none());
+        assert_eq!(
+            view.support.group_ppm,
+            [645_824, 707_620, 474_300, 637_492, 701_276, 526_135]
+        );
+        drop(service);
+        fs::remove_dir_all(dir).unwrap();
     }
     /// Writes the hand-written test feed (not a capture of any real feed) where a service can read it.
     fn feed_file(name: &str) -> PathBuf {

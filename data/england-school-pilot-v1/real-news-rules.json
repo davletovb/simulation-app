@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "label": "How a real GOV.UK headline becomes a change in support. These rules are the whole mapping. The headline's title is lower-cased and compared with the phrases below; the first rule with a phrase in it decides. A headline that matches no rule is shown and changes nothing.",
+  "label": "How a real GOV.UK headline becomes a change in support. These rules are the whole mapping. The headline's title is lower-cased and compared with the phrases below; the first rule with a phrase in it decides. A headline that matches no rule is shown and changes nothing. Two rules are trade-offs: they help some groups and hurt others in the same story.",
   "source": {
     "name": "GOV.UK, Department for Education news",
     "feed_url": "https://www.gov.uk/search/news-and-communications.atom?organisations%5B%5D=department-for-education&order=updated-newest",
@@ -10,6 +10,63 @@
   "max_items": 4,
   "max_with_effect": 2,
   "rules": [
+    {
+      "id": "funding_shift_mixed",
+      "label": "Money moves between city and country schools",
+      "tone": "bad",
+      "any": [
+        "funding formula",
+        "funding reform",
+        "fairer funding",
+        "funding redistribution",
+        "redistribute funding"
+      ],
+      "exposure_pct": [
+        40,
+        40,
+        40,
+        0,
+        0,
+        0
+      ],
+      "winners_ppm": [
+        0,
+        0,
+        0,
+        20000,
+        20000,
+        20000
+      ]
+    },
+    {
+      "id": "small_schools_mixed",
+      "label": "Small rural schools merged or closed",
+      "tone": "bad",
+      "any": [
+        "small schools",
+        "school mergers",
+        "merge schools",
+        "merged schools",
+        "rural school closures",
+        "rural school closure"
+      ],
+      "exposure_pct": [
+        0,
+        0,
+        0,
+        70,
+        70,
+        40
+      ],
+      "winners_ppm": [
+        0,
+        8000,
+        12000,
+        0,
+        0,
+        0
+      ]
+    },
     {
       "id": "teacher_pay_good",
       "label": "Teacher pay and recruitment improve",

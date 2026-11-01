@@ -387,6 +387,22 @@ impl Campaign {
     pub fn elections(&self) -> &[ElectionRecord] {
         &self.elections
     }
+    /// What one delivered unit of each kind of work adds to each group's support, net of the cost it puts on that group's voters,
+    /// in ppm: `[group][staffing, repairs, access]`. It is the engine's own response to a single unit, so it can never drift from
+    /// what delivery really does; a plan's whole effect is the sum of its units times these, before news and before the
+    /// per-quarter clip (decision 0014). A negative number is a group that pays more than it gains.
+    pub fn net_support_per_unit_ppm(&self) -> Result<[[i32; 3]; 6], Rejection> {
+        let mut out = [[0_i32; 3]; 6];
+        for (ix, row) in out.iter_mut().enumerate() {
+            for (family, cell) in row.iter_mut().enumerate() {
+                let mut one = [0_u16; 3];
+                one[family] = 1;
+                let gain = cohort_response_scaled(ix, one, self.rules.magnitude_percent)?;
+                *cell = i32::try_from(gain).map_err(|_| Rejection::Arithmetic)?;
+            }
+        }
+        Ok(out)
+    }
     /// The real headlines imported for a term, in the order they were imported (decision 0013).
     pub fn real_items(&self, term: u8) -> &[news::RealItem] {
         self.real.get(&term).map_or(&[][..], Vec::as_slice)
@@ -3538,7 +3554,11 @@ mod tests {
             rule: rule.map(|(tone, effect)| news::RealRule {
                 id: "teacher_workforce".into(),
                 label: "Teacher pay and recruitment".into(),
-                effect: news::RealEffect { tone, effect },
+                effect: news::RealEffect {
+                    tone,
+                    effect,
+                    winners: [0; 6],
+                },
             }),
         }
     }
@@ -3703,6 +3723,103 @@ mod tests {
         let (answered, _) = play(true);
         assert!(answered.responded);
         assert_eq!(answered.shock, news::soften(landed.shock));
+    }
+    #[test]
+    fn the_per_unit_table_is_the_engines_own_response_and_the_groups_really_are_opposed() {
+        let c = campaign();
+        let net = c.net_support_per_unit_ppm().unwrap();
+        // For any plan whose work arrives in amounts that do not reach the clip, the whole effect is the sum of the units.
+        for plan in [
+            [12_u16, 10, 4],
+            [12, 0, 0],
+            [0, 10, 0],
+            [0, 0, 5],
+            [3, 7, 2],
+        ] {
+            for (ix, row) in net.iter().enumerate() {
+                let by_table: i64 = (0..3).map(|f| i64::from(row[f]) * i64::from(plan[f])).sum();
+                assert_eq!(
+                    cohort_response_scaled(ix, plan, 100).unwrap(),
+                    by_table,
+                    "group {ix}, plan {plan:?}"
+                );
+            }
+        }
+        // The Staffing, Repairs and Access columns: groups are pulled in different directions by the same work. Urban low and
+        // middle income gain from staff; the two high-income groups pay more than they get from Staffing and Access; every
+        // group but urban low income gains from Repairs; the rural groups gain most from Access.
+        let column = |f: usize| net.map(|row| row[f]);
+        assert!(
+            column(0).iter().any(|x| *x > 0) && column(0).iter().any(|x| *x < 0),
+            "staffing"
+        );
+        assert!(
+            column(2).iter().any(|x| *x > 0) && column(2).iter().any(|x| *x < 0),
+            "access"
+        );
+        assert!(
+            net[2][0] < 0 && net[5][0] < 0,
+            "high earners pay more than they gain from staff"
+        );
+        assert!(
+            net[3][2] > net[0][2] && net[4][2] > net[1][2],
+            "rural groups gain most from access"
+        );
+        // A balanced programme costs the highest earners support and helps the rest.
+        let balanced = [50_i64, 40, 10];
+        let total =
+            |ix: usize| -> i64 { (0..3).map(|f| i64::from(net[ix][f]) * balanced[f]).sum() };
+        assert!(total(0) > 0 && total(1) > 0 && total(3) > 0 && total(4) > 0);
+        assert!(total(2) < 0 && total(5) < 0);
+    }
+    #[test]
+    fn a_real_trade_off_story_hurts_some_groups_and_helps_others() {
+        let seed = seed_with_a_late_first_bad_headline();
+        let first_bad = news::schedule(seed, 2)
+            .into_iter()
+            .find(|s| s.tone == Tone::Bad)
+            .unwrap();
+        let mut c = with_calendar(seed);
+        ratify_balanced_q1(&mut c);
+        coast(&mut c, 6, "t1-");
+        c.apply(player(&c, "begin", PlayerCommand::BeginTerm))
+            .unwrap();
+        let story = news::RealItem {
+            title: "Funding formula reform confirmed".into(),
+            summary: "Money moves from town to country schools.".into(),
+            url: "https://www.gov.uk/government/news/formula".into(),
+            published: "2026-11-02".into(),
+            rule: Some(news::RealRule {
+                id: "funding_shift_mixed".into(),
+                label: "Money moves between city and country schools".into(),
+                effect: news::RealEffect {
+                    tone: Tone::Bad,
+                    effect: [40, 40, 40, 0, 0, 0],
+                    winners: [0, 0, 0, 20_000, 20_000, 20_000],
+                },
+            }),
+        };
+        import(&mut c, "import-2", vec![story]).unwrap();
+        open_meeting_with(&mut c, 7, Allocation::draft(50, 35, 0).unwrap());
+        coast_to(&mut c, first_bad.quarter.value() - 1, "to-");
+        let quote = c
+            .upcoming_headlines()
+            .into_iter()
+            .find(|u| u.scheduled.quarter == first_bad.quarter)
+            .unwrap();
+        // Urban groups lose, rural groups gain a flat gift; the mood the story takes is priced, the gift is not.
+        assert!(quote.expected[..3].iter().all(|e| *e < 0));
+        assert_eq!(quote.expected[3..], [20_000; 3]);
+        coast_to(&mut c, first_bad.quarter.value(), "near-");
+        let support = c.support_values();
+        advance(&mut c, "land").unwrap();
+        let landed = *c.landed_headlines().last().unwrap();
+        assert_eq!(
+            landed.shock,
+            news::landing_shock(&landed.scheduled, 2, &support)
+        );
+        assert!(landed.shock[..3].iter().all(|e| *e < 0) && landed.shock[3..] == [20_000; 3]);
+        c.world().validate().unwrap();
     }
     #[test]
     fn a_real_headline_that_replaces_a_stoppage_takes_its_disruption_with_it() {

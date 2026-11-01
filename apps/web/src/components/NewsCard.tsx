@@ -1,6 +1,6 @@
 import { useCampaign, type Landed, type Snapshot, type Upcoming } from '../campaign'
 import { quarterLabel } from '../game'
-import { canRespond, disruptionText, inspectionText, justIn, landsText, overallText, realSourceText, reliefText, whoItHits, windfallText } from '../news.mjs'
+import { canRespond, disruptionText, inspectionText, isTradeOff, justIn, landsText, overallText, realSourceText, reliefText, whoGainsAndLoses, whoItHits, windfallText } from '../news.mjs'
 import { ActionButton } from './ConnectedControls'
 import { Icon } from './Icon'
 
@@ -22,10 +22,12 @@ function Announced({ headline, snapshot, step }: { headline: Upcoming; snapshot:
   const { send, saving } = useCampaign()
   const answer = canRespond(headline, { available: snapshot.treasury.available_credits, step, busy: saving })
   const labelId = `news-${headline.quarter}-${headline.id}`
+  const trade = isTradeOff(headline.effect_ppm)
+  const sides = trade ? whoGainsAndLoses(headline.effect_ppm, snapshot.support.group_ids) : null
   return (
     <li className={`headline is-${headline.tone}`} aria-labelledby={labelId}>
       <div className="headline-head">
-        <span className={`tag headline-tone is-${headline.severity}`}>{TONE_WORD[headline.severity]}</span>
+        <span className={`tag headline-tone is-${trade ? 'trade' : headline.severity}`}>{trade ? 'Trade-off' : TONE_WORD[headline.severity]}</span>
         <strong id={labelId}>{headline.title}</strong>
       </div>
       <p className="headline-body">{headline.summary}</p>
@@ -38,7 +40,8 @@ function Announced({ headline, snapshot, step }: { headline: Upcoming; snapshot:
       ) : (
         <p className="headline-facts">
           Lands {landsText(headline.quarter, snapshot.quarter)} ({quarterLabel(headline.quarter).label}).{' '}
-          {headline.tone === 'bad' ? 'Hits' : 'Helps'}: {whoItHits(headline.effect_ppm, snapshot.support.group_ids)}.{' '}
+          {sides ? <>Helps: {sides.helps}. Hurts: {sides.hurts}. Net: </>
+            : <>{headline.tone === 'bad' ? 'Hits' : 'Helps'}: {whoItHits(headline.effect_ppm, snapshot.support.group_ids)}.{' '}</>}
           <strong>{overallText(headline.overall_ppm, { approximate: true })}</strong>.
         </p>
       )}
@@ -65,7 +68,8 @@ function Announced({ headline, snapshot, step }: { headline: Upcoming; snapshot:
   )
 }
 
-function Landed({ headline }: { headline: Landed }) {
+function Landed({ headline, groupIds }: { headline: Landed; groupIds: readonly string[] }) {
+  const sides = isTradeOff(headline.effect_ppm) ? whoGainsAndLoses(headline.effect_ppm, groupIds) : null
   return (
     <li className={`headline is-${headline.tone} is-landed`}>
       <div className="headline-head">
@@ -82,6 +86,7 @@ function Landed({ headline }: { headline: Landed }) {
       <p className="headline-facts">
         {headline.surprise ? 'Nobody saw it coming. ' : ''}
         {headline.responded ? 'You answered it. ' : ''}
+        {sides ? `Helped: ${sides.helps}. Hurt: ${sides.hurts}. Net: ` : ''}
         {headline.grant_credits !== null
           ? <strong>{windfallText(headline.grant_credits, { landed: true })}</strong>
           : <><strong>{overallText(headline.overall_ppm)}</strong>.</>}
@@ -114,7 +119,7 @@ export function NewsCard({ snapshot, step }: { snapshot: Snapshot; step: string 
       {lately.length > 0 && (
         <>
           <h3 className="news-sub">Just in</h3>
-          <ul className="headlines">{lately.map(h => <Landed key={h.quarter} headline={h} />)}</ul>
+          <ul className="headlines">{lately.map(h => <Landed key={h.quarter} headline={h} groupIds={snapshot.support.group_ids} />)}</ul>
         </>
       )}
       <p className="hint">Headlines marked “Real news” are real stories from GOV.UK. All the others are invented, for the game.</p>

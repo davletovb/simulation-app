@@ -7,6 +7,7 @@ import { CreditMeter } from './CreditMeter'
 import { DeliveryForecast } from './DeliveryForecast'
 import { Icon } from './Icon'
 import { Mechanics } from './Mechanics'
+import { PlanInterests, type PlanSupport } from './PlanInterests'
 import { usePreview, type PreviewResult } from '../usePreview'
 import { parseExactBudget } from '../exactBudget.mjs'
 
@@ -170,10 +171,12 @@ function Reactions({ allocation, preview, term }: { allocation: Allocation; prev
  * ready-made plans, sliders, the budget meter, who might react, and when the
  * work could arrive. Used by the "make a plan" and "revise" steps.
  */
-export function PlanBuilder({ allocation, budget, quarter, replacing = 0, onChange }: {
+export function PlanBuilder({ allocation, budget, quarter, replacing = 0, support, onChange }: {
   allocation: Allocation
   budget: number
   quarter: number
+  /** What each kind of work does to each group, from the engine; absent only where there is no campaign to ask. */
+  support?: PlanSupport
   /** Credits of approved but undelivered work that this plan would replace (0 for the first plan). */
   replacing?: number
   onChange: (next: Allocation) => void
@@ -211,6 +214,7 @@ export function PlanBuilder({ allocation, budget, quarter, replacing = 0, onChan
           ))}
         </div>
         <Reactions allocation={allocation} preview={forecastable ? preview : null} term={term} />
+        {support && <PlanInterests allocation={allocation} support={support} />}
       </section>
 
       {forecastable && (

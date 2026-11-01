@@ -19,7 +19,11 @@ export type RealRuleWire = { id: string, label: string, tone: RealToneWire,
 /**
  * Bad news: each group's exposure in percent of the worst case. Good news: each group's gain in ppm.
  */
-effect: [number, number, number, number, number, number], };
+effect: [number, number, number, number, number, number], 
+/**
+ * Bad news that is also a trade-off: the groups it helps, a flat gain in ppm (decision 0014). All zero otherwise.
+ */
+winners: [number, number, number, number, number, number], };
 
 export type RealItemWire = { title: string, summary: string, url: string, 
 /**

@@ -72,7 +72,8 @@ const completeSseFrame = (cursor='17') => ({
     support:{group_ids:['urban_low','urban_middle','urban_high','rural_low','rural_middle','rural_high'],
       group_ppm:[500000,500000,500000,500000,500000,500000],
       pending_delta_ppm:[0,0,0,0,0,0],
-      weight_ppm:[260000,320000,220000,70000,80000,50000]},
+      weight_ppm:[260000,320000,220000,70000,80000,50000],
+      net_per_credit_ppm:[[1240,-80,1300],[1200,800,1000],[-440,80,-900],[472,676,2860],[560,1640,2200],[-952,1004,-60]]},
     term:1,term_quarters:6,past_elections:[],
     election:{status:'projected',term:1,ceiling:false,settled_group_ppm:[500000,500000,500000,500000,500000,500000],
       weighted_support_ppm:500000,blocs_held_ppm:0,
@@ -118,6 +119,11 @@ test('per-group support and the election are validated, so a malformed result ne
   }
   bad('five groups instead of six', s => { s.support.group_ppm.pop() })
   bad('voter shares that do not sum to a million', s => { s.support.weight_ppm[0] -= 1 })
+  bad('no table of what each kind of work does to each group', s => { delete s.support.net_per_credit_ppm })
+  bad('a table for five groups', s => { s.support.net_per_credit_ppm.pop() })
+  bad('a row for two kinds of work', s => { s.support.net_per_credit_ppm[0].pop() })
+  bad('a response that is not a whole number', s => { s.support.net_per_credit_ppm[0][0] = 1.5 })
+  bad('a response beyond anything the engine could produce', s => { s.support.net_per_credit_ppm[0][0] = 40001 })
   bad('support above 100%', s => { s.support.group_ppm[2] = 1000001 })
   bad('a fractional support value', s => { s.support.group_ppm[2] = 500000.5 })
   bad('unknown election status', s => { s.election.status = 'draw' })

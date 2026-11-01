@@ -36,6 +36,8 @@ struct RuleFile {
     any: Vec<String>,
     exposure_pct: Option<[u32; 6]>,
     gain_ppm: Option<[u32; 6]>,
+    /// A bad rule may also help some groups (a trade-off story).
+    winners_ppm: Option<[u32; 6]>,
 }
 #[derive(Deserialize)]
 struct RulesFile {
@@ -50,6 +52,7 @@ pub struct Rule {
     pub label: String,
     pub tone: RealToneWire,
     pub effect: [u32; 6],
+    pub winners: [u32; 6],
     phrases: Vec<String>,
 }
 pub struct Rules {
@@ -101,7 +104,7 @@ impl Rules {
         for r in file.rules {
             let (tone, effect) = match (r.tone.as_str(), r.exposure_pct, r.gain_ppm) {
                 ("bad", Some(e), None) => (RealToneWire::Bad, e),
-                ("good", None, Some(g)) => (RealToneWire::Good, g),
+                ("good", None, Some(g)) if r.winners_ppm.is_none() => (RealToneWire::Good, g),
                 _ => return Err(format!("real news rule {} is malformed", r.id)),
             };
             let phrases: Vec<String> = r.any.iter().map(|p| normalise(p)).collect();
@@ -113,6 +116,7 @@ impl Rules {
                 label: r.label,
                 tone,
                 effect,
+                winners: r.winners_ppm.unwrap_or([0; 6]),
                 phrases,
             });
         }
@@ -158,6 +162,7 @@ fn wire_rule(r: &Rule) -> RealRuleWire {
         label: r.label.clone(),
         tone: r.tone,
         effect: r.effect,
+        winners: r.winners,
     }
 }
 /// One entry of an Atom feed, as published.
@@ -595,6 +600,29 @@ pub(crate) mod tests {
             Some("teacher_supply_bad")
         );
         assert_eq!(id("New guidance published for school governors"), None);
+        // Two rules are trade-offs: a story that helps some groups while it hurts others.
+        assert_eq!(
+            id("Funding formula reform confirmed"),
+            Some("funding_shift_mixed")
+        );
+        assert_eq!(
+            id("Small schools to be merged"),
+            Some("small_schools_mixed")
+        );
+        for title in [
+            "Funding formula reform confirmed",
+            "Small schools to be merged",
+        ] {
+            let rule = rules.classify(title).unwrap();
+            assert!(rule.effect.iter().any(|e| *e > 0) && rule.winners.iter().any(|w| *w > 0));
+            assert!(
+                rule.effect
+                    .iter()
+                    .zip(rule.winners)
+                    .all(|(loses, gains)| *loses == 0 || gains == 0),
+                "no group is both hurt and helped"
+            );
+        }
         // Whole words: "strikes" is not "strike", and a phrase inside a longer word does not count.
         assert_eq!(id("Education secretary strikes a deal"), None);
         assert_eq!(id("Preaching about raacs"), None);

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""An independent replica of the news calendar (decisions 0010, 0011, 0012 and 0013), to check the engine against.
+"""An independent replica of the news calendar (decisions 0010, 0011, 0012, 0013 and 0014), to check the engine against.
 
 Source of truth: crates/domain/src/news.rs and `Campaign::advance` in crates/domain/src/reducer.rs. This file repeats the
 rules from their description, reads the headlines from `data/england-school-pilot-v1/authored.json` (so the deck cannot drift
@@ -65,16 +65,51 @@ def schedule(seed, term):
     return out
 
 
+GOLDEN = 0x9E3779B97F4A7C15
+MIX_SALT = 0xD1B54A32D192ED03
+
+
+def trade_offs(seed, slots):
+    """Some bad quarters carry a trade-off story instead (decision 0014). Each bad quarter is decided on its own by a draw from
+    the seed and the quarter alone: the state is (seed + quarter x golden ratio) xor a fixed salt, one SplitMix output is drawn,
+    and one time in `mixed_one_in` the quarter takes the story at (output >> 16) mod the deck size, or the next unused one on.
+    Returns the slots as [quarter, tone, index, surprise, mixed]."""
+    deck, used = NEWS['mixed'], set()
+    out = []
+    for q, tone, index, surprise in slots:
+        mixed = False
+        if tone == 'bad':
+            roll = SplitMix(((seed + q * GOLDEN) & MASK) ^ MIX_SALT).next()
+            if roll % NEWS['mixed_one_in'] == 0:
+                first = (roll >> 16) % len(deck)
+                free = [(first + k) % len(deck) for k in range(len(deck)) if (first + k) % len(deck) not in used]
+                if free:
+                    index, mixed = free[0], True
+                    used.add(index)
+        out.append([q, tone, index, surprise, mixed])
+    return out
+
+
 def schedule_real(seed, term, real=()):
-    """The calendar of one term with real headlines imported for it (decision 0013): `real` is a list of
-    (tone, effect) in import order, only those a rule matched. The invented calendar is drawn exactly as without real news, then
-    each real headline takes the first quarter of its tone that no real headline has taken, announced a quarter ahead (never a
-    surprise); at most two a term. Returns (quarter, tone, index, surprise, real) where `real` is the (item, tone, effect) taken."""
-    out = [[q, tone, index, surprise, None] for q, tone, index, surprise in schedule(seed, term)]
-    for item, (tone, effect) in list(enumerate(real))[:2]:
+    """The calendar of one term with trade-off stories (decision 0014) and real headlines imported for it (decision 0013).
+    `real` is a list of (tone, effect[, winners]) in import order, only those a rule matched. The invented calendar is drawn
+    exactly as without either, trade-off stories replace some bad quarters, then each real headline takes the first quarter of its
+    tone that no real headline has taken, announced a quarter ahead (never a surprise); at most two a term.
+    Returns (quarter, tone, index, surprise, taken, mixed) where `taken` is the (item, tone, effect, winners) of the real
+    headline in that quarter, if any."""
+    base = schedule(seed, term)
+    if term >= NEWS['mixed_from_term']:
+        base = [s[:4] for s in trade_offs(seed, base)]
+        flags = [s[4] for s in trade_offs(seed, schedule(seed, term))]
+    else:
+        flags = [False] * len(base)
+    out = [[q, tone, index, surprise, None, mixed] for (q, tone, index, surprise), mixed in zip(base, flags)]
+    for item, r in list(enumerate(real))[:2]:
+        tone, effect = r[0], r[1]
+        winners = r[2] if len(r) > 2 else [0] * 6
         for slot in out:
             if slot[4] is None and slot[1] == tone:
-                slot[4], slot[3] = (item, tone, effect), False
+                slot[4], slot[3] = (item, tone, effect, winners), False
                 break
     return [tuple(s) for s in out]
 
@@ -94,8 +129,8 @@ def capacity_kept(seed, quarter, answers=(), real=None):
     for t in (max(term - 1, 0), term):
         if t < 1:
             continue
-        for q, tone, index, _surprise, taken in schedule_real(seed, t, (real or {}).get(t, ())):
-            d = NEWS[tone][index].get('disrupts') if tone == 'bad' and taken is None else None
+        for q, tone, index, _surprise, taken, mixed in schedule_real(seed, t, (real or {}).get(t, ())):
+            d = NEWS[tone][index].get('disrupts') if tone == 'bad' and taken is None and not mixed else None
             if not d or not (q <= quarter < q + d['quarters']):
                 continue
             kept = d['keep_pct']
@@ -150,13 +185,15 @@ def landing_shock(tone, index, term, support):
     return out
 
 
-def shock_from(tone, effect, term, support):
-    """What a headline does given only its numbers: a real headline, or any other once its deck entry is looked up."""
+def shock_from(tone, effect, term, support, winners=None):
+    """What a headline does given only its numbers: a real headline, or any other once its deck entry is looked up. Bad news
+    may also give some groups a flat gain (`winners`, in ppm; decision 0014)."""
     if tone == 'good':
         return [min(g, SHOCK_CAP) for g in effect]
     base, share = severity(term)
-    return [-min(SHOCK_CAP, exposure * (base + max(0, now - HELD_ABOVE) * share // 100) // 100)
+    loss = [-min(SHOCK_CAP, exposure * (base + max(0, now - HELD_ABOVE) * share // 100) // 100)
             for exposure, now in zip(effect, support)]
+    return [x + min(w, SHOCK_CAP) for x, w in zip(loss, winners or [0] * 6)]
 
 
 def soften(shock):
@@ -196,18 +233,21 @@ def play(cums, campaign_id, quarters, answers=(), owed=None, real=None):
     seed, sup, queue, prev, landed = news_seed(campaign_id), [500_000] * 6, {}, [0, 0, 0], []
     book = {}
     for term in range(1, (quarters - 1) // 6 + 2):
-        for q, tone, index, surprise, taken in schedule_real(seed, term, (real or {}).get(term, ())):
-            book[q] = (tone, index, surprise, taken)
+        for q, tone, index, surprise, taken, mixed in schedule_real(seed, term, (real or {}).get(term, ())):
+            book[q] = (tone, index, surprise, taken, mixed)
     for q in range(1, quarters + 1):
         cum = cums[q - 1] if q - 1 < len(cums) else cums[-1]
         d = [cum[k] - prev[k] for k in range(3)]
         prev = list(cum)
         if q in book:
-            tone, index, surprise, taken = book[q]
+            tone, index, surprise, taken, mixed = book[q]
             term = (q - 1) // 6 + 1
             if taken is not None:
-                shock = shock_from(taken[1], taken[2], term, sup)
+                shock = shock_from(taken[1], taken[2], term, sup, taken[3])
                 headline = {'id': 'real'}
+            elif mixed:
+                headline = NEWS['mixed'][index]
+                shock = shock_from('bad', headline['exposure_pct'], term, sup, headline['winners_ppm'])
             else:
                 shock = landing_shock(tone, index, term, sup)
                 headline = NEWS[tone][index]
@@ -334,9 +374,9 @@ def check():
     real = {1: [pay, raac], 2: [strike]}
     seed = news_seed(cid)
     expect('rn112: the real pay award takes quarter 2 and the bad one finds no room in term 1',
-           [(q, taken is not None) for q, _, _, _, taken in schedule_real(seed, 1, real[1])], [(2, True), (5, False)])
+           [(q, taken is not None) for q, _, _, _, taken, _ in schedule_real(seed, 1, real[1])], [(2, True), (5, False)])
     expect('rn112: the real strike ballot takes the first bad quarter of term 2',
-           [q for q, tone, _, _, taken in schedule_real(seed, 2, real[2]) if taken is not None], [10])
+           [q for q, tone, _, _, taken, _ in schedule_real(seed, 2, real[2]) if taken is not None], [10])
     owed = []
     cums = deliveries(cid, [BALANCED, plan2], quarters=12, owed=owed, real=real)
     sup, settled, landed = play(cums[:6], cid, 6, owed=owed, real=real)
@@ -352,6 +392,29 @@ def check():
     _, settled12, landed12 = play(cums, cid, 12, owed=owed, real=real)
     expect('rn112: election night 2', settled12, [664764, 701820, 477500, 637060, 689818, 497838])
     expect('rn112: the strike ballot as it landed', [sh for q, _, _, _, sh, _ in landed12 if q == 10][0], [-33236, -35180, -2500, -16440, -18182, -2003])
+    # Campaign "tf2966" (crates/local-api/src/connected.rs, the trade-off test): Balanced every term. Terms 1 and 2 have no trade-off
+    # story (they begin in term 3); in term 3 quarter 14 carries "small village schools to be merged", which hurts the rural groups and
+    # helps urban middle and high income (decision 0014).
+    cid = 'tf2966'
+    seed = news_seed(cid)
+    owed = []
+    cums = deliveries(cid, [BALANCED, BALANCED, BALANCED], quarters=18, owed=owed)
+    expect('tf2966: no trade-off story in terms 1 and 2', [m for t in (1, 2) for *_, m in schedule_real(seed, t, ())], [False] * 6)
+    expect('tf2966: term 3 has two, in quarters 14 and 18',
+           [(q, NEWS['mixed'][i]['id']) for q, _, i, _, _, m in schedule_real(seed, 3, ()) if m],
+           [(14, 'small_schools_merged'), (18, 'funding_formula_shift')])
+    _, s1, _ = play(cums[:6], cid, 6, owed=owed)
+    _, s2, _ = play(cums[:12], cid, 12, owed=owed)
+    expect('tf2966: election nights 1 and 2', [sum(w * x for w, x in zip(sm.W, s)) // 10**6 for s in (s1, s2)], [576584, 623698])
+    sup13, _, _ = play(cums[:13], cid, 13, owed=owed)
+    story = NEWS['mixed'][3]
+    quote = shock_from('bad', story['exposure_pct'], 3, sup13, story['winners_ppm'])
+    expect('tf2966: the trade-off quote', quote, [0, 8000, 12000, -40000, -40000, -9979])
+    expect('tf2966: ...overall, and what answering would cost (only losses are priced)', (overall_ppm(quote), relief_cost(quote)), (-1298, 7))
+    expect('tf2966: ...answered, the losses shrink by 60% and the gains stay',
+           soften(quote), [0, 8000, 12000, -16000, -16000, -3991])
+    sup14, _, landed14 = play(cums[:14], cid, 14, owed=owed)
+    expect('tf2966: support at the start of quarter 15', sup14, [645824, 707620, 474300, 637492, 701276, 526135])
     expect('scrutiny takes a share of what the work would have earned', scrutiny_shock([26, 30, 0], 2), [-14920, -20000, 0, -16276, -20000, -2684])
     expect('...growing with the term', [scrutiny_pct(t) for t in range(1, 11)], [50, 50, 65, 80, 95, 110, 125, 140, 155, 170])
     return ok

@@ -1,4 +1,6 @@
 export function whoItHits(effectPpm: readonly number[], groupIds: readonly string[]): string
+export function isTradeOff(effectPpm: readonly number[]): boolean
+export function whoGainsAndLoses(effectPpm: readonly number[], groupIds: readonly string[]): { helps: string; hurts: string }
 export function overallText(overallPpm: number, options?: { approximate?: boolean }): string
 export function landsText(headlineQuarter: number, currentQuarter: number): string
 export function canRespond(

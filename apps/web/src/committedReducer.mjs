@@ -57,6 +57,8 @@ function validSupport(support, integrityFailure) {
     sixOf(support.group_ppm, ppm) &&
     sixOf(support.pending_delta_ppm, n => Number.isInteger(n) && Math.abs(n) <= 1000000) &&
     sixOf(support.weight_ppm, ppm) &&
+    // What one credit of each kind of work does to each group (decision 0014): six groups, three kinds of work, small integers.
+    sixOf(support.net_per_credit_ppm, row => Array.isArray(row) && row.length === 3 && row.every(n => Number.isInteger(n) && Math.abs(n) <= 40000)) &&
     (shares === 1000000 || (integrityFailure && shares === 0))
 }
 

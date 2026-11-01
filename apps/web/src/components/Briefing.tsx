@@ -73,7 +73,10 @@ export function Briefing({ open, onClose }: { open: boolean; onClose: () => void
             that will not become delivered work. A few arrive unannounced. The first term brings good news only.
             Some headlines are <strong>real</strong>: when a term begins and this computer is online, the game takes a
             couple of stories from GOV.UK’s Department for Education news and a published list of keyword rules decides
-            whether each helps or hurts. They are marked, and link to the story. Offline, a term simply has none.</p>
+            whether each helps or hurts. They are marked, and link to the story. Offline, a term simply has none.
+            From the third term some stories cut both ways: they help some groups and hurt others, and the card names each side.
+            When you build a plan, <strong>Who this plan helps</strong> shows the same split for your own choices: the groups do not
+            want the same things, and wealthier voters pay more than they gain from some kinds of work.</p>
         </div>
 
         <h3 className="section-label">You spend it on three things</h3>

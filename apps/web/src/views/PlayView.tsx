@@ -293,7 +293,7 @@ export function PlayView({ allocation, onChange }: { allocation: Allocation; onC
   switch (turn.step) {
     case 'plan':
       body = fundable > 0
-        ? <PlanBuilder allocation={allocation} budget={fundable} quarter={q} replacing={q > 1 ? undelivered : 0} onChange={onChange} />
+        ? <PlanBuilder allocation={allocation} budget={fundable} quarter={q} replacing={q > 1 ? undelivered : 0} support={snapshot.support} onChange={onChange} />
         : <p className="empty-note"><Icon name="token" size={18} />Everything you funded has been delivered and nothing is left to spend.
             Carry on to the end of the term.</p>
       actions = <>
@@ -307,7 +307,7 @@ export function PlayView({ allocation, onChange }: { allocation: Allocation; onC
       actions = go('Hear the ministers’ reactions', advance)
       break
     case 'revise':
-      body = <PlanBuilder allocation={allocation} budget={fundable} quarter={q} replacing={q > 1 ? undelivered : 0} onChange={onChange} />
+      body = <PlanBuilder allocation={allocation} budget={fundable} quarter={q} replacing={q > 1 ? undelivered : 0} support={snapshot.support} onChange={onChange} />
       actions = <>
         {go('Submit revised plan', () => void send({ kind: 'amend', allocation }, { then: { kind: 'advance_slice' } }),
           'primary', fits && !unchanged)}

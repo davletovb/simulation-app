@@ -46,6 +46,11 @@ pub const SCRUTINY_PCT: u32 = 50;
 pub const SCRUTINY_STEP_PCT: u32 = 15;
 /// ...up to this many percent. More than 100 because a broken promise is punished harder than it would have been rewarded.
 pub const SCRUTINY_CAP_PCT: u32 = 200;
+/// One bad headline in this many is a trade-off story instead: it helps some groups while it hurts others (decision 0014).
+pub const MIXED_ONE_IN: u64 = 5;
+/// Trade-off stories begin in this term: term 1 has good news only and term 2 adds bad news, so term 3 adds stories that cut both
+/// ways, and the calendar of the first two terms is exactly what it was before.
+pub const MIXED_FROM_TERM: u8 = 3;
 /// The most real headlines that can replace invented ones in one term (decision 0013).
 pub const MAX_REAL_PER_TERM: usize = 2;
 /// The most real items one import can carry, counting those that are only shown and change nothing.
@@ -92,6 +97,9 @@ pub struct Headline {
     pub scrutiny: Option<Scrutiny>,
     /// Credits that arrive when this good news lands (a windfall); zero for everything else.
     pub grant: u16,
+    /// A bad headline that is a trade-off also gives these groups a flat gain, in ppm (decision 0014); none of the groups it
+    /// hurts, and zero for everything else.
+    pub winners: [u32; 6],
 }
 
 const fn story(id: &'static str, effect: [u32; 6]) -> Headline {
@@ -101,6 +109,7 @@ const fn story(id: &'static str, effect: [u32; 6]) -> Headline {
         disrupts: None,
         scrutiny: None,
         grant: 0,
+        winners: [0; 6],
     }
 }
 const fn audit(id: &'static str, effect: [u32; 6], families: [bool; 3]) -> Headline {
@@ -110,6 +119,18 @@ const fn audit(id: &'static str, effect: [u32; 6], families: [bool; 3]) -> Headl
         disrupts: None,
         scrutiny: Some(Scrutiny { families }),
         grant: 0,
+        winners: [0; 6],
+    }
+}
+/// A trade-off story: `effect` is who it hurts (exposure, as for any bad news) and `winners` who it helps (a flat gain, in ppm).
+const fn tradeoff(id: &'static str, effect: [u32; 6], winners: [u32; 6]) -> Headline {
+    Headline {
+        id,
+        effect,
+        disrupts: None,
+        scrutiny: None,
+        grant: 0,
+        winners,
     }
 }
 const fn windfall(id: &'static str, credits: u16) -> Headline {
@@ -119,6 +140,7 @@ const fn windfall(id: &'static str, credits: u16) -> Headline {
         disrupts: None,
         scrutiny: None,
         grant: credits,
+        winners: [0; 6],
     }
 }
 const fn stoppage(
@@ -138,6 +160,7 @@ const fn stoppage(
         }),
         scrutiny: None,
         grant: 0,
+        winners: [0; 6],
     }
 }
 
@@ -221,6 +244,32 @@ pub const GOOD: [Headline; 6] = [
     windfall("charity_donation", 10),
 ];
 
+/// Trade-off stories (decision 0014): bad news for some groups and good news for others. One bad headline in `MIXED_ONE_IN` is one
+/// of these instead of an ordinary one. `effect` is who loses (exposure, in percent of the worst case) and `winners` who gains
+/// (a flat gift in ppm); no group is in both.
+pub const MIXED: [Headline; 4] = [
+    tradeoff(
+        "funding_formula_shift",
+        [40, 40, 40, 0, 0, 0],
+        [0, 0, 0, 20_000, 20_000, 20_000],
+    ),
+    tradeoff(
+        "school_costs_tax_rise",
+        [0, 0, 60, 0, 0, 60],
+        [10_000, 10_000, 0, 10_000, 10_000, 0],
+    ),
+    tradeoff(
+        "free_meals_widened",
+        [0, 0, 30, 0, 0, 30],
+        [25_000, 10_000, 0, 25_000, 10_000, 0],
+    ),
+    tradeoff(
+        "small_schools_merged",
+        [0, 0, 0, 70, 70, 40],
+        [0, 8_000, 12_000, 0, 0, 0],
+    ),
+];
+
 pub const fn deck(tone: Tone) -> &'static [Headline] {
     match tone {
         Tone::Bad => &BAD,
@@ -235,6 +284,8 @@ pub const fn deck(tone: Tone) -> &'static [Headline] {
 pub struct RealEffect {
     pub tone: Tone,
     pub effect: [u32; 6],
+    /// For bad news that is also a trade-off: the groups it helps, a flat gain in ppm (decision 0014). Zero otherwise.
+    pub winners: [u32; 6],
 }
 /// A real headline waiting to take a slot: which item of the term's import it is, and what it does.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -293,8 +344,20 @@ impl RealItem {
                     .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
                 && plain_text(&r.label, 80)
                 && match r.effect.tone {
-                    Tone::Bad => r.effect.effect.iter().all(|e| *e <= 100),
-                    Tone::Good => r.effect.effect.iter().all(|e| *e <= SHOCK_CAP_PPM),
+                    // Bad news may also help some groups, but never the ones it hurts (decision 0014).
+                    Tone::Bad => {
+                        r.effect.effect.iter().all(|e| *e <= 100)
+                            && r.effect.winners.iter().all(|w| *w <= SHOCK_CAP_PPM)
+                            && r.effect
+                                .effect
+                                .iter()
+                                .zip(r.effect.winners)
+                                .all(|(loses, gains)| *loses == 0 || gains == 0)
+                    }
+                    Tone::Good => {
+                        r.effect.effect.iter().all(|e| *e <= SHOCK_CAP_PPM)
+                            && r.effect.winners == [0; 6]
+                    }
                 }
         });
         plain_text(&self.title, 200)
@@ -331,9 +394,12 @@ pub struct Scheduled {
     pub surprise: bool,
     /// Set when a real headline took this slot: which item of the term's import it is, and what it does.
     pub real: Option<RealSlot>,
+    /// Set when this bad quarter carries a trade-off story: `index` is then a position in `MIXED`.
+    pub mixed: bool,
 }
 impl Scheduled {
-    /// What it does. A real headline is a mood story and nothing else: no disruption, no inspection, no credits.
+    /// What it does. A real headline is a mood story and nothing else (it may help some groups and hurt others, but it never
+    /// stops work, sends inspectors or brings credits).
     pub fn headline(&self) -> Headline {
         match self.real {
             Some(slot) => Headline {
@@ -342,7 +408,9 @@ impl Scheduled {
                 disrupts: None,
                 scrutiny: None,
                 grant: 0,
+                winners: slot.effect.winners,
             },
+            None if self.mixed => MIXED[self.index],
             None => deck(self.tone)[self.index],
         }
     }
@@ -392,6 +460,9 @@ pub fn schedule(seed: u64, term: u8) -> Vec<Scheduled> {
 /// scheduled, so term 1, which has no bad news, can never carry a bad real headline.
 pub fn schedule_with(seed: u64, term: u8, real: &[RealSlot]) -> Vec<Scheduled> {
     let mut out = invented(seed, term);
+    if term >= MIXED_FROM_TERM {
+        trade_offs(seed, &mut out);
+    }
     for slot in real.iter().take(MAX_REAL_PER_TERM) {
         if let Some(target) = out
             .iter_mut()
@@ -402,6 +473,32 @@ pub fn schedule_with(seed: u64, term: u8, real: &[RealSlot]) -> Vec<Scheduled> {
         }
     }
     out
+}
+
+/// Some bad quarters carry a trade-off story instead of an ordinary one (decision 0014). Each bad quarter is decided on its own by
+/// a draw from the seed and the quarter alone, so the quarters, the tones and the surprises of the invented calendar are
+/// untouched; a story is not repeated in a term. A trade-off replaces whatever was drawn for the quarter, including a stoppage
+/// or an inspection, which then does not happen.
+fn trade_offs(seed: u64, slots: &mut [Scheduled]) {
+    let mut used = [false; MIXED.len()];
+    for s in slots.iter_mut().filter(|s| s.tone == Tone::Bad) {
+        let mut state = seed
+            .wrapping_add(u64::from(s.quarter.value()).wrapping_mul(0x9E37_79B9_7F4A_7C15))
+            ^ 0xD1B5_4A32_D192_ED03;
+        let roll = next(&mut state);
+        if !roll.is_multiple_of(MIXED_ONE_IN) {
+            continue;
+        }
+        let first = ((roll >> 16) % MIXED.len() as u64) as usize;
+        if let Some(index) = (0..MIXED.len())
+            .map(|k| (first + k) % MIXED.len())
+            .find(|i| !used[*i])
+        {
+            used[index] = true;
+            s.mixed = true;
+            s.index = index;
+        }
+    }
 }
 
 fn invented(seed: u64, term: u8) -> Vec<Scheduled> {
@@ -453,6 +550,7 @@ fn invented(seed: u64, term: u8) -> Vec<Scheduled> {
             index,
             surprise: surprise_roll == 0,
             real: None,
+            mixed: false,
         });
     }
     out
@@ -484,6 +582,10 @@ pub fn landing_shock(s: &Scheduled, term: u8, support: &[u32; 6]) -> [i32; 6] {
                 let inner = u64::from(base) + lead * u64::from(share) / 100;
                 let hit = (u64::from(exposure) * inner / 100).min(u64::from(SHOCK_CAP_PPM));
                 *o = -i32::try_from(hit).unwrap_or(0);
+            }
+            // A trade-off story also gives some groups a flat gain (decision 0014).
+            for (o, gain) in out.iter_mut().zip(s.headline().winners) {
+                *o = o.saturating_add(i32::try_from(gain.min(SHOCK_CAP_PPM)).unwrap_or(0));
             }
         }
     }
@@ -611,10 +713,10 @@ mod tests {
                 assert!(s.iter().all(|h| h.quarter.term() == term));
                 // No headline twice in a term.
                 for tone in [Tone::Bad, Tone::Good] {
-                    let mut ids: Vec<usize> = s
+                    let mut ids: Vec<(bool, usize)> = s
                         .iter()
                         .filter(|h| h.tone == tone)
-                        .map(|h| h.index)
+                        .map(|h| (h.mixed, h.index))
                         .collect();
                     let n = ids.len();
                     ids.sort_unstable();
@@ -662,6 +764,45 @@ mod tests {
     }
 
     #[test]
+    fn the_trade_off_overlay_is_exactly_what_the_independent_python_port_draws() {
+        // Expected values come from tools/support-model/news_model.py (schedule_real): (quarter, tone, index, surprise, mixed).
+        // For a trade-off quarter `index` is a position in MIXED; the surprise flag is the invented draw's, untouched.
+        let plan = |seed, term| -> Vec<(u8, Tone, usize, bool, bool)> {
+            schedule(seed, term)
+                .iter()
+                .map(|s| (s.quarter.value(), s.tone, s.index, s.surprise, s.mixed))
+                .collect()
+        };
+        assert_eq!(
+            plan(7, 3),
+            [
+                (14, Tone::Bad, 2, false, true),
+                (15, Tone::Bad, 1, true, false),
+                (16, Tone::Bad, 3, true, true),
+                (17, Tone::Good, 5, false, false)
+            ]
+        );
+        assert_eq!(
+            plan(99, 4),
+            [
+                (20, Tone::Bad, 3, false, true),
+                (21, Tone::Bad, 0, false, true),
+                (22, Tone::Bad, 8, false, false),
+                (24, Tone::Bad, 2, false, false)
+            ]
+        );
+        assert_eq!(
+            plan(424242, 6),
+            [
+                (33, Tone::Bad, 2, true, false),
+                (34, Tone::Bad, 3, true, false),
+                (35, Tone::Bad, 8, false, false),
+                (36, Tone::Bad, 3, false, true)
+            ]
+        );
+    }
+
+    #[test]
     fn the_calendar_is_a_pure_function_of_the_seed_and_the_term() {
         assert_eq!(schedule(42, 3), schedule(42, 3));
         assert_ne!(schedule(42, 3), schedule(43, 3));
@@ -703,6 +844,7 @@ mod tests {
             index: 3, // rural bus cuts: 0% urban, 100% rural
             surprise: false,
             real: None,
+            mixed: false,
         };
         let flat = landing_shock(&bad, 2, &[500_000; 6]);
         assert_eq!(flat, [0, 0, 0, -5_000, -5_000, -5_000]);
@@ -727,6 +869,7 @@ mod tests {
             index: 1, // volunteer surge: rural groups
             surprise: true,
             real: None,
+            mixed: false,
         };
         assert_eq!(
             landing_shock(&good, 1, &[900_000; 6]),
@@ -889,10 +1032,143 @@ mod tests {
         assert_eq!(MAX_WINDFALL_TOTAL, 15 * (2 + 4 * 9));
     }
 
+    #[test]
+    fn trade_off_stories_replace_some_bad_quarters_from_term_three_and_move_nothing_else() {
+        let (mut bad, mut mixed, mut late_bad) = (0_u32, 0_u32, 0_u32);
+        for seed in 0..600_u64 {
+            // The first two terms are exactly as they were: no trade-off story, ever.
+            for term in 1..MIXED_FROM_TERM {
+                assert!(
+                    schedule(seed, term).iter().all(|s| !s.mixed),
+                    "seed {seed} term {term}"
+                );
+            }
+            for term in MIXED_FROM_TERM..=crate::MAX_TERMS {
+                let with = schedule(seed, term);
+                let plain = invented(seed, term);
+                assert_eq!(with.len(), plain.len());
+                for (a, b) in with.iter().zip(&plain) {
+                    // The quarters, the tones and who is told in advance never move.
+                    assert_eq!(
+                        (a.quarter, a.tone, a.surprise),
+                        (b.quarter, b.tone, b.surprise)
+                    );
+                    if a.mixed {
+                        assert_eq!(a.tone, Tone::Bad, "only a bad quarter can carry one");
+                        assert!(a.index < MIXED.len());
+                        assert_eq!(a.headline(), MIXED[a.index]);
+                    } else {
+                        assert_eq!(a, b, "an untouched quarter is the invented one");
+                    }
+                    late_bad += u32::from(a.tone == Tone::Bad);
+                    mixed += u32::from(a.mixed);
+                }
+                // A story is told once in a term.
+                let mut told: Vec<usize> =
+                    with.iter().filter(|s| s.mixed).map(|s| s.index).collect();
+                let n = told.len();
+                told.sort_unstable();
+                told.dedup();
+                assert_eq!(told.len(), n);
+                bad += u32::from(with.iter().any(|s| s.tone == Tone::Bad));
+            }
+        }
+        // About one bad quarter in five, and a good number of terms have none at all.
+        assert!(bad > 0 && late_bad > 100);
+        let share = mixed * 100 / late_bad;
+        assert!(
+            (12..=28).contains(&share),
+            "{share}% of {late_bad} bad quarters"
+        );
+    }
+    #[test]
+    fn a_trade_off_hurts_some_groups_as_bad_news_does_and_gives_others_a_flat_gift() {
+        for (index, story) in MIXED.iter().enumerate() {
+            // No group is both hurt and helped, and every story does both.
+            assert!(
+                story.effect.iter().any(|e| *e > 0) && story.winners.iter().any(|w| *w > 0),
+                "{}",
+                story.id
+            );
+            assert!(
+                story
+                    .effect
+                    .iter()
+                    .zip(story.winners)
+                    .all(|(l, g)| *l == 0 || g == 0),
+                "{}",
+                story.id
+            );
+            assert!(
+                story.effect.iter().all(|e| *e <= 100)
+                    && story.winners.iter().all(|w| *w <= SHOCK_CAP_PPM)
+            );
+            assert_eq!(
+                (story.disrupts, story.scrutiny, story.grant),
+                (None, None, 0)
+            );
+            let s = Scheduled {
+                quarter: Quarter::new(14).unwrap(),
+                tone: Tone::Bad,
+                index,
+                surprise: false,
+                real: None,
+                mixed: true,
+            };
+            let shock = landing_shock(&s, 3, &[500_000; 6]);
+            for (g, got) in shock.iter().enumerate() {
+                if story.winners[g] > 0 {
+                    assert_eq!(
+                        *got,
+                        i32::try_from(story.winners[g]).unwrap(),
+                        "a flat gift, whatever the lead"
+                    );
+                } else if story.effect[g] > 0 {
+                    assert!(*got < 0);
+                }
+            }
+            // A response takes 60% off what is lost and leaves what is gained alone.
+            let softened = soften(shock);
+            for g in 0..6 {
+                if shock[g] > 0 {
+                    assert_eq!(softened[g], shock[g]);
+                } else {
+                    assert_eq!(softened[g], shock[g] * 40 / 100);
+                }
+            }
+            // The weighted overall effect is a trade: the stories are not all losses or all gains.
+            let overall: i64 = shock
+                .iter()
+                .zip(WEIGHTS)
+                .map(|(s, w)| i64::from(*s) * i64::from(w))
+                .sum();
+            assert!(overall.abs() < 40_000 * 1_000_000, "{}", story.id);
+        }
+        // Only what is lost is priced: a response never costs anything for the groups that gain.
+        let story = Scheduled {
+            quarter: Quarter::new(14).unwrap(),
+            tone: Tone::Bad,
+            index: 0,
+            surprise: false,
+            real: None,
+            mixed: true,
+        };
+        let shock = landing_shock(&story, 3, &[500_000; 6]);
+        let only_losses = shock.map(|x| x.min(0));
+        assert_eq!(
+            overall_loss_ppm(&shock, &WEIGHTS),
+            overall_loss_ppm(&only_losses, &WEIGHTS)
+        );
+    }
+
     fn real_slot(item: u8, tone: Tone, effect: [u32; 6]) -> RealSlot {
         RealSlot {
             item,
-            effect: RealEffect { tone, effect },
+            effect: RealEffect {
+                tone,
+                effect,
+                winners: [0; 6],
+            },
         }
     }
     #[test]
@@ -974,7 +1250,11 @@ mod tests {
         Some(RealRule {
             id: "teacher_workforce_good".into(),
             label: "Teacher pay and recruitment".into(),
-            effect: RealEffect { tone, effect },
+            effect: RealEffect {
+                tone,
+                effect,
+                winners: [0; 6],
+            },
         })
     }
     #[test]
@@ -1018,6 +1298,43 @@ mod tests {
         let mut bad = good();
         bad.title = "line\nbreak".into();
         assert!(!valid_import(&[bad]));
+        // A real story may be a trade-off, helping some groups while it hurts others, but never the same group twice.
+        let with_winners = |effect: [u32; 6], winners: [u32; 6]| {
+            item(
+                "https://www.gov.uk/x",
+                Some(RealRule {
+                    id: "funding_shift_mixed".into(),
+                    label: "Money moves".into(),
+                    effect: RealEffect {
+                        tone: Tone::Bad,
+                        effect,
+                        winners,
+                    },
+                }),
+            )
+        };
+        assert!(valid_import(&[with_winners(
+            [40, 40, 40, 0, 0, 0],
+            [0, 0, 0, 20_000, 20_000, 20_000]
+        )]));
+        assert!(
+            !valid_import(&[with_winners(
+                [40, 40, 40, 0, 0, 0],
+                [1_000, 0, 0, 20_000, 0, 0]
+            )]),
+            "a group both hurt and helped"
+        );
+        assert!(
+            !valid_import(&[with_winners(
+                [40, 0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, SHOCK_CAP_PPM + 1]
+            )]),
+            "a gift beyond the cap"
+        );
+        // Good news is a gift already and has no winners to add.
+        let mut good = rule(Tone::Good, [1_000; 6]).unwrap();
+        good.effect.winners = [1; 6];
+        assert!(!valid_import(&[item("https://www.gov.uk/x", Some(good))]));
         // Numbers stay inside the limits an invented headline keeps to.
         assert!(!valid_import(&[item(
             "https://www.gov.uk/x",

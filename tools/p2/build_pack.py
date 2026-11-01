@@ -219,6 +219,14 @@ def authoring_checks(authored):
             need(item in calendar["good"], "only good news may bring credits")
             need(1 <= credits <= calendar["max_windfall_credits"], "a windfall is between one credit and the stated maximum")
             need(all(x == 0 for x in item["gain_ppm"]), "a windfall brings credits, not mood")
+    for item in calendar["mixed"]:
+        need(len(item["exposure_pct"]) == 6 and len(item["winners_ppm"]) == 6, "six groups per trade-off story")
+        need(any(x > 0 for x in item["exposure_pct"]) and any(x > 0 for x in item["winners_ppm"]),
+             "a trade-off story must hurt some group and help another")
+        need(all(e == 0 or w == 0 for e, w in zip(item["exposure_pct"], item["winners_ppm"])), "no group is both hurt and helped")
+        need(all(0 <= e <= 100 for e in item["exposure_pct"]) and all(0 <= w <= 40000 for w in item["winners_ppm"]), "trade-off numbers in range")
+    need(calendar["mixed_from_term"] >= 3, "trade-off stories begin after the first two terms, whose calendars stay as they were")
+    need(calendar["mixed_one_in"] >= 2 and len(calendar["mixed"]) >= 4, "trade-off stories: a share of bad headlines and enough to not repeat")
     need(calendar["scrutiny"]["pct"] > 0 and calendar["scrutiny"]["step_pct"] >= 0 and calendar["scrutiny"]["cap_pct"] >= calendar["scrutiny"]["pct"],
          "inspections take a positive share that does not shrink below its start")
     need(authored["board"]["support_votes_required"] == 2, "two-thirds vote")
