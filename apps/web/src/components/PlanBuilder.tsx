@@ -170,10 +170,12 @@ function Reactions({ allocation, preview }: { allocation: Allocation; preview: P
  * ready-made plans, sliders, the budget meter, who might react, and when the
  * work could arrive. Used by the "make a plan" and "revise" steps.
  */
-export function PlanBuilder({ allocation, budget, quarter, onChange }: {
+export function PlanBuilder({ allocation, budget, quarter, replacing = 0, onChange }: {
   allocation: Allocation
   budget: number
   quarter: number
+  /** Credits of approved but undelivered work that this plan would replace (0 for the first plan). */
+  replacing?: number
   onChange: (next: Allocation) => void
 }) {
   const setFamily = (family: Family, value: number) => onChange({ ...allocation, [family]: value })
@@ -183,6 +185,11 @@ export function PlanBuilder({ allocation, budget, quarter, onChange }: {
   const forecastable = quarter === 1
   return (
     <div className="builder">
+      {replacing > 0 && (
+        <p className="replace-note"><Icon name="alert" size={16} /><span><strong>This replaces your current programme.</strong>{' '}
+          The {replacing} credits of work not yet delivered are cancelled and re-planned with this split, and its delivery
+          delays start again from now. Work already delivered stays.</span></p>
+      )}
       <section aria-labelledby="hand-title">
         <div className="panel-head">
           <h2 id="hand-title">Ready-made plans</h2>

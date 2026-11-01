@@ -32,7 +32,7 @@ offers exactly one thing to do.
 
 | # | Step (what the player sees) | What you do | Engine phase | Command sent |
 |---|---|---|---|---|
-| 1 | **Make a plan** | Pick a ready-made plan or set your own split, then propose it. From Q2 you may instead **keep the current programme** (no vote). | `QuarterOpen` | `propose` (or `continue_quarter`) |
+| 1 | **Make a plan** | Pick a ready-made plan or set your own split, then propose it. From Q2 a new plan **replaces** work not yet delivered, or you can **keep the current programme** (no vote). | `QuarterOpen` | `propose` (or `continue_quarter`) |
 | 2 | **Cabinet reacts** | Hear each minister's first reaction | `FirstPositionsFrozen` | `advance_slice` |
 | 3 | **Revise** | Change your plan **once**, or keep it as it is | `AmendmentWindow` | `amend` then lock, or `advance_slice` |
 | 4 | **Final vote** | Hold the vote on the locked plan | `FinalPositionsFrozen` | `advance_slice` |
@@ -45,9 +45,13 @@ should not have to.
 
 ### Rules that are easy to miss
 
-- **The budget is for the whole game.** Credits you commit are gone. Credits you hold
-  back can fund a later plan or an audit. If you commit all 100 in Q1, there is
-  nothing new to fund in Q2–Q6; you can only keep the programme and end quarters.
+- **The budget is for the whole game.** Credits turn into delivered work over time, and
+  delivered work is spent for good. Credits you hold back, and credits promised to work
+  that has not been delivered yet, can both be re-planned: a new plan may commit up to
+  *unspent + undelivered* credits and **replaces** the undelivered work. Re-planning
+  restarts the delivery delay for that work, so changing your mind late is costly.
+- **Keep some credits unspent if you want more than one audit.** The first audit is free;
+  later ones cost 2 credits from "Left to spend".
 - **Work is never instant.** Staffing starts arriving one quarter after approval,
   Repairs two quarters after, Access immediately, each up to a per-quarter cap.
   Funding approved too late to arrive before Q2 2028 is flagged on the sliders.
@@ -74,22 +78,9 @@ Now there is one guided screen, a six-step tracker, and one clearly named action
 step. Engineering details live in **Technical details** at the bottom of the Play screen.
 The step logic is in one tested module, `apps/web/src/turn.mjs`.
 
-## Known gaps (not changed here)
+## Known gaps and what to do about them
 
-These need a design or backend decision rather than a UI fix:
-
-1. **There is no goal or score.** The case contract defines no win condition; the game
-   ends after Q6 with a tally of decisions and credits delivered. A familiar game needs
-   something to aim at (e.g. "deliver X by Q2 2028 while keeping public support above Y").
-2. **Audit results are not shown in the game.** They are private by design and can only be
-   read with `myth-report` after stopping the service. The player pays credits and sees
-   nothing, which breaks the "check the truth" loop the game is built around.
-3. **The default plan spends the whole budget in Q1**, so later quarters have no decisions
-   to make. Consider a smaller opening budget, a per-quarter allowance, or a reserve
-   mechanic.
-4. **`advance_slice` is overloaded in the API.** The UI now only sends it where it is
-   safe, but separate commands per phase (and a clear rejection when `decide` has fewer
-   than 2 supporting votes, which today is accepted and then fails with
-   "Offline step failed; inspect trial") would remove the trap at the source.
-5. **The delivery forecast is Q1-only.** The service forecasts a plan approved at the
-   start of the campaign; later quarters show per-area start dates instead.
+See [`goal-and-score.md`](goal-and-score.md) for the full analysis: a proposed goal and
+score, why the scripted pilot is currently "solved" by the Balanced plan, the audit
+visibility problem, and the API traps (an overloaded `advance_slice`, and commands that
+are accepted and then fail with "Offline step failed; inspect trial").

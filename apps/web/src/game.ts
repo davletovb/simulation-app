@@ -128,7 +128,7 @@ export const MINISTERS: readonly MinisterInfo[] = [
 
 /** The six steps of a quarter, explained once and reused by the briefing, tracker and cabinet page. */
 export const STEP_HELP: Readonly<Record<'plan' | 'reactions' | 'revise' | 'vote' | 'decide' | 'end', string>> = {
-  plan: 'Split your budget between Staffing, Repairs and Access. From the second quarter you can instead keep the current programme and skip the vote.',
+  plan: 'Split your budget between Staffing, Repairs and Access. From the second quarter a new plan replaces work not yet delivered, or you can keep the current programme and skip the vote.',
   reactions: 'Each minister says whether they support your plan, support it with conditions, or oppose it.',
   revise: `You may change the plan once, in response. Or keep it as it is.`,
   vote: 'The plan is now locked. Each minister casts a final vote.',

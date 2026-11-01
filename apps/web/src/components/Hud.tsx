@@ -1,7 +1,7 @@
 import { OFFLINE_PILOT } from '../contracts'
 import { PLACE_LABEL, QUARTERS, committed, type Allocation } from '../game'
 import { useCampaign } from '../campaign'
-import { STEPS, turnState } from '../turn.mjs'
+import { STEPS, turnState, undeliveredCredits } from '../turn.mjs'
 import { Icon } from './Icon'
 
 /** Always-visible scoreboard: budget, quarter and step, read from the saved game. */
@@ -9,7 +9,8 @@ export function Hud({ allocation, onHelp }: { allocation: Allocation; onHelp: ()
   const { snapshot, transport, loadState } = useCampaign()
   const turn = snapshot ? turnState(snapshot) : null
   const drafting = turn?.step === 'plan' || turn?.step === 'revise'
-  const draft = drafting ? committed(allocation) : 0
+  // Only new spending counts: re-planning undelivered work re-uses credits that are already promised.
+  const draft = drafting && snapshot ? Math.max(0, committed(allocation) - undeliveredCredits(snapshot.treasury)) : 0
   const quarter = snapshot?.quarter ?? 1
   const quarterNote = !snapshot ? '—'
     : snapshot.closed ? 'Complete'
@@ -36,7 +37,7 @@ export function Hud({ allocation, onHelp }: { allocation: Allocation; onHelp: ()
           <dd>
             <strong>{snapshot?.treasury.available_credits ?? '—'}</strong>
             <span className="hud-sub">left of {OFFLINE_PILOT.credits}</span>
-            {draft > 0 && <span className="hud-delta" title="What your unsent plan would commit">plan −{draft}</span>}
+            {draft > 0 && <span className="hud-delta" title="New credits your unsent plan would commit">plan −{draft}</span>}
           </dd>
         </div>
         <div className="hud-stat hud-quarters">

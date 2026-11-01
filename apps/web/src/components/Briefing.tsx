@@ -36,7 +36,8 @@ export function Briefing({ open, onClose }: { open: boolean; onClose: () => void
         <div className="briefing-rule">
           <Icon name="token" size={20} />
           <p><strong>One budget for the whole game: {OFFLINE_PILOT.credits} credits.</strong>{' '}
-            It never refills. Credits you commit are gone; credits you hold back can fund a later plan.</p>
+            It never refills. Credits turn into delivered work over time, and delivered work is spent for good. Work
+            not yet delivered can be re-planned: a new plan replaces it.</p>
         </div>
 
         <h3 className="section-label">You spend it on three things</h3>

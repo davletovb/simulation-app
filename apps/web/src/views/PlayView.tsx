@@ -6,7 +6,7 @@ import {
   type Allocation,
 } from '../game'
 import { outcomeLabel } from '../format'
-import { STEPS, advanceKind, turnState, type TurnState } from '../turn.mjs'
+import { STEPS, advanceKind, currentProgramme, fundableCredits, turnState, undeliveredCredits, type TurnState } from '../turn.mjs'
 import { ActionButton } from '../components/ConnectedControls'
 import { BudgetFigures } from '../components/BudgetFigures'
 import { CabinetStrip } from '../components/CabinetStrip'
@@ -70,15 +70,17 @@ function Gate() {
 function Headline({ snapshot, turn }: { snapshot: Snapshot; turn: TurnState }) {
   const q = snapshot.quarter
   const available = snapshot.treasury.available_credits
+  const undelivered = undeliveredCredits(snapshot.treasury)
+  const fundable = fundableCredits(snapshot.treasury)
   const plan = snapshot.proposal ? committed(snapshot.proposal) : 0
   const copy: Record<string, { title: string; lede: string }> = {
     plan: {
       title: q === 1 ? 'Make your first spending plan' : `Make the plan for quarter ${q}`,
-      lede: available === 0
-        ? 'You have no credits left, and they never refill, so there is nothing new to fund. Carry on with the programme you already approved.'
-        : `You have ${available} credit${available === 1 ? '' : 's'} left for the rest of the campaign, and they never refill. ${
-          turn.canKeepProgramme ? 'Propose a new plan, or keep the current programme and skip the vote.'
-            : 'Pick a ready-made plan or set your own split, then propose it to your cabinet.'}`,
+      lede: fundable === 0
+        ? 'Everything you funded has been delivered and nothing is left to spend, so there is nothing to plan. Carry on to the end of the campaign.'
+        : q === 1
+          ? `You have ${available} credits for the whole campaign, and they never refill. Pick a ready-made plan or set your own split, then propose it to your cabinet.`
+          : `You can plan with up to ${fundable} credits: ${available} unspent, plus ${undelivered} for work that hasn’t been delivered yet. A new plan replaces that undelivered work; work already delivered stays. Or keep the current programme and skip the vote.`,
     },
     reactions: {
       title: 'Hear the cabinet’s first reactions',
@@ -187,6 +189,10 @@ export function PlayView({ allocation, onChange }: { allocation: Allocation; onC
   const step = turn?.step
   const proposal = snapshot?.proposal ?? null
   const available = snapshot?.treasury.available_credits ?? 0
+  const undelivered = snapshot ? undeliveredCredits(snapshot.treasury) : 0
+  // What a new plan may commit: unspent credits plus the undelivered work it would replace.
+  const fundable = snapshot ? fundableCredits(snapshot.treasury) : 0
+  const programme = snapshot ? currentProgramme(snapshot.treasury) : NONE
 
   // Revising starts from the plan on the table, not from whatever the sliders last held.
   useEffect(() => {
@@ -194,20 +200,24 @@ export function PlayView({ allocation, onChange }: { allocation: Allocation; onC
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step, snapshot?.quarter, proposal?.staff, proposal?.repairs, proposal?.access])
 
-  // A new plan must fit what is left; start from the first ready-made plan that does.
+  // A re-plan starts from the programme already promised (change what you want to change);
+  // the first plan of the campaign starts from the first ready-made plan that fits.
   useEffect(() => {
-    if (step !== 'plan' || committed(allocation) <= available) return
-    onChange(POLICY_CARDS.find(c => committed(c.allocation) <= available)?.allocation ?? NONE)
+    if (step !== 'plan' || !snapshot) return
+    if (snapshot.quarter > 1 && undelivered > 0) { onChange(programme); return }
+    if (committed(allocation) <= fundable) return
+    onChange(POLICY_CARDS.find(c => committed(c.allocation) <= fundable)?.allocation ?? NONE)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [step, snapshot?.quarter, available])
+  }, [step, snapshot?.quarter, fundable])
 
   if (!snapshot || !turn) return <Gate />
 
   const q = snapshot.quarter
   const block = integrityFailure
   const idle = !saving && !block
-  const fits = draftStatus(allocation) === 'valid' && committed(allocation) <= available
+  const fits = draftStatus(allocation) === 'valid' && committed(allocation) <= fundable
   const unchanged = proposal !== null && sameAllocation(allocation, proposal)
+  const sameAsProgramme = undelivered > 0 && sameAllocation(allocation, programme)
   const nextQuarter = QUARTERS[q]?.label
   const go = (label: string, run: () => void, tone: 'primary' | 'normal' = 'primary', enabled = true): ReactNode => (
     <ActionButton tone={tone} disabled={!idle || !enabled} onClick={run}>
@@ -221,25 +231,26 @@ export function PlayView({ allocation, onChange }: { allocation: Allocation; onC
     void send({ kind })
   }
 
-  const whyNot = turn.step === 'plan' && available > 0 && !fits
-    ? (committed(allocation) === 0 ? 'Choose a plan or move a slider first: an empty plan can’t be put to a vote.'
-      : `This plan commits ${committed(allocation)} credits but you only have ${available}. Lower it first.`)
-    : turn.step === 'revise' && !fits
-      ? `This plan commits ${committed(allocation)} credits but you only have ${available}. Lower it first.`
+  const tooMuch = `This plan commits ${committed(allocation)} credits but you can plan with at most ${fundable}. Lower it first.`
+  const whyNot = turn.step === 'plan' && fundable > 0 && !fits
+    ? (committed(allocation) === 0 ? 'Choose a plan or move a slider first: an empty plan can’t be put to a vote.' : tooMuch)
+    : turn.step === 'plan' && fundable > 0 && sameAsProgramme
+      ? 'This is your current programme. Use “Keep the current programme” to carry on without a vote, or change something to propose a new plan.'
+      : turn.step === 'revise' && !fits ? tooMuch
       : null
 
   let actions: ReactNode = null
   let body: ReactNode = null
   switch (turn.step) {
     case 'plan':
-      body = available > 0
-        ? <PlanBuilder allocation={allocation} budget={available} quarter={q} onChange={onChange} />
-        : <p className="empty-note"><Icon name="token" size={18} />You have no budget left, so there is nothing new to fund.
-            Keep the current programme and let the work you already approved arrive.</p>
+      body = fundable > 0
+        ? <PlanBuilder allocation={allocation} budget={fundable} quarter={q} replacing={q > 1 ? undelivered : 0} onChange={onChange} />
+        : <p className="empty-note"><Icon name="token" size={18} />Everything you funded has been delivered and nothing is left to spend.
+            Carry on to the end of the campaign.</p>
       actions = <>
-        {available > 0 && go('Propose this plan to the cabinet', () => void send({ kind: 'propose', allocation }), 'primary', fits)}
+        {fundable > 0 && go('Propose this plan to the cabinet', () => void send({ kind: 'propose', allocation }), 'primary', fits && !sameAsProgramme)}
         {turn.canKeepProgramme && go('Keep the current programme (no vote)', () => void send({ kind: 'continue_quarter' }),
-          available > 0 ? 'normal' : 'primary')}
+          fundable > 0 ? 'normal' : 'primary')}
       </>
       break
     case 'reactions':
@@ -247,7 +258,7 @@ export function PlayView({ allocation, onChange }: { allocation: Allocation; onC
       actions = go('Hear the ministers’ reactions', advance)
       break
     case 'revise':
-      body = <PlanBuilder allocation={allocation} budget={available} quarter={q} onChange={onChange} />
+      body = <PlanBuilder allocation={allocation} budget={fundable} quarter={q} replacing={q > 1 ? undelivered : 0} onChange={onChange} />
       actions = <>
         {go('Submit revised plan', () => void send({ kind: 'amend', allocation }, { then: { kind: 'advance_slice' } }),
           'primary', fits && !unchanged)}
@@ -327,7 +338,8 @@ export function PlayView({ allocation, onChange }: { allocation: Allocation; onC
           <section className="panel side-card side-budget" aria-labelledby="budget-title">
             <h2 id="budget-title" className="section-label">Budget</h2>
             <BudgetFigures treasury={snapshot.treasury} compact />
-            <p className="hint">{OFFLINE_PILOT.credits} credits for the whole campaign. They never refill.</p>
+            <p className="hint">{OFFLINE_PILOT.credits} credits for the whole campaign; they never refill.
+              {undelivered > 0 && ' A new plan replaces work that hasn’t been delivered yet; delivered work is spent for good.'}</p>
           </section>
           <section className="panel side-card side-cabinet" aria-labelledby="cabinet-title">
             <h2 id="cabinet-title" className="section-label">Your cabinet</h2>

@@ -100,3 +100,29 @@ export function advanceKind(step) {
       return null
   }
 }
+
+/**
+ * Credits that have been promised to approved plans but not yet delivered.
+ * A new plan may re-use these: the engine treats a proposal as a replacement for the
+ * undelivered programme. Delivered work is spent for good.
+ */
+export function undeliveredCredits(treasury) {
+  return treasury.encumbered_staff + treasury.encumbered_repairs + treasury.encumbered_access
+}
+
+/**
+ * The most a new plan may commit. Mirrors the engine's funding check
+ * (`proposal.total() <= available + undelivered`); the server remains the authority.
+ */
+export function fundableCredits(treasury) {
+  return treasury.available_credits + undeliveredCredits(treasury)
+}
+
+/** The current programme as a plan: what is still promised, family by family. */
+export function currentProgramme(treasury) {
+  return {
+    staff: treasury.encumbered_staff,
+    repairs: treasury.encumbered_repairs,
+    access: treasury.encumbered_access,
+  }
+}

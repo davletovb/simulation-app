@@ -4,10 +4,10 @@ import { Icon } from './Icon'
 const STATUS_COPY = {
   empty: () => 'Nothing committed yet. Pick a ready-made plan, or move the sliders.',
   valid: (left: number) => left === 0
-    ? 'This commits every credit you have left, so there will be nothing new to fund in later quarters.'
-    : `${left} credit${left === 1 ? '' : 's'} stay in reserve for a later plan or an audit.`,
+    ? 'This commits everything you can plan with, so nothing stays unspent for a paid audit. Undelivered work can still be re-planned later.'
+    : `${left} credit${left === 1 ? '' : 's'} stay unspent, available for a later plan or an audit.`,
   over_budget: (left: number, budget: number) =>
-    `Over by ${-left}. You only have ${budget} credit${budget === 1 ? '' : 's'} left, so the cabinet can’t approve this.`,
+    `Over by ${-left}. You can plan with at most ${budget} credit${budget === 1 ? '' : 's'}, so the cabinet can’t approve this.`,
 } as const
 
 /** The budget as a grid of tokens, filled in family order; overspend spills past the grid. */

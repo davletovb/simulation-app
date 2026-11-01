@@ -115,6 +115,12 @@ function failureFor(action: PlayerCommand | undefined): string {
   if (action?.kind === 'amend') {
     return 'A plan can only be revised once, and this one already has been. Choose “Keep my plan as it is” to lock it in for the final vote.'
   }
+  if (action?.kind === 'propose') {
+    return 'That plan couldn’t be funded. It may be more than you can plan with, or it may cut work that a minister’s condition protects. Try a smaller plan.'
+  }
+  if (action?.kind === 'order_audit') {
+    return 'The audit couldn’t be ordered. Only the first audit is free; each later one costs 2 credits from “Left to spend”, which must be at least 2.'
+  }
   if (action?.kind === 'decide' && action.ratify) {
     return 'The ministers’ votes don’t allow approving this plan. Postpone it instead.'
   }

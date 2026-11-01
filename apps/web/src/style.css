@@ -1053,3 +1053,14 @@ code { font-family: var(--font-mono); font-size: .92em; color: var(--text); }
 
 .play-side.cabinet-first .side-cabinet { order: -1; }
 .briefing-families .stat strong { display: block; }
+
+.replace-note {
+  display: flex; gap: 10px; align-items: flex-start; padding: 12px 14px; border-radius: 10px;
+  border: 1px solid #f3a75c55; border-left: 3px solid var(--access); background: #f3a75c10;
+  font-size: 13px; line-height: 1.55; color: var(--text-2);
+}
+.replace-note .icon { color: var(--access); margin-top: 2px; }
+.replace-note strong { color: var(--text); }
+
+/* The "can't afford" tag sits under the cost chip instead of on top of it. */
+.card-flag { position: static; align-self: flex-start; margin-top: 2px; }

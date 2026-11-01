@@ -1,6 +1,8 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { STEPS, advanceKind, finalSupportCount, finalVoteCount, turnState } from '../src/turn.mjs'
+import {
+  STEPS, advanceKind, currentProgramme, finalSupportCount, finalVoteCount, fundableCredits, turnState, undeliveredCredits,
+} from '../src/turn.mjs'
 
 const vote = (ministry, stage, position) => ({ ministry, stage, position })
 const finals = (...positions) =>
@@ -98,4 +100,31 @@ test('every step either has one carry-on command or needs an explicit player cho
   for (const step of STEPS) {
     assert.equal(advanceKind(step.id) === null, needsChoice.has(step.id), step.id)
   }
+})
+
+// Real treasury states captured from the engine while testing (see docs/goal-and-score.md).
+const treasury = (available, staff, repairs, access) => ({
+  available_credits: available, encumbered_staff: staff, encumbered_repairs: repairs, encumbered_access: access,
+})
+
+test('a new plan may re-use undelivered work: fundable = unspent + undelivered, not unspent alone', () => {
+  // After a Balanced Q1 and one quarter: 0 unspent, 96 still promised.
+  const t = treasury(0, 50, 40, 6)
+  assert.equal(undeliveredCredits(t), 96)
+  assert.equal(fundableCredits(t), 96)
+  // The engine accepted a 45-credit plan here and rejected 100 (> 96).
+  assert.ok(45 <= fundableCredits(t))
+  assert.ok(100 > fundableCredits(t))
+})
+
+test('the opening budget is the whole 100, and delivered work is gone for good', () => {
+  assert.equal(fundableCredits(treasury(100, 0, 0, 0)), 100)
+  // Reserve run: 55 unspent + 45 promised = 100 can be re-planned.
+  assert.equal(fundableCredits(treasury(55, 45, 0, 0)), 100)
+  // Everything delivered or spent: nothing left to plan with.
+  assert.equal(fundableCredits(treasury(0, 0, 0, 0)), 0)
+})
+
+test('the current programme is exactly the still-promised work, so a re-plan can start from it', () => {
+  assert.deepEqual(currentProgramme(treasury(0, 50, 40, 6)), { staff: 50, repairs: 40, access: 6 })
 })

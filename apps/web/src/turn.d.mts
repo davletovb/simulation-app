@@ -29,3 +29,16 @@ export function turnState(snapshot: {
   votes: readonly VoteLike[]
 }): TurnState
 export function advanceKind(step: StepId | 'done'): 'advance_slice' | null
+
+interface TreasuryLike {
+  available_credits: number
+  encumbered_staff: number
+  encumbered_repairs: number
+  encumbered_access: number
+}
+/** Credits promised to approved plans but not yet delivered; a new plan may re-use them. */
+export function undeliveredCredits(treasury: TreasuryLike): number
+/** The most a new plan may commit: unspent credits plus the undelivered work it would replace. */
+export function fundableCredits(treasury: TreasuryLike): number
+/** The current programme (still-promised work) expressed as a plan. */
+export function currentProgramme(treasury: TreasuryLike): { staff: number; repairs: number; access: number }
