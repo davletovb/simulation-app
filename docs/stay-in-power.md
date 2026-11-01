@@ -1,8 +1,18 @@
 # "Stay in power" as the goal: design proposal
 
-**Status: proposal for decision. Nothing here is built.** Evidence is reproducible:
-`python3 tools/support-model/support_model.py --check` replays ten strategies that were played
-against the real service and must match the engine's support figures to the ppm (it does: 60 of 60).
+**Status (2026-11-01): decided in part. See [`decisions/`](decisions/README.md).** The goal is
+accepted (0001), the election rule is accepted except what "continues" means (0002), and the **engine
+recalibration is done** (0003, rules v2). The election result in the engine, per-group support in the
+snapshot and all the UI are **not built yet**, and the win bar is provisional (0004).
+
+The calibration below is now the engine's, expressed as the equivalent base numbers (Staffing 3200,
+Repairs 2800, Access 3000, cost 2000, clip ±40,000) instead of "800 and 700 at 400% scale". The table
+that follows was computed with the replica before the change; after it, real plays under the new engine
+give the same results (`python3 tools/support-model/support_model.py`).
+
+Evidence is reproducible: `python3 tools/support-model/support_model.py --check` replays ten strategies
+that were played against the real service under **each** calibration and must match the engine's support
+figures to the ppm (it does: 60 of 60 under both).
 
 ## Short answer
 
@@ -19,7 +29,7 @@ changeable:
 | # | What the engine does today | Where | Effect |
 |---|---|---|---|
 | 1 | Every delivered unit has a benefit **and** a flat cost (400 ppm per unit), so they nearly cancel: Staffing nets about +100, Repairs about 0 (negative for some groups), Access +350 | `cohort_response_scaled`, `reducer.rs` | Delivering the work your ministers need barely helps you, and Access-only plans out-poll Balanced |
-| 2 | A hard clamp of ±8,000 ppm (0.8 points) per group per quarter, and a validator that only allows scale 50, 100 or 150 | `reducer.rs` `Rules::validate` and the clamp | Even perfect play moves a group at most about 4.8 points; the whole range across 72 variants is 50.04% to 50.36% |
+| 2 | A hard clamp of ±8,000 ppm (0.8 points) per group per quarter, and a validator that only allows scale 50, 100 or 150 | `reducer.rs` `Rules::validate` and the clamp | A ceiling of about 4.8 points per group over a campaign; the whole range across 72 variants is 50.04% to 50.36%. **Correction:** measured later, the clip never actually bound (largest old move 4,450 of 8,000 ppm), so the flatness came from #1 and #3; the clip was raised only for headroom |
 | 3 | A response lag of one quarter and a count at the end of Q6 | `reducer.rs` queued responses | The last quarter's work never reaches the final figure |
 
 ## Why "turn the volume up" is not enough
@@ -99,17 +109,18 @@ takes to show it to a player.
 
 ## Engine changes this needs (Rust, so deliberate)
 
-1. Allow the new scale and clamp: `Rules::validate` and the clamp in `cohort_response_scaled`
-   (`crates/domain/src/reducer.rs`), plus the benefit and cost table.
-2. Expose in the snapshot: support for each of the six groups, the queued responses, and (later)
-   the two lobbies' balances. Regenerate the TypeScript and schemas (CI checks they match).
-3. An election rule and an end-of-campaign result in the snapshot, counting the last quarter's work.
-4. **CI pins the sensitivity results.** Changing the coefficients changes
-   `docs/p3-sensitivity-report.md` and `data/england-school-pilot-v1/p3-sensitivity-results.csv`,
-   and CI fails if they differ. Regenerate them in the same change with
-   `cargo run -p myth-domain --example p3_report`, and update the `TODAY` numbers in
-   `tools/support-model/support_model.py` so `--check` passes again.
-5. Replay and recovery tests must be re-run: these constants are part of the deterministic journal.
+1. **Done** (`1c2dbee`): the new benefit and cost table, clip and shock cap in
+   `crates/domain/src/reducer.rs`, the matching `authored.json`, and a test that keeps them equal.
+   The scale stays within the validator's 50, 100, 150 because the baseline itself was rescaled.
+2. **Not done:** expose in the snapshot the support of each of the six groups, the queued responses and
+   (later) the two lobbies' balances. Regenerate the TypeScript and schemas (CI checks they match).
+3. **Not done:** an election rule and an end-of-campaign result in the snapshot, counting the last
+   quarter's work. The bars belong in the scenario rules (decision 0004).
+4. **Done** (`1c2dbee`): CI pins the sensitivity results, so the report and CSV were regenerated in the
+   same change (`cargo run -p myth-domain --example p3_report`), and the replica tool holds both
+   calibrations so `--check` passes.
+5. **Done:** the rules version was bumped to v2, so games saved under the old numbers are refused (and
+   the start screen explains it), and the full Rust, pack, smoke and browser checks were re-run.
 
 ## Honest limits
 
@@ -124,17 +135,23 @@ takes to show it to a player.
 - A "remain in power" objective for a real-country twin needs the framework's care: fictional
   officeholders and the renamed data-twin mode it already suggests.
 
-## Decisions I need
+## Decisions
 
-1. **Power as the headline, Legacy as the second line?** (My recommendation.) Or Power only?
-2. **One election at the end of Q6**, or also a mid-term poll at Q3 as a warning (no game over)?
-3. **Is it acceptable to change the frozen engine numbers**, with the pinned sensitivity report and
-   CSV regenerated in the same change?
-4. **Win bar:** 55% overall and 60% of voters is a starting point from ten plays. Harder or easier?
+Asked on 2026-11-01 and answered by the owner (full records in [`decisions/`](decisions/README.md)):
+
+1. **Power as the headline, Legacy as the second line:** yes. ([0001](decisions/0001-goal-stay-in-power.md))
+2. **One election at the end; a win continues, a loss ends the game.** No mid-term gate. **Still open:**
+   what "continues" means: a second term, repeating terms, or just a label.
+   ([0002](decisions/0002-single-election-win-continues-loss-ends.md))
+3. **Change the frozen engine numbers and regenerate the pinned report in the same change:** yes, and done.
+   ([0003](decisions/0003-recalibrate-the-support-model.md))
+4. **The win bar:** the owner is not sure, so 55% overall and 60% of voters stays provisional, with the
+   evidence for how fragile it is. ([0004](decisions/0004-election-win-bar.md))
 
 ## Suggested order of work
 
-1. **Recalibrate and expose** (Rust: items 1 to 5 above). Smallest change that makes support meaningful.
+1. **Recalibrate** (done, 0003) **and expose** (items 2 and 3 above, next). Smallest change that makes
+   support meaningful and visible.
 2. **Election night and the bloc map** (UI, plus the Legacy line). The player now has a goal.
 3. **Events and ministers that slow down or misreport** (content). This is what makes it a game
    rather than a solved puzzle.
