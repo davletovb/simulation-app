@@ -108,6 +108,7 @@ const MSG = {
   integrity: 'The saved game failed its integrity check. The last good state is shown, and no more moves can be made until it is recovered.',
   integrityAlert: 'The game service reported a problem it could not explain. Stop playing and check the local service.',
   stream: 'A live update was unreadable. Use “Refresh” in Technical details to reload the saved game.',
+  oldSave: 'A saved game with this name already exists, but it was made with older rules and can’t be opened any more. Start a fresh one under a new name instead.',
 } as const
 
 /** What to tell the player when a particular move fails. The raw service text stays in Technical details. */
@@ -179,6 +180,8 @@ export interface Session {
   needsRetry: boolean
   integrityFailure: boolean
   forkId: string | null
+  /** The campaign name is taken by a game saved with older rules, which can't be opened. */
+  staleSave: boolean
   /**
    * Send one move. With `then`, a follow-up move is sent automatically once this one is
    * committed, and dropped if it fails. (Revising a plan is "amend", then "lock".)
@@ -202,6 +205,7 @@ function useCampaignSession(): Session {
   const [submitting, setSubmitting] = useState(false)
   const [forkId, setForkId] = useState<string | null>(null)
   const [integrityFailure, setIntegrityFailure] = useState(false)
+  const [staleSave, setStaleSave] = useState(false)
   const [followUp, setFollowUp] = useState<{ afterVersion: string; action: PlayerCommand } | null>(null)
 
   const fail = useCallback((message: string, detail: string | null = null) => {
@@ -397,6 +401,12 @@ function useCampaignSession(): Session {
   const createCampaign = useCallback(async () => {
     try {
       const response = await fetch(root, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
+      if (response.status === 409) {
+        // The name exists on disk but cannot be opened: it was saved under different rules.
+        setStaleSave(true)
+        fail(MSG.oldSave, 'campaign could not be created (409)')
+        return
+      }
       if (!response.ok) throw new Error('Could not start this local campaign')
       accept(await response.json() as unknown)
       clearError()
@@ -419,10 +429,10 @@ function useCampaignSession(): Session {
     dismissError: clearError,
     saving: submitting || pending !== null || followUp !== null,
     needsRetry: pending !== null && error !== null && !submitting,
-    integrityFailure, forkId,
+    integrityFailure, forkId, staleSave,
     send, retry, createFork, createCampaign, refresh,
   }), [committed, loadState, transport, error, errorDetail, clearError, submitting, pending, followUp,
-    integrityFailure, forkId, send, retry, createFork, createCampaign, refresh])
+    integrityFailure, forkId, staleSave, send, retry, createFork, createCampaign, refresh])
 }
 
 const SessionContext = createContext<Session | null>(null)

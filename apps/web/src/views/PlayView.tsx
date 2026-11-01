@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react'
-import { useCampaign, type AuditFamily, type Snapshot } from '../campaign'
+import { CAMPAIGN, useCampaign, type AuditFamily, type Snapshot } from '../campaign'
 import { OFFLINE_PILOT } from '../contracts'
 import {
   FAMILIES, POLICY_CARDS, QUARTERS, STEP_HELP, VOTES_NEEDED, committed, draftStatus, sameAllocation,
@@ -36,7 +36,10 @@ function PlanSummary({ plan, label }: { plan: Allocation; label: string }) {
 
 /** Shown instead of the game while there is no saved campaign to play. */
 function Gate() {
-  const { loadState, createCampaign, refresh } = useCampaign()
+  const { loadState, createCampaign, refresh, error, staleSave } = useCampaign()
+  const problem = error && <p role="alert" className="alert alert-danger"><Icon name="alert" size={16} /><span>{error}</span></p>
+  // A fresh, valid name: lowercase letters, digits and hyphens only (the same rule the service enforces).
+  const freshName = `${CAMPAIGN.slice(0, 40)}-${Date.now().toString(36)}`
   if (loadState === 'loading') {
     return (
       <section className="panel gate" role="status">
@@ -52,7 +55,12 @@ function Gate() {
         <h1>Start your campaign</h1>
         <p>You will chair a cabinet for {OFFLINE_PILOT.total_quarters} quarters with {OFFLINE_PILOT.credits} credits to
           spend. Your progress is saved on this computer.</p>
-        <ActionButton tone="primary" onClick={() => void createCampaign()}>Start new campaign</ActionButton>
+        {problem}
+        <div className="room-buttons">
+          <ActionButton tone={staleSave ? 'normal' : 'primary'} onClick={() => void createCampaign()}>Start new campaign</ActionButton>
+          {staleSave && <ActionButton tone="primary" onClick={() => { window.location.search = `?campaign=${freshName}` }}>
+            Start fresh under a new name</ActionButton>}
+        </div>
       </section>
     )
   }
@@ -62,6 +70,7 @@ function Gate() {
       <h1>Can’t reach the game</h1>
       <p>The game runs as a small service on this computer, and it isn’t answering. Start it, then try again:</p>
       <pre className="gate-cmd"><code>cargo +1.99.1 run --locked -p myth-local-api</code></pre>
+      {problem}
       <ActionButton tone="primary" onClick={refresh}>Try again</ActionButton>
     </section>
   )
