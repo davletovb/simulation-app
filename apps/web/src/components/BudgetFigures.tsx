@@ -10,17 +10,24 @@ interface Treasury {
   audit_spent: number
 }
 
-/** One vocabulary for the saved treasury, shared by the Command and Campaign cards. */
-export function BudgetFigures({ treasury, breakdown = false }: { treasury: Treasury; breakdown?: boolean }) {
+/**
+ * The campaign budget in everyday terms. The 100 credits are for the whole
+ * campaign and never refill, so the four figures always add up to the start.
+ */
+export function BudgetFigures({ treasury, breakdown = false, compact = false }: {
+  treasury: Treasury
+  breakdown?: boolean
+  compact?: boolean
+}) {
   const held = [treasury.encumbered_staff, treasury.encumbered_repairs, treasury.encumbered_access] as const
   return (
-    <dl className="budget">
+    <dl className={`budget${compact ? ' budget-compact' : ''}`}>
       <div className="figure figure-accent">
-        <dt>Available</dt>
+        <dt>Left to spend</dt>
         <dd>{treasury.available_credits}</dd>
       </div>
       <div className="figure">
-        <dt>Committed</dt>
+        <dt>Promised, not yet delivered</dt>
         <dd>{held[0] + held[1] + held[2]}</dd>
         {breakdown && (
           <dd className="figure-split">
@@ -33,7 +40,7 @@ export function BudgetFigures({ treasury, breakdown = false }: { treasury: Treas
         )}
       </div>
       <div className="figure">
-        <dt>Spent on delivery</dt>
+        <dt>Delivered so far</dt>
         <dd>{treasury.service_spent}</dd>
       </div>
       <div className="figure">

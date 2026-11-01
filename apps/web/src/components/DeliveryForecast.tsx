@@ -2,7 +2,7 @@ import type { PreviewResult } from '../usePreview'
 import { QUARTERS, draftStatus, lastQuarterLabel, type Allocation } from '../game'
 import { Icon } from './Icon'
 
-/** Best-case delivery ceiling per family and quarter for the current draft. */
+/** Best-case delivery ceiling per family and quarter for the current plan. */
 export function DeliveryForecast({ allocation, preview }: { allocation: Allocation; preview: PreviewResult }) {
   const status = draftStatus(allocation)
   if (status !== 'valid') {
@@ -10,8 +10,8 @@ export function DeliveryForecast({ allocation, preview }: { allocation: Allocati
       <div className="forecast-empty">
         <Icon name={status === 'empty' ? 'hourglass' : 'alert'} size={22} />
         <p>{status === 'empty'
-          ? 'Deferring delivers nothing yet. You can still propose a funded package in a later quarter.'
-          : 'Bring the package within budget to see when its work could arrive.'}</p>
+          ? 'Build a plan to see when its work could arrive.'
+          : 'Bring the plan within budget to see when its work could arrive.'}</p>
       </div>
     )
   }
@@ -21,10 +21,10 @@ export function DeliveryForecast({ allocation, preview }: { allocation: Allocati
       <div className="forecast-empty" role="status">
         <Icon name="hourglass" size={22} />
         <p>{preview.status === 'loading'
-          ? 'Calculating the optimistic delivery ceiling with the local Rust service…'
-          : 'Rust delivery preview unavailable. Start the loopback service (cargo run -p myth-local-api) to see a verified estimate. No TypeScript fallback is substituted.'}</p>
+          ? 'Working out the best case…'
+          : 'The forecast isn’t available because the game service isn’t responding.'}</p>
         {preview.status === 'unavailable' && (
-          <button type="button" onClick={preview.retry}>Retry Rust preview</button>
+          <button type="button" className="btn btn-ghost btn-sm" onClick={preview.retry}>Try again</button>
         )}
       </div>
     )
@@ -35,17 +35,17 @@ export function DeliveryForecast({ allocation, preview }: { allocation: Allocati
     <>
       <p className="panel-note" role="status">
         {preview.status === 'updating'
-          ? 'Updating Rust estimate… showing the previous allocation only. These values do not describe the new draft.'
-          : 'Optimistic ceiling · calculated by Rust · not a simulated result'}
+          ? 'Updating… the figures below still describe your previous plan.'
+          : 'Best case: every minister works flat out, with no strikes or shocks.'}
       </p>
       <div className="forecast-scroll">
         <table className="forecast-table">
           <caption className="sr-only">
-            Upper bound for each family if ratified before the first advance; optional access volunteer capacity included when attainable
+            Most units each area could deliver per quarter if this plan were approved now
           </caption>
           <thead>
             <tr>
-              <th scope="col"><span className="sr-only">Family</span></th>
+              <th scope="col"><span className="sr-only">Area</span></th>
               {QUARTERS.map(q => (
                 <th scope="col" key={q.label}>{q.short}<small>{q.year}</small></th>
               ))}
@@ -66,7 +66,7 @@ export function DeliveryForecast({ allocation, preview }: { allocation: Allocati
                   return (
                     <td key={i} className={locked ? 'cell-locked' : units === 0 ? 'cell-idle' : undefined}>
                       {locked
-                        ? <span className="cell-lock" aria-label="Not yet eligible"><Icon name="lock" size={13} /></span>
+                        ? <span className="cell-lock" aria-label="Not started yet"><Icon name="lock" size={13} /></span>
                         : <span className="cell-bar" style={{ height: `${(units / (family.quarterCap + (family.id === 'access' && allocation.access >= 10 ? 1 : 0))) * 100}%` }}>
                             <span className="cell-units">{units}</span>
                           </span>}
@@ -84,7 +84,7 @@ export function DeliveryForecast({ allocation, preview }: { allocation: Allocati
             <li key={r.family.id}>
               <Icon name="alert" size={16} />
               {r.outstanding} {r.family.label.toLowerCase()} unit{r.outstanding === 1 ? '' : 's'} can’t be delivered
-              by {lastQuarterLabel()}, even at full effort. They would stay as visible unfinished obligations.
+              by {lastQuarterLabel()}, even in the best case. They would stay on the record as unfinished promises.
             </li>
           ))}
         </ul>

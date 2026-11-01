@@ -1,16 +1,25 @@
-import { OFFLINE_PILOT, type Availability } from '../contracts'
-import { PLACE_LABEL, QUARTERS, SEATS, committed, type Allocation } from '../game'
+import { OFFLINE_PILOT } from '../contracts'
+import { PLACE_LABEL, QUARTERS, committed, type Allocation } from '../game'
+import { useCampaign } from '../campaign'
+import { STEPS, turnState } from '../turn.mjs'
 import { Icon } from './Icon'
 
-const STATUS_LABEL: Record<Availability, string> = {
-  offline_preview: 'Offline preview · not connected',
-  not_connected: 'Not connected',
-  live: 'Connected',
-}
-
-/** Campaign resources at a glance; the draft only shows as a pending cost. */
+/** Always-visible scoreboard: budget, quarter and step, read from the saved game. */
 export function Hud({ allocation, onHelp }: { allocation: Allocation; onHelp: () => void }) {
-  const draft = committed(allocation)
+  const { snapshot, transport, loadState } = useCampaign()
+  const turn = snapshot ? turnState(snapshot) : null
+  const drafting = turn?.step === 'plan' || turn?.step === 'revise'
+  const draft = drafting ? committed(allocation) : 0
+  const quarter = snapshot?.quarter ?? 1
+  const quarterNote = !snapshot ? '—'
+    : snapshot.closed ? 'Complete'
+    : QUARTERS[snapshot.quarter - 1]?.label ?? ''
+  const stepNote = !turn ? '—'
+    : turn.step === 'done' ? 'Campaign complete'
+    : turn.keeping ? 'Keeping programme'
+    : `Step ${turn.index + 1} of ${STEPS.length} · ${STEPS[turn.index]?.label}`
+  const trouble = loadState === 'down' || transport === 'reconnecting' || transport === 'unavailable'
+
   return (
     <div className="hud">
       <div className="hud-brand">
@@ -23,36 +32,36 @@ export function Hud({ allocation, onHelp }: { allocation: Allocation; onHelp: ()
 
       <dl className="hud-stats">
         <div className="hud-stat">
-          <dt><Icon name="token" size={16} />Credits</dt>
+          <dt><Icon name="token" size={16} />Budget</dt>
           <dd>
-            <strong>{OFFLINE_PILOT.credits}</strong>
-            <span className="hud-sub">available</span>
-            {draft > 0 && <span className="hud-delta" title="Cost of the unsubmitted draft">draft −{draft}</span>}
+            <strong>{snapshot?.treasury.available_credits ?? '—'}</strong>
+            <span className="hud-sub">left of {OFFLINE_PILOT.credits}</span>
+            {draft > 0 && <span className="hud-delta" title="What your unsent plan would commit">plan −{draft}</span>}
           </dd>
         </div>
         <div className="hud-stat hud-quarters">
           <dt><Icon name="hourglass" size={16} />Quarter</dt>
           <dd>
             <span className="qpips" aria-hidden="true">
-              {QUARTERS.map(q => <span key={q.label} className="qpip" />)}
+              {QUARTERS.map((q, i) => (
+                <span key={q.label} className={`qpip${snapshot && (snapshot.closed || i < quarter - 1) ? ' is-done' : snapshot && i === quarter - 1 ? ' is-now' : ''}`} />
+              ))}
             </span>
-            <span className="hud-sub">Not started</span>
+            <span className="hud-sub">{snapshot ? `${snapshot.closed ? OFFLINE_PILOT.total_quarters : quarter} of ${OFFLINE_PILOT.total_quarters} · ${quarterNote}` : quarterNote}</span>
           </dd>
         </div>
-        <div className="hud-stat hud-board">
-          <dt><Icon name="board" size={16} />Board</dt>
-          <dd>
-            <span className="seat-pips" aria-hidden="true">
-              {SEATS.map(s => <span key={s.name} className={`seat-pip seat-pip-${s.owns ?? 'finance'}`}>{s.name[0]}</span>)}
-            </span>
-            <span className="hud-sub">No meeting</span>
-          </dd>
+        <div className="hud-stat hud-step">
+          <dt><Icon name="board" size={16} />This quarter</dt>
+          <dd><span className="hud-sub">{stepNote}</span></dd>
         </div>
       </dl>
 
       <div className="hud-actions">
-        <span className="status-chip"><span className="status-dot" aria-hidden="true" />{STATUS_LABEL[OFFLINE_PILOT.status]}</span>
-        <button type="button" className="icon-btn" onClick={onHelp} aria-label="Open the briefing" aria-keyshortcuts="?">
+        {trouble
+          ? <span className="status-chip status-bad"><span className="status-dot" aria-hidden="true" />
+              {loadState === 'down' ? 'Game service unreachable' : 'Reconnecting…'}</span>
+          : <span className="status-chip status-calm" title="Ministers follow fixed scripted rules. No AI is called."><span className="status-dot" aria-hidden="true" />Scripted ministers</span>}
+        <button type="button" className="icon-btn" onClick={onHelp} aria-label="How to play" aria-keyshortcuts="?">
           <Icon name="help" size={20} />
         </button>
       </div>

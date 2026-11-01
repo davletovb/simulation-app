@@ -1,20 +1,10 @@
 import { useEffect, useRef, type MouseEvent } from 'react'
 import { OFFLINE_PILOT } from '../contracts'
-import { VOTES_NEEDED } from '../game'
-import { Icon, type IconName } from './Icon'
+import { FAMILIES, STEP_HELP } from '../game'
+import { STEPS } from '../turn.mjs'
+import { Icon } from './Icon'
 
-const STEPS: readonly { icon: IconName; title: string; body: string }[] = [
-  { icon: 'command', title: 'Play a package',
-    body: `Split ${OFFLINE_PILOT.credits} pilot credits across staffing, repairs and access. They must last the whole campaign.` },
-  { icon: 'board', title: 'Win the board',
-    body: `${VOTES_NEEDED} of 3 seats must support the same frozen version. You can amend once per meeting.` },
-  { icon: 'hourglass', title: 'Advance and deliver',
-    body: 'Work arrives with delays and limits. Ministers choose their delivery effort privately.' },
-  { icon: 'audit', title: 'Audit the truth',
-    body: 'Reports can be optimistic. Audits show what was really delivered, and change what the seats believe.' },
-]
-
-/** First-visit briefing; also opened from the help button or the `?` key. */
+/** First-visit "how to play"; also opened from the help button or the `?` key. */
 export function Briefing({ open, onClose }: { open: boolean; onClose: () => void }) {
   const ref = useRef<HTMLDialogElement>(null)
 
@@ -34,25 +24,50 @@ export function Briefing({ open, onClose }: { open: boolean; onClose: () => void
     <dialog ref={ref} className="briefing" aria-labelledby="briefing-title" onClose={onClose} onClick={onBackdrop}>
       <div className="briefing-body">
         <form method="dialog" className="briefing-x">
-          <button type="submit" className="icon-btn" aria-label="Close the briefing"><Icon name="close" size={18} /></button>
+          <button type="submit" className="icon-btn" aria-label="Close how to play"><Icon name="close" size={18} /></button>
         </form>
-        <p className="kicker">Briefing · {OFFLINE_PILOT.case_title}</p>
-        <h2 id="briefing-title">Govern {OFFLINE_PILOT.total_quarters} quarters. Keep the board with you.</h2>
-        <p className="briefing-lede">You chair a fictional board running a school-services pilot in
-          {' '}{OFFLINE_PILOT.jurisdiction}. Every promise is recorded, and every delay has a cause.</p>
+        <p className="kicker">How to play · {OFFLINE_PILOT.case_title}</p>
+        <h2 id="briefing-title">You chair a cabinet with one budget and {OFFLINE_PILOT.total_quarters} quarters.</h2>
+        <p className="briefing-lede">
+          You run a fictional school-services pilot in {OFFLINE_PILOT.jurisdiction}. Each quarter is one turn:
+          you make a spending plan, your three ministers vote on it, and then time moves on and work is delivered.
+        </p>
+
+        <div className="briefing-rule">
+          <Icon name="token" size={20} />
+          <p><strong>One budget for the whole game: {OFFLINE_PILOT.credits} credits.</strong>{' '}
+            It never refills. Credits you commit are gone; credits you hold back can fund a later plan.</p>
+        </div>
+
+        <h3 className="section-label">You spend it on three things</h3>
+        <ul className="briefing-families">
+          {FAMILIES.map(f => (
+            <li key={f.id} className={`stat stat-${f.id}`}>
+              <Icon name={f.id} size={16} /><span><strong>{f.label}</strong> {f.blurb}</span>
+            </li>
+          ))}
+        </ul>
+        <p className="briefing-small">Work is never instant. Staffing and Repairs arrive a quarter or two after approval, and each can only
+          deliver so much per quarter.</p>
+
+        <h3 className="section-label">Every quarter has the same six steps</h3>
         <ol className="briefing-steps">
           {STEPS.map((s, i) => (
-            <li key={s.title}>
-              <span className="briefing-icon"><Icon name={s.icon} size={20} /></span>
-              <span><strong>{i + 1}. {s.title}</strong>{s.body}</span>
+            <li key={s.id}>
+              <span className="step-badge" aria-hidden="true">{i + 1}</span>
+              <span><strong>{s.label}</strong>{STEP_HELP[s.id]}</span>
             </li>
           ))}
         </ol>
-        <p className="briefing-note"><Icon name="eye" size={16} />This build contains a local, durable scripted simulation. You can submit typed proposals, negotiate with scripted ministers, inspect saved outcomes and fork verified decisions. No paid model calls are made.</p>
+
+        <p className="briefing-note"><Icon name="eye" size={16} />
+          Ministers report their own progress, and reports can be optimistic. From Q3 you can order an audit to
+          check what was really delivered. Everything here is fictional and illustrative, and the ministers follow
+          fixed scripted rules; no AI is called.</p>
         <div className="briefing-foot">
-          <span className="shortcuts"><kbd>1</kbd>–<kbd>4</kbd> views · <kbd>?</kbd> briefing · <kbd>Esc</kbd> close</span>
+          <span className="shortcuts"><kbd>1</kbd>–<kbd>4</kbd> screens · <kbd>?</kbd> this guide · <kbd>Esc</kbd> close</span>
           <form method="dialog">
-            <button type="submit" className="btn btn-primary" autoFocus>Start exploring</button>
+            <button type="submit" className="btn btn-primary" autoFocus>Start playing</button>
           </form>
         </div>
       </div>

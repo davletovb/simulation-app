@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { CampaignProvider } from './campaign'
 import { OFFLINE_PILOT } from './contracts'
 import { COUNTRY_NAME, DEFAULT_CARD, type Allocation } from './game'
 import { readStored, writeStored } from './storage'
@@ -7,10 +8,9 @@ import { Hud } from './components/Hud'
 import { Icon } from './components/Icon'
 import { VIEWS, ViewNav, isView, type View } from './components/ViewNav'
 import { CabinetView } from './views/CabinetView'
-import { ConnectedView } from './views/ConnectedView'
 import { CampaignView } from './views/CampaignView'
-import { CommandView } from './views/CommandView'
 import { IntelView } from './views/IntelView'
+import { PlayView } from './views/PlayView'
 
 const VIEW_KEY = 'myth-maker.view'
 const BRIEFED_KEY = 'myth-maker.briefed'
@@ -19,11 +19,12 @@ const typingIn = (target: EventTarget | null): boolean =>
   target instanceof HTMLElement && (target.isContentEditable || target instanceof HTMLTextAreaElement ||
     target instanceof HTMLSelectElement || (target instanceof HTMLInputElement && target.type !== 'range'))
 
-export function App() {
+function Game() {
   const [view, setView] = useState<View>(() => {
     const stored = readStored(VIEW_KEY)
-    return isView(stored) ? stored : 'command'
+    return isView(stored) ? stored : 'play'
   })
+  // The plan being drafted. It lives here so the header can show what it would cost.
   const [allocation, setAllocation] = useState<Allocation>(DEFAULT_CARD.allocation)
   const [briefingOpen, setBriefingOpen] = useState(() => readStored(BRIEFED_KEY) !== 'yes')
 
@@ -63,12 +64,12 @@ export function App() {
 
   return (
     <div className="game">
-      <a className="skip-link" href="#view-panel">Skip to the game view</a>
+      <a className="skip-link" href="#view-panel">Skip to the game</a>
       <header className="top">
         <Hud allocation={allocation} onHelp={() => setBriefingOpen(true)} />
         <p className="notice" role="note">
           <Icon name="eye" size={16} />
-          <span><strong>Fictional data twin.</strong> Illustrative mechanics, not government forecasts. The connected decision room runs a local, durable scripted simulation. Other panels are design previews; no model calls are made.</span>
+          <span><strong>A fictional simulation.</strong> The numbers are illustrative, not forecasts. Your ministers follow fixed scripted rules; no AI is called.</span>
         </p>
       </header>
 
@@ -76,17 +77,14 @@ export function App() {
         <ViewNav view={view} onChange={changeView} />
         <main className="view">
           <div id="view-panel" role="tabpanel" aria-labelledby={`tab-${view}`} tabIndex={-1} className="view-inner">
-            {view === 'command' && <>
-              <ConnectedView allocation={allocation} />
-              <CommandView allocation={allocation} onChange={setAllocation} />
-            </>}
+            {view === 'play' && <PlayView allocation={allocation} onChange={setAllocation} />}
             {view === 'cabinet' && <CabinetView />}
-            {view === 'campaign' && <CampaignView />}
-            {view === 'intel' && <IntelView />}
+            {view === 'progress' && <CampaignView />}
+            {view === 'sources' && <IntelView />}
           </div>
           <footer className="foot">
-            <span>Myth Maker · framework v0.8.1 · P7 connected offline candidate · P6 review pending</span>
-            <span>{OFFLINE_PILOT.jurisdiction} is the education jurisdiction, not the whole {COUNTRY_NAME} · {OFFLINE_PILOT.locale}</span>
+            <span>Myth Maker · a fictional governance simulation</span>
+            <span>{OFFLINE_PILOT.jurisdiction} is the education jurisdiction, not the whole {COUNTRY_NAME}</span>
           </footer>
         </main>
       </div>
@@ -94,4 +92,8 @@ export function App() {
       <Briefing open={briefingOpen} onClose={closeBriefing} />
     </div>
   )
+}
+
+export function App() {
+  return <CampaignProvider><Game /></CampaignProvider>
 }

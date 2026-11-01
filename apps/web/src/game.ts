@@ -6,6 +6,9 @@
  * for commitments, actual delivery and resulting society effects.
  */
 import { OFFLINE_PILOT, type PilotOverview, type Seat } from './contracts'
+import { VOTES_NEEDED, MINISTERS as MINISTER_COUNT } from './turn.mjs'
+
+export { VOTES_NEEDED, MINISTER_COUNT }
 
 const COUNTRY_NAMES: Record<PilotOverview['country_iso'], string> = { GB: 'United Kingdom' }
 export const COUNTRY_NAME = COUNTRY_NAMES[OFFLINE_PILOT.country_iso]
@@ -14,12 +17,14 @@ export const PLACE_LABEL = `${COUNTRY_NAME} · ${OFFLINE_PILOT.jurisdiction} edu
 
 export type Family = 'staff' | 'repairs' | 'access'
 export type Allocation = Record<Family, number>
-export type PackageId = 'balanced' | 'staff_first' | 'access_first' | 'oversubscribed' | 'defer'
+export type PackageId = 'balanced' | 'staff_first' | 'access_first'
 export type DraftStatus = 'empty' | 'valid' | 'over_budget'
 
 export interface FamilyInfo {
   id: Family
   label: string
+  /** What this spending buys, in everyday words. */
+  blurb: string
   unit: string
   /** Nominal maximum delivered units per quarter. */
   quarterCap: number
@@ -28,9 +33,9 @@ export interface FamilyInfo {
 }
 
 export const FAMILIES: readonly FamilyInfo[] = [
-  { id: 'staff', label: 'Staffing', unit: 'staff-quarter slot', quarterCap: 12, lag: 1 },
-  { id: 'repairs', label: 'Repairs', unit: 'repair-work unit', quarterCap: 10, lag: 2 },
-  { id: 'access', label: 'Access', unit: 'access-support unit', quarterCap: 4, lag: 0 },
+  { id: 'staff', label: 'Staffing', blurb: 'Teachers and support staff in schools', unit: 'staff-quarter slot', quarterCap: 12, lag: 1 },
+  { id: 'repairs', label: 'Repairs', blurb: 'Fixing school buildings', unit: 'repair-work unit', quarterCap: 10, lag: 2 },
+  { id: 'access', label: 'Access', blurb: 'Local support that helps families use school services', unit: 'access-support unit', quarterCap: 4, lag: 0 },
 ]
 
 export interface PolicyCard {
@@ -40,17 +45,18 @@ export interface PolicyCard {
   allocation: Allocation
 }
 
+/**
+ * Ready-made plans. Only plans a player can actually submit appear here: an
+ * empty plan is rejected, and a plan above the budget is never ratifiable.
+ * (To spend nothing, postpone after the vote, or keep the programme from Q2.)
+ */
 export const POLICY_CARDS: readonly PolicyCard[] = [
-  { id: 'balanced', name: 'Balanced delivery', tagline: 'Staffing with essential repairs',
+  { id: 'balanced', name: 'Balanced', tagline: 'Staffing, with essential repairs',
     allocation: { staff: 50, repairs: 40, access: 10 } },
   { id: 'staff_first', name: 'Staffing first', tagline: 'More staff, fewer repairs',
     allocation: { staff: 60, repairs: 30, access: 10 } },
-  { id: 'access_first', name: 'Access first', tagline: 'Wider reach, 10 credits held back',
+  { id: 'access_first', name: 'Access first', tagline: 'Wider reach; keeps 10 credits in reserve',
     allocation: { staff: 40, repairs: 30, access: 20 } },
-  { id: 'oversubscribed', name: 'Everything at once', tagline: 'Spends more than the pilot holds',
-    allocation: { staff: 60, repairs: 40, access: 10 } },
-  { id: 'defer', name: 'Defer', tagline: 'Commit nothing this quarter',
-    allocation: { staff: 0, repairs: 0, access: 0 } },
 ]
 
 export const DEFAULT_CARD: PolicyCard = POLICY_CARDS[0]!
@@ -80,6 +86,15 @@ export const QUARTERS: readonly { short: string; year: number; label: string }[]
 
 export const lastQuarterLabel = (): string => QUARTERS[QUARTERS.length - 1]?.label ?? ''
 
+/**
+ * When work funded by a plan approved in `quarter` (1-based) can first arrive,
+ * or null if that is after the campaign ends. Delivery starts `lag` quarters
+ * after approval (P0 scheduling rule), not at a fixed calendar quarter.
+ */
+export function firstDeliveryLabel(family: FamilyInfo, quarter: number): string | null {
+  return QUARTERS[quarter - 1 + family.lag]?.label ?? null
+}
+
 /** First quarter (1-based) in which the campaign's first audit is free. */
 export const FIRST_FREE_AUDIT_QUARTER = 3
 export const PAID_AUDIT_COST = 2
@@ -91,36 +106,35 @@ export interface FamilyForecast {
 }
 
 /** Delivery values are calculated only by the Rust offline service. */
-export interface SeatInfo {
+export interface MinisterInfo {
   name: Seat
-  title: string
-  mandate: string
-  powers: readonly string[]
-  /** Delivery family whose actual effort this seat sets privately. */
+  /** Wire id used by the service (`finance`, `education`, `infrastructure`). */
+  id: string
+  role: string
+  /** What this minister does, in everyday words. */
+  duty: string
+  /** Delivery family whose actual effort this minister sets privately. */
   owns?: Family
 }
 
-export const SEATS: readonly SeatInfo[] = [
-  { name: 'Finance', title: 'Treasury seat',
-    mandate: 'Checks that every package is affordable and that its milestones can be enforced.',
-    powers: ['Votes', 'Funding conditions'] },
-  { name: 'Education', title: 'Education seat',
-    mandate: 'Proposes staffing, and alone decides how hard staffing is delivered.',
-    powers: ['Votes', 'Proposes staffing'], owns: 'staff' },
-  { name: 'Infrastructure', title: 'Facilities seat',
-    mandate: 'Proposes repairs and tranches, and alone decides how hard repairs are delivered.',
-    powers: ['Votes', 'Proposes repairs'], owns: 'repairs' },
+export const MINISTERS: readonly MinisterInfo[] = [
+  { name: 'Finance', id: 'finance', role: 'Finance minister',
+    duty: 'Checks the plan is affordable and that any conditions can be enforced.' },
+  { name: 'Education', id: 'education', role: 'Education minister',
+    duty: 'Delivers Staffing. Decides, privately, how hard to push it.', owns: 'staff' },
+  { name: 'Infrastructure', id: 'infrastructure', role: 'Infrastructure minister',
+    duty: 'Delivers Repairs. Decides, privately, how hard to push it.', owns: 'repairs' },
 ]
 
-export const VOTES_NEEDED = 2
-
-export const MEETING_PHASES: readonly { label: string; detail: string }[] = [
-  { label: 'Freeze', detail: 'Your package and each seat’s view are locked.' },
-  { label: 'First positions', detail: 'All three seats answer at once: support, conditional or oppose.' },
-  { label: 'Your amendment', detail: 'Change the package once, or keep it.' },
-  { label: 'Final votes', detail: 'Seats vote on the frozen final version.' },
-  { label: 'Ratify', detail: `${VOTES_NEEDED} of 3 support and the checks pass: you decide.` },
-]
+/** The six steps of a quarter, explained once and reused by the briefing, tracker and cabinet page. */
+export const STEP_HELP: Readonly<Record<'plan' | 'reactions' | 'revise' | 'vote' | 'decide' | 'end', string>> = {
+  plan: 'Split your budget between Staffing, Repairs and Access. From the second quarter you can instead keep the current programme and skip the vote.',
+  reactions: 'Each minister says whether they support your plan, support it with conditions, or oppose it.',
+  revise: `You may change the plan once, in response. Or keep it as it is.`,
+  vote: 'The plan is now locked. Each minister casts a final vote.',
+  decide: `If at least ${VOTES_NEEDED} of 3 ministers support it, you can approve it and commit the budget. Or postpone and spend nothing.`,
+  end: 'Time moves on: work is delivered (late and limited), organisations react, and the next quarter begins.',
+}
 
 export interface Pressure { kind: 'risk' | 'boost'; text: string }
 

@@ -1,4 +1,4 @@
-import type {Committed} from './views/ConnectedView'
+import type {Committed} from './campaign'
 export function newer(old:Committed | null,next:Committed):Committed
 
 export function validCommittedCursor(value:unknown):value is string

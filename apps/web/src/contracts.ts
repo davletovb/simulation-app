@@ -39,11 +39,11 @@ export const OFFLINE_PILOT: PilotOverview = {
 
 export const EVIDENCE_LINES: readonly EvidenceLine[] = [
   { id: 'school-workforce', label: 'School workforce', category: 'public_source',
-    detail: 'England school workforce reporting year 2025; source ingestion pending P2.' },
+    detail: 'England school workforce reporting year 2025. Named as a source; not yet loaded into the game.' },
   { id: 'pupil-characteristics', label: 'Pupil characteristics', category: 'public_source',
-    detail: 'DfE 2025/26 school-pupil release; source ingestion pending P2.' },
-  { id: 'rural-income', label: 'Rural × income joint distribution', category: 'unverified',
-    detail: 'No verified six-cell pupil joint distribution; do not invent a baseline.' },
-  { id: 'support-response', label: 'Policy-response coefficients', category: 'authored_parameter',
-    detail: 'Fictional service-response mechanics, not a forecast of English public opinion.' },
+    detail: 'DfE 2025/26 school-pupil release. Named as a source; not yet loaded into the game.' },
+  { id: 'rural-income', label: 'Pupils by area and income', category: 'unverified',
+    detail: 'No verified breakdown of pupils by area and income exists yet, so none is invented.' },
+  { id: 'support-response', label: 'How the public reacts', category: 'authored_parameter',
+    detail: 'How the public reacts to delivered work is a made-up game rule, not a forecast of English public opinion.' },
 ]

@@ -1,39 +1,15 @@
-import { useQueryClient } from '@tanstack/react-query'
-import { useEffect, useState } from 'react'
-import { newer } from '../committedReducer.mjs'
 import { BudgetFigures } from '../components/BudgetFigures'
 import { Icon } from '../components/Icon'
-import { JournalStamp } from '../components/JournalStamp'
-import { FAMILIES } from '../game'
-import { formatDay, formatPpm, formatUtc, humanPhase, humanize, pillTone, shortHash, stageLabel } from '../format'
+import { FAMILIES, MINISTERS } from '../game'
+import { formatDay, formatPpm, formatUtc, humanize, outcomeLabel, pillTone, positionLabel, shortHash, stageLabel } from '../format'
 import { answeredMinistries, positionsFor } from '../positions.mjs'
-import { CACHE_KEY, CAMPAIGN, loadSnapshot, useCommittedCampaign, type Committed, type Snapshot } from './ConnectedView'
+import { STEPS, turnState } from '../turn.mjs'
+import { useCampaign, type Snapshot } from '../campaign'
 
-/** Polls the saved campaign and reduces every response into the shared committed cache. */
+/** The saved campaign as the report screens see it (shared with the Play screen; no separate polling). */
 export function usePublicView() {
-  const cache = useQueryClient()
-  const {data} = useCommittedCampaign()
-  const [isError, setIsError] = useState(false)
-  useEffect(() => {
-    let active = true
-    // Other tabs are visible while the command room's SSE listener is
-    // unmounted. Poll them, but atomically reduce each HTTP result into
-    // the shared cache. A stale response cannot roll back an SSE boundary.
-    const update = async () => {
-      try {
-        const received = await loadSnapshot()
-        if (!active) return
-        cache.setQueryData<Committed>(CACHE_KEY,old=>newer(old??null,received))
-        setIsError(false)
-      } catch {
-        if (active) setIsError(true)
-      }
-    }
-    void update()
-    const interval = window.setInterval(() => { void update() }, 5000)
-    return () => { active = false; window.clearInterval(interval) }
-  }, [cache])
-  return {data,isError}
+  const { committed, loadState } = useCampaign()
+  return { data: committed ?? undefined, isError: loadState === 'down' || loadState === 'missing' }
 }
 
 function Pending({ title, error }: { title: string; error: boolean }) {
@@ -44,15 +20,15 @@ function Pending({ title, error }: { title: string; error: boolean }) {
     </div>
     <p className="forecast-empty">
       <Icon name={error ? 'alert' : 'hourglass'} size={20} />
-      <span>{error ? 'The local service is unavailable. No outcome can be verified.'
-        : 'Loading a verified saved campaign snapshot…'}</span>
+      <span>{error ? 'There is no saved game to show. Start or reconnect to the game on the Play screen.'
+        : 'Loading your saved campaign…'}</span>
     </p>
   </section>
 }
 
 const sentence = (text: string): string => `${text.replace(/\.+$/, '')}.`
 
-/** The vote slot of one board seat: real recorded positions, or an honest reason there are none. */
+/** One minister's slot: what they have said so far, or an honest reason there is nothing yet. */
 export function SeatPositions({ ministry, seat, snapshot, unavailable }: {
   ministry: string
   seat: string
@@ -65,9 +41,9 @@ export function SeatPositions({ ministry, seat, snapshot, unavailable }: {
       <div className="vote-slot">
         <span className="vote-token" aria-hidden="true">?</span>
         <span>
-          <strong>{snapshot ? 'No position yet' : unavailable ? 'Service unavailable' : 'Loading…'}</strong>
-          {snapshot ? 'Recorded positions appear here once this seat answers.'
-            : unavailable ? 'Start the local service to see recorded positions.'
+          <strong>{snapshot ? 'Not asked yet' : unavailable ? 'Unavailable' : 'Loading…'}</strong>
+          {snapshot ? 'Their reaction and vote appear here once you put a plan to the cabinet.'
+            : unavailable ? 'Start the game on the Play screen.'
             : 'Reading the saved campaign.'}
         </span>
       </div>
@@ -75,11 +51,11 @@ export function SeatPositions({ ministry, seat, snapshot, unavailable }: {
   }
   return (
     <div className="vote-slot vote-slot-live">
-      <ul className="positions" aria-label={`${seat} recorded positions`}>
+      <ul className="positions" aria-label={`What the ${seat} minister has said`}>
         {mine.map(vote => (
           <li key={vote.stage}>
             <span>{stageLabel(vote.stage)}</span>
-            <span className={`pill pill-${pillTone(vote.position)}`}>{vote.position}</span>
+            <span className={`pill pill-${pillTone(vote.position)}`}>{positionLabel(vote.position)}</span>
           </li>
         ))}
       </ul>
@@ -89,46 +65,47 @@ export function SeatPositions({ ministry, seat, snapshot, unavailable }: {
 
 /** Public projections ONLY: never render raw private world/role observations. */
 export function CabinetMeetingStatus({ snapshot, unavailable }: { snapshot: Snapshot | undefined; unavailable: boolean }) {
-  if (!snapshot) return <Pending title="Meeting status" error={unavailable} />
+  if (!snapshot) return <Pending title="This quarter’s meeting" error={unavailable} />
   const answered = answeredMinistries(snapshot.votes).length
+  const turn = turnState(snapshot)
+  const stepName = turn.step === 'done' ? 'Campaign complete'
+    : turn.keeping ? 'Programme kept'
+    : `${turn.index + 1} of ${STEPS.length} · ${STEPS[turn.index]?.label}`
   return (
     <section className="panel" aria-labelledby="connected-board-report">
       <div className="panel-head">
-        <h2 id="connected-board-report">Q{snapshot.quarter} meeting</h2>
-        <span className="tag tag-calm">Live from the saved campaign</span>
+        <h2 id="connected-board-report">Quarter {snapshot.quarter} cabinet meeting</h2>
       </div>
       <div className="room-tiles">
         <div className="room-tile">
-          <span className="room-label">Phase</span>
-          <strong className="room-value">{humanPhase(snapshot.phase)}</strong>
+          <span className="room-label">Step</span>
+          <strong className="room-value">{stepName}</strong>
         </div>
         <div className="room-tile">
-          <span className="room-label">Seats answered</span>
-          <strong className="room-value">{answered}<small> of 3</small></strong>
+          <span className="room-label">Ministers heard</span>
+          <strong className="room-value">{answered}<small> of {MINISTERS.length}</small></strong>
         </div>
         <div className="room-tile">
-          <span className="room-label">Outcome</span>
+          <span className="room-label">Decision</span>
           {snapshot.outcome
-            ? <strong className="room-value"><span className={`pill pill-${pillTone(snapshot.outcome)}`}>{snapshot.outcome}</span></strong>
-            : <strong className="room-value room-dim">Not decided</strong>}
+            ? <strong className="room-value"><span className={`pill pill-${pillTone(snapshot.outcome)}`}>{outcomeLabel(snapshot.outcome)}</span></strong>
+            : <strong className="room-value room-dim">Not decided yet</strong>}
         </div>
       </div>
       <p className="panel-foot">
         {answered === 0
-          ? 'No positions are recorded this quarter yet. The seats answer once you submit a package.'
-          : 'Each seat below shows the positions it has recorded.'}
-        {' '}This screen only displays them; the game service enforces ratification.
+          ? 'No minister has been asked yet. They respond once you put a plan to the cabinet on the Play screen.'
+          : 'This is what each minister has said so far. You make moves on the Play screen.'}
       </p>
-      <JournalStamp campaign={CAMPAIGN} cursor={snapshot.cursor} version={snapshot.view_version} />
     </section>
   )
 }
 
 const MODE_LABEL: Record<Snapshot['comparison']['mode'], string> = {
-  primary_campaign: 'Primary campaign · live committed game state (not a replay or fork)',
-  exact_recorded_actions: 'Explicitly verified recorded-action replay',
-  fresh_scripted_branch: 'Independent branch · new scripted actions after the fork',
-  verification_failed: 'Verification failure',
+  primary_campaign: 'Your main game',
+  exact_recorded_actions: 'A replay of recorded moves',
+  fresh_scripted_branch: 'A what-if branch: ministers act afresh after the split',
+  verification_failed: 'Verification failed',
 }
 
 export function ConnectedCampaignReport() {
@@ -137,38 +114,36 @@ export function ConnectedCampaignReport() {
   if (!snapshot) return <Pending title="Campaign record" error={isError}/>
   if (snapshot.comparison.mode==='verification_failed') return <section className="panel panel-bad" role="alert">
     <div className="panel-head">
-      <h2>Journal verification failed</h2>
-      <span className="tag">Do not continue</span>
+      <h2>The saved game failed its check</h2>
+      <span className="tag">Stop playing</span>
     </div>
-    <p className="alert alert-danger"><Icon name="alert" size={16} /><span>The command's durable failure status was received.
-      The current figures are not verified. Stop the service and inspect the private save; do not continue
-      gameplay or trust a zeroed fallback snapshot.</span></p>
+    <p className="alert alert-danger"><Icon name="alert" size={16} /><span>The numbers below can’t be trusted. Stop the game service and
+      inspect the saved game before playing on.</span></p>
   </section>
   const latest = snapshot.delivery_history.at(-1)
   const comparison = snapshot.comparison
   return <section className="panel" aria-labelledby="connected-campaign-report">
     <div className="panel-head">
-      <h2 id="connected-campaign-report">Campaign record</h2>
-      <span className="tag">Q{snapshot.quarter} · {humanPhase(snapshot.phase)} · {snapshot.closed ? 'Complete' : 'Active'}</span>
+      <h2 id="connected-campaign-report">What has happened so far</h2>
+      <span className="tag">{snapshot.closed ? 'Campaign complete' : `Quarter ${snapshot.quarter}`}</span>
     </div>
-    <p className="panel-lede">What your decisions have committed so far, and what the public delivery reports say.</p>
+    <p className="panel-lede">Your decisions, where the budget stands, and what the ministers say they have delivered.</p>
 
-    <h3 className="section-label">Budget · credits</h3>
+    <h3 className="section-label">Budget</h3>
     <BudgetFigures treasury={snapshot.treasury} breakdown />
 
-    <h3 className="section-label report-gap">Decisions on record</h3>
+    <h3 className="section-label report-gap">Your decisions</h3>
     {snapshot.decisions.length ? <ol className="ledger">
       {snapshot.decisions.map((decision,i)=><li key={i} className="ledger-item">
         <span className="phase-num" aria-hidden="true">{i + 1}</span>
         <div className="ledger-body">
           <div className="ledger-title">
-            <strong>Decision {i + 1}</strong>
-            <span className={`pill pill-${pillTone(decision.outcome)}`}>{decision.outcome}</span>
-            <span className="hint">Q{decision.quarter}{decision.outcome === 'continued' ? '' : ' meeting'}</span>
+            <strong>Quarter {decision.quarter}</strong>
+            <span className={`pill pill-${pillTone(decision.outcome)}`}>{outcomeLabel(decision.outcome)}</span>
           </div>
           <p className="ledger-votes">{decision.outcome === 'continued'
-            ? 'No board vote held. The existing programme continued unchanged.'
-            : `${decision.final_support} of ${decision.final_votes} final votes in support`}</p>
+            ? 'No vote held. The existing programme carried on unchanged.'
+            : `${decision.final_support} of ${decision.final_votes} ministers supported it in the final vote`}</p>
           {decision.allocation
             ? <div className="card-stats room-stats" aria-label="Allocation">
               {FAMILIES.map(f => <span key={f.id} className={`stat stat-${f.id}`}>
@@ -176,27 +151,27 @@ export function ConnectedCampaignReport() {
               </span>)}
             </div>
             : <p className="room-muted">{decision.outcome === 'continued'
-              ? 'No funded programme was in place.' : 'No allocation recorded.'}</p>}
+              ? 'There was no funded programme to carry on.' : 'No plan was approved.'}</p>}
         </div>
       </li>)}
     </ol> : <p className="forecast-empty"><Icon name="banner" size={20} />
-      <span>No completed decision has been recorded yet.</span></p>}
+      <span>No decision has been made yet.</span></p>}
 
-    <h3 className="section-label report-gap">Public delivery reports</h3>
+    <h3 className="section-label report-gap">Progress reports from the ministers</h3>
     {snapshot.delivery_history.length ? (
       <>
         <div className="forecast-scroll">
           <table className="ledger-table">
-            <caption className="sr-only">Public cumulative activity against schedule for each saved quarter.
-              These are reports, not verified actual delivery.</caption>
+            <caption className="sr-only">Units each area reports delivering, against the units due by then, after each quarter.
+              These are the ministers’ own reports, not checked delivery.</caption>
             <thead>
               <tr>
                 <th scope="col">Quarter</th>
                 {FAMILIES.map(f => <th key={f.id} scope="col" className={`family-${f.id}`}>
                   <span className="th-family"><Icon name={f.id} size={16} />{f.label}</span>
-                  <small>reported / scheduled</small>
+                  <small>reported / due</small>
                 </th>)}
-                <th scope="col">Weighted support<small>authored game model</small></th>
+                <th scope="col">Public support<small>game model</small></th>
               </tr>
             </thead>
             <tbody>{snapshot.delivery_history.map(item => (
@@ -216,39 +191,32 @@ export function ConnectedCampaignReport() {
             ))}</tbody>
           </table>
         </div>
-        <p className="hint">Public cumulative activity and schedules, not verified actual delivery.</p>
+        <p className="hint">Running totals as reported by the ministers. They are not checked, and can be optimistic. An audit shows the real figure.</p>
       </>
     ) : <p className="forecast-empty"><Icon name="hourglass" size={20} />
-      <span>No quarter has advanced yet. A proposal and vote do not imply delivery.</span></p>}
+      <span>No quarter has finished yet. Approving a plan doesn’t deliver anything until time moves on.</span></p>}
 
     {(latest?.staff_slowdown_next || latest?.access_bonus_next) && <ul className="pressures report-gap">
       {latest.staff_slowdown_next && <li className="pressure pressure-risk">
-        <Icon name="alert" size={16} /><span><strong>Next-quarter risk</strong>
-          Recorded workforce slowdown; projected throughput may fall.</span></li>}
+        <Icon name="alert" size={16} /><span><strong>Risk next quarter</strong>
+          The School Staff Association has called a slowdown for next quarter, so staffing may deliver less.</span></li>}
       {latest.access_bonus_next && <li className="pressure pressure-boost">
-        <Icon name="spark" size={16} /><span><strong>Next-quarter effect</strong>
-          Recorded community access-capacity bonus.</span></li>}
+        <Icon name="spark" size={16} /><span><strong>Boost next quarter</strong>
+          Community volunteers are adding access capacity.</span></li>}
     </ul>}
 
-    <h3 className="section-label report-gap">Record type</h3>
-    <ul className="chips">
-      <li className="chip">{MODE_LABEL[comparison.mode]}</li>
-      {comparison.source_campaign_id && <li className="chip">
-        Forked from {comparison.source_campaign_id} at cursor {comparison.source_cursor}</li>}
-      {comparison.mode==='fresh_scripted_branch' && <>
-        <li className="chip">Inherited shock stream: {comparison.inherited_shock_stream ? 'yes' : 'unverified'}</li>
-        <li className="chip">Post-fork actor actions fixed: {comparison.post_fork_actor_actions_fixed ? 'yes' : 'no'}</li>
-      </>}
-    </ul>
-    {comparison.source_campaign_id && <p className="hint report-hint">
-      This is a local counterfactual branch; its post-fork minister actions are not held fixed.</p>}
-    {comparison.mode==='fresh_scripted_branch' && <p className="hint report-hint">
-      Comparing separate branches is not an exact recorded-action replay.</p>}
+    {comparison.mode !== 'primary_campaign' && <>
+      <h3 className="section-label report-gap">This is not your main game</h3>
+      <ul className="chips">
+        <li className="chip">{MODE_LABEL[comparison.mode]}</li>
+        {comparison.source_campaign_id && <li className="chip">Branched from {comparison.source_campaign_id}</li>}
+      </ul>
+      {comparison.mode === 'fresh_scripted_branch' && <p className="hint report-hint">
+        Ministers act afresh after the split, so comparing it with the original is not an exact replay.</p>}
+    </>}
 
-    <p className="panel-foot">Treasury balances and public reports are verified projections of the saved
-      synthetic state. Implementation effort, audited actual delivery, undisclosed commitments and private
-      actor beliefs are not included here. No UK service-delivery or educational impact is empirically predicted.</p>
-    <JournalStamp campaign={CAMPAIGN} cursor={snapshot.cursor} version={snapshot.view_version} />
+    <p className="panel-foot">Budget and reports come from the saved game. What the ministers privately chose to do,
+      and what was really delivered, is not shown here. Nothing here predicts real UK school outcomes.</p>
   </section>
 }
 
@@ -259,7 +227,7 @@ export function ConnectedEvidenceReport() {
   const evidence = snapshot.evidence
   return <section className="panel" aria-labelledby="connected-evidence-report">
     <div className="panel-head">
-      <h2 id="connected-evidence-report">Case provenance</h2>
+      <h2 id="connected-evidence-report">Where this game’s data comes from</h2>
       <span className="tag tag-calm">Synthetic case</span>
     </div>
     <p className="panel-lede">{sentence(evidence.attribution)} {sentence(evidence.scope)}</p>
@@ -305,7 +273,7 @@ export function ConnectedEvidenceReport() {
       </li>)}
     </ul>
 
-    <h3 className="section-label report-gap">Frozen news and scenario markers</h3>
+    <h3 className="section-label report-gap">News and scenario events</h3>
     <ol className="news">
       {snapshot.news.map((item,i)=>{
         const real = item.kind==='real_source_update'
@@ -321,12 +289,9 @@ export function ConnectedEvidenceReport() {
       })}
     </ol>
 
-    <p className="panel-foot">Generated outcome reports are simulation outputs. News and country facts must be read
-      from the frozen sourced archive; narrative changes are fictional, not factual updates.
-      No LLM-authored briefing or news synthesis has been verified in this offline build.</p>
-    <p className="panel-foot">A stable case-pack fingerprint proves which authored
-      inputs were selected for this simulation. It does not independently verify the
-      underlying country facts, news, model behavior or socioeconomic predictions.</p>
-    <JournalStamp campaign={CAMPAIGN} cursor={snapshot.cursor} version={snapshot.view_version} />
+    <p className="panel-foot">Results in the game are simulation output. Real-world facts come from the archived sources
+      above; story events are fictional. No AI wrote any of this text.</p>
+    <p className="panel-foot">The fingerprints prove which authored inputs this game uses. They don’t verify the
+      underlying facts or predict real outcomes.</p>
   </section>
 }

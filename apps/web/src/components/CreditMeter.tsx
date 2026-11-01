@@ -1,18 +1,17 @@
-import { OFFLINE_PILOT } from '../contracts'
 import { FAMILIES, committed, type Allocation } from '../game'
 import { Icon } from './Icon'
 
 const STATUS_COPY = {
-  empty: (budget: number) => `Nothing committed. Deferring keeps all ${budget} remaining credits for a later quarter.`,
+  empty: () => 'Nothing committed yet. Pick a ready-made plan, or move the sliders.',
   valid: (left: number) => left === 0
-    ? 'Every credit is committed, leaving nothing for later packages or paid audits.'
-    : `${left} credit${left === 1 ? '' : 's'} stay available for later packages or paid audits.`,
+    ? 'This commits every credit you have left, so there will be nothing new to fund in later quarters.'
+    : `${left} credit${left === 1 ? '' : 's'} stay in reserve for a later plan or an audit.`,
   over_budget: (left: number, budget: number) =>
-    `Over by ${-left}. The board can’t ratify a package that spends more than ${budget} currently available credits.`,
+    `Over by ${-left}. You only have ${budget} credit${budget === 1 ? '' : 's'} left, so the cabinet can’t approve this.`,
 } as const
 
-/** The campaign's credits as a grid of tokens, filled in family order; overspend spills past the grid. */
-export function CreditMeter({ allocation, budget = OFFLINE_PILOT.credits }: { allocation: Allocation; budget?: number }) {
+/** The budget as a grid of tokens, filled in family order; overspend spills past the grid. */
+export function CreditMeter({ allocation, budget }: { allocation: Allocation; budget: number }) {
   const total = committed(allocation)
   const left = budget - total
   const status = total === 0 ? 'empty' : total > budget ? 'over_budget' : 'valid'
@@ -28,21 +27,21 @@ export function CreditMeter({ allocation, budget = OFFLINE_PILOT.credits }: { al
     <div className={`meter meter-${status}`}>
       <div className="meter-figures">
         <div>
-          <span className="meter-label">Committed</span>
-          <strong className="meter-value">{total}<small> / {budget}</small></strong>
+          <span className="meter-label">This plan commits</span>
+          <strong className="meter-value">{total}<small> of {budget}</small></strong>
         </div>
         <div className="meter-right">
-          <span className="meter-label">{status === 'over_budget' ? 'Over budget' : 'Left for later'}</span>
+          <span className="meter-label">{status === 'over_budget' ? 'Over budget by' : 'Kept in reserve'}</span>
           <strong className="meter-value">{Math.abs(left)}</strong>
         </div>
       </div>
       <div className="tokens" role="img"
-        aria-label={`${total} of ${OFFLINE_PILOT.credits} credits committed: ${summary}`}>
+        aria-label={`${total} of ${budget} credits committed: ${summary}`}>
         {shown.map((kind, i) => <span key={i} className={`tok tok-${kind}`} />)}
       </div>
       <p className={`meter-status status-${status}`} aria-live="polite">
         <Icon name={status === 'over_budget' ? 'alert' : status === 'empty' ? 'hourglass' : 'check'} size={16} />
-        {status === 'empty' ? STATUS_COPY.empty(budget) : status === 'over_budget' ? STATUS_COPY.over_budget(left,budget) : STATUS_COPY.valid(left)}
+        {status === 'empty' ? STATUS_COPY.empty() : status === 'over_budget' ? STATUS_COPY.over_budget(left, budget) : STATUS_COPY.valid(left)}
       </p>
     </div>
   )

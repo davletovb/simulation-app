@@ -1,4 +1,4 @@
-import { SEATS, type Family } from './game'
+import { MINISTERS, type Family } from './game'
 
 /**
  * Display-only helpers for values that arrive from the Rust service. Game
@@ -48,10 +48,10 @@ export const formatPpm = (ppm: number): string => `${(ppm / 10000).toFixed(2)}%`
 
 export type SeatTone = 'finance' | Family
 
-/** Maps a wire ministry id (`finance`, `education`, `infrastructure`) onto a board seat and its colour. */
+/** Maps a wire ministry id (`finance`, `education`, `infrastructure`) onto a minister and their colour. */
 export function seatFor(ministry: string): { name: string; tone: SeatTone } {
-  const seat = SEATS.find(s => s.name.toLowerCase() === ministry.toLowerCase())
-  return { name: seat?.name ?? humanize(ministry), tone: seat?.owns ?? 'finance' }
+  const minister = MINISTERS.find(m => m.id === ministry.toLowerCase())
+  return { name: minister?.name ?? humanize(ministry), tone: minister?.owns ?? 'finance' }
 }
 
 export type PillTone = 'ok' | 'warn' | 'bad' | 'calm'
@@ -67,5 +67,17 @@ export function pillTone(word: string): PillTone {
   }
 }
 
-export const STAGE_LABEL: Record<string, string> = { first: 'First position', final: 'Final vote' }
+/** What a minister's recorded stance means, in plain words. Unknown wire values read as-is. */
+const POSITION_LABEL: Record<string, string> = {
+  support: 'Supports', conditional: 'Supports, with conditions', oppose: 'Opposes',
+}
+export const positionLabel = (word: string): string => POSITION_LABEL[word] ?? humanize(word)
+
+/** Plain names for how a quarter's decision ended. */
+const OUTCOME_LABEL: Record<string, string> = {
+  ratified: 'Approved', deferred: 'Postponed', continued: 'Programme kept',
+}
+export const outcomeLabel = (word: string): string => OUTCOME_LABEL[word] ?? humanize(word)
+
+export const STAGE_LABEL: Record<string, string> = { first: 'First reaction', final: 'Final vote' }
 export const stageLabel = (stage: string): string => STAGE_LABEL[stage] ?? humanize(stage)

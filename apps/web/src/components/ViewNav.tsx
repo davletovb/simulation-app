@@ -1,13 +1,13 @@
 import { useRef, type KeyboardEvent } from 'react'
 import { Icon, type IconName } from './Icon'
 
-export type View = 'command' | 'cabinet' | 'campaign' | 'intel'
+export type View = 'play' | 'cabinet' | 'progress' | 'sources'
 
 export const VIEWS: readonly { id: View; label: string; icon: IconName; key: string }[] = [
-  { id: 'command', label: 'Command', icon: 'command', key: '1' },
-  { id: 'cabinet', label: 'Board', icon: 'board', key: '2' },
-  { id: 'campaign', label: 'Campaign', icon: 'campaign', key: '3' },
-  { id: 'intel', label: 'Intel', icon: 'intel', key: '4' },
+  { id: 'play', label: 'Play', icon: 'command', key: '1' },
+  { id: 'cabinet', label: 'Cabinet', icon: 'board', key: '2' },
+  { id: 'progress', label: 'Progress', icon: 'campaign', key: '3' },
+  { id: 'sources', label: 'Sources', icon: 'intel', key: '4' },
 ]
 
 export const isView = (value: string | null): value is View => VIEWS.some(v => v.id === value)
@@ -30,7 +30,7 @@ export function ViewNav({ view, onChange }: { view: View; onChange: (next: View)
   }
 
   return (
-    <nav className="rail" aria-label="Game views">
+    <nav className="rail" aria-label="Game screens">
       <div role="tablist" className="rail-tabs">
         {VIEWS.map((v, i) => {
           const selected = v.id === view
