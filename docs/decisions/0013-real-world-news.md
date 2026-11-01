@@ -87,7 +87,7 @@ import events at declared checkpoints with a logged mapping and deduplication."
 - A model that reads headlines, instead of keyword rules.
 - Refreshing news in the middle of a term; the batch is taken once, at the start.
 - Real stories that stop work, send inspectors, or bring credits.
-- Groups with opposed interests: still everything moves everyone the same way.
+- Groups with opposed interests: built in stage 5, see [0014](0014-opposed-interests.md) (including real stories that help some groups and hurt others).
 
 ## To change or revert
 

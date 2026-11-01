@@ -92,7 +92,7 @@ stage 3; see [0012](0012-scrutiny-and-windfalls.md).
 ## Not built yet
 
 - **Scrutiny** (unfinished promises cost support) and **windfalls** (extra credits to spend): built in stage 3, see [0012](0012-scrutiny-and-windfalls.md).
-- **Real-world news**, and **groups with opposed interests**: as in 0010.
+- **Real-world news** and **groups with opposed interests**: built in stages 4 and 5, see [0013](0013-real-world-news.md) and [0014](0014-opposed-interests.md).
 
 ## To change or revert
 

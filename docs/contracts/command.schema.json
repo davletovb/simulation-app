@@ -396,6 +396,17 @@
         },
         "tone": {
           "$ref": "#/$defs/RealToneWire"
+        },
+        "winners": {
+          "description": "Bad news that is also a trade-off: the groups it helps, a flat gain in ppm (decision 0014). All zero otherwise.",
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "format": "uint32",
+            "minimum": 0
+          },
+          "maxItems": 6,
+          "minItems": 6
         }
       },
       "additionalProperties": false,
@@ -403,7 +414,8 @@
         "id",
         "label",
         "tone",
-        "effect"
+        "effect",
+        "winners"
       ]
     },
     "RealToneWire": {

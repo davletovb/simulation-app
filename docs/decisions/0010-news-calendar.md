@@ -74,7 +74,7 @@ and doing nothing lost the second term at 54.4%.
 - **Disruption headlines** (one kind of work delivers less for a quarter): **built in stage 2, see [0011](0011-disruption-headlines.md).**
   **Scrutiny** (unfinished promises cost support) and **windfalls** (extra credits): **built in stage 3, see [0012](0012-scrutiny-and-windfalls.md).**
 - **Real-world news:** **built in stage 4, see [0013](0013-real-world-news.md).** (The data and screens already carried a `source` field.)
-- **Groups with opposed interests.** Headlines hit groups in different amounts, but everything still moves everyone the same way.
+- **Groups with opposed interests:** **built in stage 5, see [0014](0014-opposed-interests.md)** (stories that cut both ways, and a view of who a plan helps).
 
 ## To change or revert
 

@@ -40,6 +40,12 @@ offers exactly one thing to do.
 | 5 | **You decide** | **Approve** (needs 2 of 3 ministers) or **Postpone** | `FinalPositionsFrozen`, 3 votes in | `decide` |
 | 6 | **End quarter** | Time moves on: work arrives, organisations react | `Resolved` (or a kept programme) | `advance_slice` (or `finish_continuation`) |
 
+**Who this plan helps.** Under the split controls, step 1 shows what delivering your whole plan would add to, or take from, each of
+the six groups' support, as bars and a sentence. The groups do not want the same things: the two high-income groups pay more in cost
+than they gain from Staffing and Access, rural groups gain most from Access, and every group but urban low income gains from Repairs.
+So the Balanced plan helps four groups and costs the two highest earners (about −2.7 and −0.8 points); Staffing first costs them more.
+It is a rough picture: it leaves out the news, the delay before work arrives, and a cap on how far one quarter can move a group.
+
 Step 3's "Submit revised plan" sends the amendment and then locks the plan
 automatically; the engine treats those as two committed actions, the player
 should not have to.
@@ -86,6 +92,9 @@ brings good news only.
   story. It is announced a quarter ahead like the others and can be answered. At most two a term; term 1 still has no bad news. The
   Progress screen lists every real story used, including those that matched nothing and so change nothing. The stories are frozen
   into your game when they arrive, so a saved game never changes. Set `MYTH_REAL_NEWS=off` to play with invented headlines only.
+- **From the third term some stories cut both ways.** A *trade-off* story helps some groups while it hurts others (money moved from
+  towns to villages, a tax rise, free school meals widened, small schools merged). The card says who is helped and who is hurt, with
+  the net in points. Answering one takes 60% off what is lost and leaves what is gained, and only the loss is priced.
 - **A few bring credits.** A grant or a donation adds 10 or 15 credits. They arrive when the news lands, on top of anything you have
   left, and count in every budget figure. Planning them into a running programme means a new plan (with the same restart), so they are
   most useful as a **reserve** to answer a headline with, or carried into the next term.
