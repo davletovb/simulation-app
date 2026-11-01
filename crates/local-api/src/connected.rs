@@ -15,9 +15,7 @@ use futures_util::stream;
 use myth_contracts::Allocation as WireAllocation;
 use myth_domain as d;
 use myth_domain::PolicyFamily;
-use myth_domain::reducer::{
-    ELECTION_HELD_ABOVE_PPM, ELECTION_MIN_BLOCS_PPM, ELECTION_MIN_SUPPORT_PPM,
-};
+use myth_domain::reducer::{ELECTION_HELD_ABOVE_PPM, ELECTION_MIN_SUPPORT_PPM};
 use myth_hiyal_adapter::{
     ActionKind, GameWorld,
     orchestrator::{
@@ -600,7 +598,6 @@ pub struct PublicElection {
     pub weighted_support_ppm: u32,
     pub blocs_held_ppm: u32,
     pub min_support_ppm: u32,
-    pub min_blocs_ppm: u32,
     pub held_above_ppm: u32,
 }
 impl PublicElection {
@@ -613,7 +610,6 @@ impl PublicElection {
             weighted_support_ppm: weighted,
             blocs_held_ppm: held,
             min_support_ppm: ELECTION_MIN_SUPPORT_PPM,
-            min_blocs_ppm: ELECTION_MIN_BLOCS_PPM,
             held_above_ppm: ELECTION_HELD_ABOVE_PPM,
         }
     }
@@ -3070,7 +3066,6 @@ mod tests {
         assert_eq!(view.support.group_ids.len(), 6);
         assert_eq!(view.support.group_ids[2], "urban_high");
         assert_eq!(view.election.min_support_ppm, ELECTION_MIN_SUPPORT_PPM);
-        assert_eq!(view.election.min_blocs_ppm, ELECTION_MIN_BLOCS_PPM);
         assert_eq!(view.past_elections.len(), 1);
         assert!(view.past_elections[0].won);
         assert_eq!(view.past_elections[0].weighted_support_ppm, 559_584);

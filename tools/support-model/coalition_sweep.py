@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Does the second election bar ("voters in groups backing you >= 60%") ever decide a win? (see decision 0004)
+"""Did the second election bar ("voters in groups backing you >= 60%") ever decide a win? It was removed by decision 0009
+on exactly this evidence; this script is how to re-check it, for example before bringing a coalition rule back.
 
 Plays every opening plan, and every mid-term change of course, through the engine's support model
 (`support_model.py`, which reproduces the engine to the ppm) and asks one question: is there a play that clears the

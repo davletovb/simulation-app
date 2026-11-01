@@ -8,8 +8,8 @@
   "election": {
     "held_after_every_quarters": 6,
     "min_weighted_support_ppm": 550000,
-    "min_blocs_ppm": 600000,
     "bloc_held_above_ppm": 500000,
+    "bloc_held_above_note": "a group backs the player above this; shown on screen, but only overall support decides the election",
     "on_win": "another term begins with a new allocation added to anything unspent; terms continue for as long as the player keeps winning",
     "on_loss": "game over",
     "technical_ceiling_terms": 10

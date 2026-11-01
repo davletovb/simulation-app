@@ -42,9 +42,9 @@ export function Briefing({ open, onClose }: { open: boolean; onClose: () => void
           <Icon name="banner" size={20} />
           <p><strong>Your goal: stay in power.</strong>{' '}
             After the sixth quarter the public votes. To win you need{' '}
-            {election ? <>at least {pctText(election.min_support_ppm)} overall support <em>and</em> groups backing you that hold at
-              least {pctText(election.min_blocs_ppm)} of the voters.</> : <>enough overall support <em>and</em> enough groups backing you.</>}
-            {' '}A group backs you above 50%. Delivering work earns support, but it also costs some groups more than it gives them.</p>
+            {election ? <>at least {pctText(election.min_support_ppm)} overall support.</> : <>enough overall support.</>}
+            {' '}It does not matter which groups it comes from, so you can change course and win different ones. A group backs
+            you above 50%. Delivering work earns support, but it also costs some groups more than it gives them.</p>
         </div>
 
         <div className="briefing-rule">

@@ -29,8 +29,9 @@ CALIBRATIONS = {
     'v1': dict(base=[500, 400, 750, 400], mag=100, clamp=8000),
     'v2': dict(base=[3200, 2800, 3000, 2000], mag=100, clamp=40000),
 }
-# Election bars (decision 0004, provisional): overall support and the share of voters in blocs above 50%.
-BAR_SUPPORT_PCT, BAR_BLOCS_PCT = 55.0, 60.0
+# The election bar (decisions 0004 and 0009): overall support alone decides. The share of voters in groups above
+# 50% is still printed, but only as information.
+BAR_SUPPORT_PCT = 55.0
 
 
 def trunc_div(a, b):
@@ -92,7 +93,7 @@ def table(runs, title, params):
     for name, rows in runs.items():
         sup, w, _ = play([r['cum'] for r in rows], settle=True, **params)
         held = sum(W[i] for i in range(6) if sup[i] > 500000) / 1e4
-        win = w / 1e4 >= BAR_SUPPORT_PCT and held >= BAR_BLOCS_PCT
+        win = w / 1e4 >= BAR_SUPPORT_PCT
         print(f"{name:32}{sum(rows[-1]['cum']):5}{w / 1e4:8.2f}%{held:11.0f}%  " + ' '.join(f'{s / 1e4:5.1f}' for s in sup)
               + ('  WIN' if win else '  lose'))
 
@@ -104,4 +105,4 @@ if __name__ == '__main__':
     for version, params in CALIBRATIONS.items():
         if (HERE / f'captured_runs_{version}.json').exists():
             table(load(version), f"{version}: election night counts the final quarter; win = support >= {BAR_SUPPORT_PCT:g}% "
-                  f"and blocs worth >= {BAR_BLOCS_PCT:g}% of voters", params)
+                  f"(voters held is information only)", params)

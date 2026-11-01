@@ -69,7 +69,6 @@ export interface Snapshot {
     weighted_support_ppm: number
     blocs_held_ppm: number
     min_support_ppm: number
-    min_blocs_ppm: number
     held_above_ppm: number
   }
   news: {

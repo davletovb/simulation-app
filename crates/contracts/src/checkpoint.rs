@@ -917,11 +917,8 @@ mod p2_frozen_pack_tests {
             Some(u64::from(myth_domain::reducer::ELECTION_MIN_SUPPORT_PPM)),
             "support bar drift"
         );
-        assert_eq!(
-            election["min_blocs_ppm"].as_u64(),
-            Some(u64::from(myth_domain::reducer::ELECTION_MIN_BLOCS_PPM)),
-            "blocs bar drift"
-        );
+        // Only overall support decides (decision 0009): a second, coalition bar must not creep back into the data.
+        assert!(election.get("min_blocs_ppm").is_none());
         assert_eq!(
             election["bloc_held_above_ppm"].as_u64(),
             Some(u64::from(myth_domain::reducer::ELECTION_HELD_ABOVE_PPM)),

@@ -79,7 +79,7 @@ function validElection(election, held) {
     election.ceiling === (election.term === MAX_TERMS) &&
     sixOf(election.settled_group_ppm, ppm) &&
     ppm(election.weighted_support_ppm) && ppm(election.blocs_held_ppm) &&
-    ppm(election.min_support_ppm) && ppm(election.min_blocs_ppm) && ppm(election.held_above_ppm)
+    ppm(election.min_support_ppm) && ppm(election.held_above_ppm)
 }
 
 /**

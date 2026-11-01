@@ -196,7 +196,7 @@ def authoring_checks(authored):
     need(election["held_after_every_quarters"] == authored["quarters"], "election timing")
     need(election["technical_ceiling_terms"] >= 1, "term ceiling")
     need(0 < election["bloc_held_above_ppm"] < election["min_weighted_support_ppm"] <= 1_000_000, "election bars")
-    need(0 < election["min_blocs_ppm"] <= 1_000_000, "election blocs bar")
+    need("min_blocs_ppm" not in election, "only overall support decides the election (decision 0009)")
     need(authored["board"]["support_votes_required"] == 2, "two-thirds vote")
     need(len(authored["board"]["ministers"]) == 3, "not three ministers")
     board = authored["board"]

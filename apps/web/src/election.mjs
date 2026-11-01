@@ -42,24 +42,35 @@ export function pointsText(deltaPpm) {
   return `${points > 0 ? '+' : '−'}${Math.abs(points).toFixed(1)}`
 }
 
-/** The two bars, each with how far the player got and whether it was met. */
-export function bars(election) {
-  return [
-    {
-      key: 'support',
-      label: 'Overall support',
-      value: election.weighted_support_ppm,
-      need: election.min_support_ppm,
-      met: election.weighted_support_ppm >= election.min_support_ppm,
-    },
-    {
-      key: 'blocs',
-      label: 'Voters in groups backing you',
-      value: election.blocs_held_ppm,
-      need: election.min_blocs_ppm,
-      met: election.blocs_held_ppm >= election.min_blocs_ppm,
-    },
-  ]
+/**
+ * The one bar an election is judged on: overall support, how far the player got and whether it was met. Which
+ * groups the support comes from does not matter, so a player can change course and win different ones (0009).
+ */
+export function supportBar(election) {
+  return {
+    key: 'support',
+    label: 'Overall support',
+    value: election.weighted_support_ppm,
+    need: election.min_support_ppm,
+    met: election.weighted_support_ppm >= election.min_support_ppm,
+  }
+}
+
+/**
+ * Which groups are behind the player, as information only: it never decides the election. A group backs the
+ * player strictly above `held_above_ppm`. When every group still sits at exactly the starting 50% nobody has
+ * taken a side, which is not the same as everyone being against the player.
+ *
+ * @returns {{ groups: number, of: number, voters: number, neutral: boolean, text: string }}
+ */
+export function backing(election) {
+  const settled = election.settled_group_ppm
+  const groups = settled.filter(ppm => ppm > election.held_above_ppm).length
+  const neutral = settled.every(ppm => ppm === election.held_above_ppm)
+  const text = neutral ? 'No group has taken a side yet.'
+    : groups === 0 ? 'No group backs you yet.'
+    : `${groups} of ${settled.length} group${groups === 1 ? '' : 's'} back${groups === 1 ? 's' : ''} you, holding ${pctText(election.blocs_held_ppm)} of the voters.`
+  return { groups, of: settled.length, voters: election.blocs_held_ppm, neutral, text }
 }
 
 /**
@@ -79,7 +90,6 @@ export function isCeiling(election) {
  * @returns {{ key: 'reelected'|'tenure'|'narrow'|'heavy'|'on-course'|'behind', label: string, final: boolean, won: boolean, ceiling: boolean }}
  */
 export function verdict(election) {
-  const both = bars(election).every(b => b.met)
   const ceiling = isCeiling(election)
   if (election.status === 'won') {
     return ceiling
@@ -91,32 +101,28 @@ export function verdict(election) {
       ? { key: 'narrow', label: 'Narrow defeat', final: true, won: false, ceiling }
       : { key: 'heavy', label: 'Heavy defeat', final: true, won: false, ceiling }
   }
-  return both
+  return supportBar(election).met
     ? { key: 'on-course', label: 'On course to win', final: false, won: true, ceiling }
     : { key: 'behind', label: 'Behind', final: false, won: false, ceiling }
 }
 
-/** The headline and one sentence of explanation, naming the bar that decided it. */
+/** The headline and one sentence of explanation. */
 export function headline(election) {
   const v = verdict(election)
-  const [support, blocs] = bars(election)
+  const support = supportBar(election)
   const supportText = `${pctText(support.value)} overall support`
-  const blocsText = `${pctText(blocs.value)} of voters in groups behind you`
   if (v.key === 'reelected' || v.key === 'tenure') {
-    const cleared = `${supportText} (${pctText(support.need)} needed) and ${blocsText} (${pctText(blocs.need)} needed)`
+    const cleared = `${supportText} (${pctText(support.need)} needed)`
     return v.key === 'reelected'
-      ? { title: 'You’ve been re-elected', lede: `You cleared both bars: ${cleared}.` }
+      ? { title: 'You’ve been re-elected', lede: `You cleared the bar: ${cleared}.` }
       : {
           title: 'The longest tenure on record',
-          lede: `You cleared both bars again: ${cleared}. You have served ${election.term} terms, the most this version can record, so your time in office ends here.`,
+          lede: `You cleared the bar again: ${cleared}. You have served ${election.term} terms, the most this version can record, so your time in office ends here.`,
         }
   }
-  const missed = []
-  if (!support.met) missed.push(`${supportText} was short of the ${pctText(support.need)} you needed`)
-  if (!blocs.met) missed.push(`only ${blocsText} (${pctText(blocs.need)} needed)`)
-  const why = missed.join(', and ')
+  const why = `${supportText} was short of the ${pctText(support.need)} you needed`
   if (v.key === 'narrow') return { title: 'A narrow defeat', lede: `So close: ${why}.` }
-  if (v.key === 'heavy') return { title: 'A heavy defeat', lede: `${why.charAt(0).toUpperCase()}${why.slice(1)}.` }
+  if (v.key === 'heavy') return { title: 'A heavy defeat', lede: `${why}.` }
   return {
     title: v.won ? 'On course to win' : 'Behind',
     lede: v.won ? 'If the election were held now, you would win.' : `If the election were held now you would lose: ${why}.`,

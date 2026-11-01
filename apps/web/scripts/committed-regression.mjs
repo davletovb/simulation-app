@@ -75,7 +75,7 @@ const completeSseFrame = (cursor='17') => ({
     term:1,term_quarters:6,past_elections:[],
     election:{status:'projected',term:1,ceiling:false,settled_group_ppm:[500000,500000,500000,500000,500000,500000],
       weighted_support_ppm:500000,blocs_held_ppm:0,
-      min_support_ppm:550000,min_blocs_ppm:600000,held_above_ppm:500000},
+      min_support_ppm:550000,held_above_ppm:500000},
     comparison:{mode:'primary_campaign',source_campaign_id:null,source_cursor:null,
       inherited_shock_stream:false,post_fork_actor_actions_fixed:false},
     evidence:{case_pack:'england-school-delivery-v1',source_cutoff_utc:'2026-10-29T23:59:59Z',

@@ -1,14 +1,14 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  GROUP_LABELS, NARROW_DEFEAT_PPM, bars, groups, headline, isCeiling, leftBehind, legacy, pct, pctText, pointsText, shortByText, verdict,
+  GROUP_LABELS, NARROW_DEFEAT_PPM, backing, groups, headline, isCeiling, leftBehind, legacy, pct, pctText, pointsText, shortByText, supportBar, verdict,
 } from '../src/election.mjs'
 
 /** A won election: the real engine's numbers for Balanced in Q1 (see tools/support-model). */
 const settled = [571800, 602000, 472200, 579240, 615600, 491960]
 const election = (over = {}) => ({
   status: 'won', term: 1, ceiling: false, settled_group_ppm: settled, weighted_support_ppm: 559584, blocs_held_ppm: 730000,
-  min_support_ppm: 550000, min_blocs_ppm: 600000, held_above_ppm: 500000, ...over,
+  min_support_ppm: 550000, held_above_ppm: 500000, ...over,
 })
 const snapshot = (over = {}, treasury = {}) => ({
   support: {
@@ -40,13 +40,37 @@ test('changes in points truncate toward zero and carry a real minus sign', () =>
   assert.equal(pointsText(-500), '0.0')
 })
 
-test('each bar is met on its own terms and at exactly the line', () => {
-  const [support, blocs] = bars(election({ weighted_support_ppm: 550000, blocs_held_ppm: 600000 }))
-  assert.equal(support.met, true)
-  assert.equal(blocs.met, true)
-  const [s2, b2] = bars(election({ weighted_support_ppm: 549999, blocs_held_ppm: 599999 }))
-  assert.equal(s2.met, false)
-  assert.equal(b2.met, false)
+test('the one bar is met at exactly the line and not a ppm below it', () => {
+  assert.equal(supportBar(election({ weighted_support_ppm: 550000 })).met, true)
+  assert.equal(supportBar(election({ weighted_support_ppm: 549999 })).met, false)
+  assert.equal(supportBar(election()).need, 550000)
+})
+
+test('which groups carry the result never matters: only overall support decides (decision 0009)', () => {
+  // The same overall support wins however many voters sit in groups that back you, even none or all of them.
+  for (const blocs of [0, 540000, 730000, 1000000]) {
+    assert.equal(verdict(election({ status: 'projected', blocs_held_ppm: blocs })).key, 'on-course', `blocs ${blocs}`)
+    assert.equal(verdict(election({ status: 'won', blocs_held_ppm: blocs })).key, 'reelected', `blocs ${blocs}`)
+  }
+  // ...and plenty of backing cannot rescue a result below the bar.
+  assert.equal(verdict(election({ status: 'projected', weighted_support_ppm: 549999, blocs_held_ppm: 1000000 })).key, 'behind')
+  assert.equal(verdict(election({ status: 'lost', weighted_support_ppm: 549999, blocs_held_ppm: 1000000 })).key, 'narrow')
+})
+
+test('the groups line is information in plain words, and "nobody has taken a side" is not "everyone is against you"', () => {
+  const at = settled_group_ppm => backing(election({ settled_group_ppm, blocs_held_ppm: 0 }))
+  // The very start: every group sits at exactly 50%. Not a failure to be alarmed about.
+  assert.equal(at([500000, 500000, 500000, 500000, 500000, 500000]).text, 'No group has taken a side yet.')
+  assert.equal(at([500000, 500000, 500000, 500000, 500000, 500000]).neutral, true)
+  // Groups that moved against you are not neutral.
+  const against = at([480000, 490000, 450000, 500000, 500000, 500000])
+  assert.equal(against.neutral, false)
+  assert.equal(against.text, 'No group backs you yet.')
+  const some = backing(election({ settled_group_ppm: [571800, 602000, 472200, 579240, 615600, 491960], blocs_held_ppm: 730000 }))
+  assert.equal(some.groups, 4)
+  assert.equal(some.text, '4 of 6 groups back you, holding 73.0% of the voters.')
+  const one = backing(election({ settled_group_ppm: [500001, 500000, 500000, 500000, 500000, 500000], blocs_held_ppm: 260000 }))
+  assert.equal(one.text, '1 of 6 group backs you, holding 26.0% of the voters.')
 })
 
 test('a result is re-elected, a narrow defeat or a heavy defeat; narrow starts at 52%', () => {
@@ -91,26 +115,19 @@ test('while the campaign runs the verdict is an outlook, never a result', () => 
   assert.equal(now().key, 'on-course')
   assert.equal(now().final, false)
   assert.equal(now({ weighted_support_ppm: 540000 }).key, 'behind')
-  assert.equal(now({ blocs_held_ppm: 500000 }).key, 'behind')
 })
 
-test('the explanation names the bar that was missed, and only that bar', () => {
+test('the explanation says how far overall support got, and mentions nothing else', () => {
   const won = headline(election())
-  assert.match(won.lede, /55\.9% overall support/)
-  assert.match(won.lede, /73\.0% of voters/)
-  // Narrow defeat because support fell short while the coalition was fine.
+  assert.equal(won.lede, 'You cleared the bar: 55.9% overall support (55.0% needed).')
   const shortOnSupport = headline(election({ status: 'lost', weighted_support_ppm: 541000, blocs_held_ppm: 730000 }))
   assert.equal(shortOnSupport.title, 'A narrow defeat')
-  assert.match(shortOnSupport.lede, /54\.1% overall support was short of the 55\.0% you needed/)
-  assert.doesNotMatch(shortOnSupport.lede, /only/)
-  // Warm but narrow: support is enough, the coalition is not.
-  const narrowCoalition = headline(election({ status: 'lost', weighted_support_ppm: 562000, blocs_held_ppm: 540000 }))
-  assert.match(narrowCoalition.lede, /only 54\.0% of voters in groups behind you \(60\.0% needed\)/)
-  assert.doesNotMatch(narrowCoalition.lede, /short of the/)
-  // Missing both says both.
-  const both = headline(election({ status: 'lost', weighted_support_ppm: 500000, blocs_held_ppm: 0 }))
-  assert.equal(both.title, 'A heavy defeat')
-  assert.match(both.lede, /short of the 55\.0% you needed, and only 0\.0% of voters/)
+  assert.equal(shortOnSupport.lede, 'So close: 54.1% overall support was short of the 55.0% you needed.')
+  const heavy = headline(election({ status: 'lost', weighted_support_ppm: 500000, blocs_held_ppm: 0 }))
+  assert.equal(heavy.title, 'A heavy defeat')
+  assert.equal(heavy.lede, '50.0% overall support was short of the 55.0% you needed.')
+  // A defeat never talks about a coalition: that bar no longer exists.
+  assert.doesNotMatch(`${shortOnSupport.lede} ${heavy.lede}`, /voters|groups|coalition|bars/i)
 })
 
 test('groups come back in the engine order with labels, strict holding and what is queued', () => {

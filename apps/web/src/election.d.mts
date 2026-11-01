@@ -15,13 +15,18 @@ export interface ElectionLike {
   ceiling: boolean
   settled_group_ppm: readonly number[]
   weighted_support_ppm: number
+  /** Voters in groups backing the player. Information only: it plays no part in who wins. */
   blocs_held_ppm: number
   min_support_ppm: number
-  min_blocs_ppm: number
   held_above_ppm: number
 }
-export interface Bar { key: 'support' | 'blocs'; label: string; value: number; need: number; met: boolean }
-export function bars(election: ElectionLike): [Bar, Bar]
+export interface Bar { key: 'support'; label: string; value: number; need: number; met: boolean }
+/** The one bar an election is judged on. */
+export function supportBar(election: ElectionLike): Bar
+
+export interface Backing { groups: number; of: number; voters: number; neutral: boolean; text: string }
+/** Which groups are behind the player, as information only. */
+export function backing(election: ElectionLike): Backing
 
 /** The election at the engine's limit: winning it ends the game instead of starting another term. */
 export function isCeiling(election: ElectionLike): boolean
