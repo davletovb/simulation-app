@@ -68,6 +68,13 @@ const completeSseFrame = (cursor='17') => ({
     treasury:{available_credits:100,encumbered_staff:0,encumbered_repairs:0,
       encumbered_access:0,service_spent:0,audit_spent:0},
     decisions:[],news:[],delivery_history:[],
+    support:{group_ids:['urban_low','urban_middle','urban_high','rural_low','rural_middle','rural_high'],
+      group_ppm:[500000,500000,500000,500000,500000,500000],
+      pending_delta_ppm:[0,0,0,0,0,0],
+      weight_ppm:[260000,320000,220000,70000,80000,50000]},
+    election:{status:'projected',settled_group_ppm:[500000,500000,500000,500000,500000,500000],
+      weighted_support_ppm:500000,blocs_held_ppm:0,
+      min_support_ppm:550000,min_blocs_ppm:600000,held_above_ppm:500000},
     comparison:{mode:'primary_campaign',source_campaign_id:null,source_cursor:null,
       inherited_shock_stream:false,post_fork_actor_actions_fixed:false},
     evidence:{case_pack:'england-school-delivery-v1',source_cutoff_utc:'2026-10-29T23:59:59Z',
@@ -98,4 +105,55 @@ test('real committed SSE envelope validates after cursor 12 to 17 transition',()
   const malformedSnapshot=completeSseFrame()
   malformedSnapshot.snapshot.cursor='17\n'
   assert.equal(validSnapshot(malformedSnapshot,'demo-england'),false)
+})
+
+test('per-group support and the election are validated, so a malformed result never reaches the screen',()=>{
+  const ok = () => completeSseFrame()
+  assert.equal(validSnapshot(ok(),'demo-england'),true)
+  const bad = (name, change) => {
+    const frame = ok(); change(frame.snapshot)
+    assert.equal(validSnapshot(frame,'demo-england'),false,name)
+  }
+  bad('five groups instead of six', s => { s.support.group_ppm.pop() })
+  bad('voter shares that do not sum to a million', s => { s.support.weight_ppm[0] -= 1 })
+  bad('support above 100%', s => { s.support.group_ppm[2] = 1000001 })
+  bad('a fractional support value', s => { s.support.group_ppm[2] = 500000.5 })
+  bad('unknown election status', s => { s.election.status = 'draw' })
+  bad('a verdict while the campaign is still running', s => { s.election.status = 'won' })
+  bad('still a projection after the campaign closed', s => { s.closed = true })
+  bad('queued change that is not settled minus current', s => {
+    s.election.settled_group_ppm[1] = 510000
+    s.support.pending_delta_ppm[1] = 9999
+  })
+  bad('missing election', s => { delete s.election })
+  bad('missing support', s => { delete s.support })
+})
+
+test('a closed campaign carries a verdict, and a queued mood change is accepted when it adds up',()=>{
+  const closed = completeSseFrame()
+  Object.assign(closed.snapshot, { closed: true })
+  closed.snapshot.election.status = 'lost'
+  assert.equal(validSnapshot(closed,'demo-england'),true)
+  closed.snapshot.election.status = 'won'
+  assert.equal(validSnapshot(closed,'demo-england'),true)
+  const queued = completeSseFrame()
+  queued.snapshot.election.settled_group_ppm = [520000,500000,480000,500000,500000,500000]
+  queued.snapshot.support.pending_delta_ppm = [20000,0,-20000,0,0,0]
+  assert.equal(validSnapshot(queued,'demo-england'),true)
+})
+
+test('the zeroed integrity-failure frame is still accepted, but only that frame may carry zero voter shares',()=>{
+  const failed = completeSseFrame()
+  Object.assign(failed.snapshot, { phase:'IntegrityFailure', quarter:0, news:[] })
+  failed.snapshot.comparison.mode = 'verification_failed'
+  failed.snapshot.evidence.indicators = []
+  failed.snapshot.support.group_ppm = [0,0,0,0,0,0]
+  failed.snapshot.support.weight_ppm = [0,0,0,0,0,0]
+  failed.snapshot.election.settled_group_ppm = [0,0,0,0,0,0]
+  failed.snapshot.election.weighted_support_ppm = 0
+  failed.operation = { campaign_id:'demo-england', command_id:'op-1', status:'failed', committed_cursor:null, message:'x' }
+  assert.equal(validSnapshot(failed,'demo-england'),true)
+  const normal = completeSseFrame()
+  normal.snapshot.support.weight_ppm = [0,0,0,0,0,0]
+  assert.equal(validSnapshot(normal,'demo-england'),false)
 })

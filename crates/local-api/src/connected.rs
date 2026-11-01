@@ -14,6 +14,9 @@ use axum::{
 use futures_util::stream;
 use myth_contracts::Allocation as WireAllocation;
 use myth_domain::PolicyFamily;
+use myth_domain::reducer::{
+    ELECTION_HELD_ABOVE_PPM, ELECTION_MIN_BLOCS_PPM, ELECTION_MIN_SUPPORT_PPM,
+};
 use myth_hiyal_adapter::{
     ActionKind, GameWorld,
     orchestrator::{
@@ -557,6 +560,52 @@ pub struct PublicEvidence {
     pub scope: String,
     pub indicators: Vec<PublicIndicator>,
 }
+/// The six groups, in the order used for every per-group array in the snapshot.
+const GROUP_IDS: [&str; 6] = [
+    "urban_low",
+    "urban_middle",
+    "urban_high",
+    "rural_low",
+    "rural_middle",
+    "rural_high",
+];
+/// How the public feels, group by group. Every array follows `group_ids`.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct PublicSupport {
+    pub group_ids: Vec<String>,
+    /// Support as of the last resolved quarter, in parts per million (500,000 is 50%).
+    pub group_ppm: [u32; 6],
+    /// What is already queued to land: settled support minus current support. At most one quarter
+    /// of delivery is ever pending, so this is next quarter's change of mood.
+    pub pending_delta_ppm: [i32; 6],
+    /// Each group's share of the voters, in parts per million. Sums to 1,000,000.
+    pub weight_ppm: [u32; 6],
+}
+/// What an election would return. `projected` while the campaign is running (every queued response
+/// lands, nothing new is delivered); `won` or `lost` once it has closed.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct PublicElection {
+    pub status: String,
+    pub settled_group_ppm: [u32; 6],
+    pub weighted_support_ppm: u32,
+    pub blocs_held_ppm: u32,
+    pub min_support_ppm: u32,
+    pub min_blocs_ppm: u32,
+    pub held_above_ppm: u32,
+}
+impl PublicElection {
+    fn bars(status: &str, settled: [u32; 6], weighted: u32, held: u32) -> Self {
+        Self {
+            status: status.into(),
+            settled_group_ppm: settled,
+            weighted_support_ppm: weighted,
+            blocs_held_ppm: held,
+            min_support_ppm: ELECTION_MIN_SUPPORT_PPM,
+            min_blocs_ppm: ELECTION_MIN_BLOCS_PPM,
+            held_above_ppm: ELECTION_HELD_ABOVE_PPM,
+        }
+    }
+}
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct PublicView {
     pub schema_version: u16,
@@ -573,6 +622,8 @@ pub struct PublicView {
     pub treasury: PublicTreasury,
     pub decisions: Vec<PublicDecision>,
     pub delivery_history: Vec<PublicDelivery>,
+    pub support: PublicSupport,
+    pub election: PublicElection,
     pub news: Vec<PublicNews>,
     pub comparison: PublicComparison,
     pub evidence: PublicEvidence,
@@ -723,6 +774,37 @@ fn capture(trial: &GameTrial) -> Result<PublicView, String> {
     {
         return Err("invalid public quarterly report sequence".into());
     }
+    let current: [u32; 6] = (*campaign.world().support()).map(|cell| cell.value());
+    let election = campaign
+        .election_projection()
+        .map_err(|reason| format!("election projection failed: {reason:?}"))?;
+    let mut pending_delta_ppm = [0_i32; 6];
+    for (delta, (settled, now)) in pending_delta_ppm
+        .iter_mut()
+        .zip(election.group_support_ppm.iter().zip(current.iter()))
+    {
+        *delta = i32::try_from(i64::from(*settled) - i64::from(*now))
+            .map_err(|_| "pending support change out of range".to_string())?;
+    }
+    let status = if !world.is_closed() {
+        "projected"
+    } else if election.is_win() {
+        "won"
+    } else {
+        "lost"
+    };
+    let support = PublicSupport {
+        group_ids: GROUP_IDS.iter().map(|id| (*id).to_owned()).collect(),
+        group_ppm: current,
+        pending_delta_ppm,
+        weight_ppm: *campaign.world().cohort_weights().parts_ppm(),
+    };
+    let election = PublicElection::bars(
+        status,
+        election.group_support_ppm,
+        election.weighted_support_ppm,
+        election.blocs_held_ppm,
+    );
     let fiscal = PublicTreasury {
         available_credits: treasury.available(),
         encumbered_staff: treasury.encumbered(PolicyFamily::Staffing),
@@ -746,6 +828,8 @@ fn capture(trial: &GameTrial) -> Result<PublicView, String> {
         treasury:fiscal,
         decisions,
         delivery_history,
+        support,
+        election,
         news: frozen_news(&world.source_cutoff_utc)?,
         comparison: PublicComparison {
             mode: "primary_campaign".into(),
@@ -1059,6 +1143,13 @@ fn schedule(owner: Arc<Owner>) {
                         },
                         decisions: vec![],
                         delivery_history: vec![],
+                        support: PublicSupport {
+                            group_ids: GROUP_IDS.iter().map(|id| (*id).to_owned()).collect(),
+                            group_ppm: [0; 6],
+                            pending_delta_ppm: [0; 6],
+                            weight_ppm: [0; 6],
+                        },
+                        election: PublicElection::bars("projected", [0; 6], 0, 0),
                         news: vec![],
                         comparison: PublicComparison {
                             mode: "verification_failed".into(),
@@ -2826,6 +2917,84 @@ mod tests {
             saved.cursor
         );
         drop(recovered);
+        fs::remove_dir_all(dir).unwrap();
+    }
+    #[tokio::test]
+    async fn election_night_is_published_and_matches_the_independent_replica() {
+        let dir = root();
+        let service = Connected::new(dir.clone()).unwrap();
+        let alloc = WireAllocation {
+            staff: 50,
+            repairs: 40,
+            access: 10,
+        };
+        // The player's own path: propose, hear reactions, lock, final votes, approve, end the quarter.
+        let mut serial = 1_usize; // the id of the next command
+        let mut view = accepted_step(
+            &service,
+            "term",
+            CommandKind::Propose { allocation: alloc },
+            serial,
+        )
+        .await;
+        for kind in [
+            CommandKind::AdvanceSlice,
+            CommandKind::AdvanceSlice,
+            CommandKind::AdvanceSlice,
+            CommandKind::Decide { ratify: true },
+            CommandKind::AdvanceSlice,
+        ] {
+            serial += 1;
+            view = accepted_step(&service, "term", kind, serial).await;
+        }
+        // Q2 is open and the campaign is running: the election is only a projection.
+        assert_eq!(view.quarter, 2);
+        assert!(!view.closed);
+        assert_eq!(view.election.status, "projected");
+        assert_eq!(view.support.group_ppm, [500_000; 6]);
+        // Q1's access work has been delivered and its response is queued: that is the "mood to come".
+        assert!(view.support.pending_delta_ppm.iter().any(|d| *d != 0));
+        // Then keep the programme for the other five quarters.
+        for _ in 2..=6 {
+            serial += 1;
+            accepted_step(&service, "term", CommandKind::ContinueQuarter, serial).await;
+            serial += 1;
+            view = accepted_step(&service, "term", CommandKind::FinishContinuation, serial).await;
+        }
+        assert!(view.closed);
+        // Expected values come from tools/support-model, an independent implementation.
+        assert_eq!(view.election.status, "won");
+        assert_eq!(
+            view.election.settled_group_ppm,
+            [571_800, 602_000, 472_200, 579_240, 615_600, 491_960]
+        );
+        assert_eq!(view.election.weighted_support_ppm, 559_584);
+        assert_eq!(view.election.blocs_held_ppm, 730_000);
+        // Before the election the last quarter's response has not landed yet.
+        assert_eq!(
+            view.support.group_ppm,
+            [570_120, 591_600, 472_280, 571_536, 598_080, 483_824]
+        );
+        for i in 0..6 {
+            assert_eq!(
+                i64::from(view.support.pending_delta_ppm[i]),
+                i64::from(view.election.settled_group_ppm[i])
+                    - i64::from(view.support.group_ppm[i])
+            );
+        }
+        assert_eq!(
+            view.support.weight_ppm,
+            [260_000, 320_000, 220_000, 70_000, 80_000, 50_000]
+        );
+        assert_eq!(view.support.weight_ppm.iter().sum::<u32>(), 1_000_000);
+        assert_eq!(view.support.group_ids.len(), 6);
+        assert_eq!(view.support.group_ids[2], "urban_high");
+        assert_eq!(view.election.min_support_ppm, ELECTION_MIN_SUPPORT_PPM);
+        assert_eq!(view.election.min_blocs_ppm, ELECTION_MIN_BLOCS_PPM);
+        // What the browser receives.
+        let wire = serde_json::to_value(&view).unwrap();
+        assert_eq!(wire["election"]["status"], "won");
+        assert_eq!(wire["support"]["group_ids"][5], "rural_high");
         fs::remove_dir_all(dir).unwrap();
     }
 }

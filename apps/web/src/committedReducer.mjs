@@ -42,6 +42,33 @@ export function validCommittedCursor(value) {
   return typeof value === 'string' && /^[0-9]+$/.exec(value)?.[0] === value
 }
 
+const GROUPS = 6
+const ppm = n => Number.isInteger(n) && n >= 0 && n <= 1000000
+const sixOf = (list, ok) => Array.isArray(list) && list.length === GROUPS && list.every(ok)
+
+/**
+ * Public mood of the six groups. The voters' shares sum to a million; the only frame allowed to carry
+ * zero shares is the zeroed integrity-failure frame, which is never played from.
+ */
+function validSupport(support, integrityFailure) {
+  if (!support) return false
+  const shares = Array.isArray(support.weight_ppm) ? support.weight_ppm.reduce((a, b) => a + b, 0) : NaN
+  return sixOf(support.group_ids, id => typeof id === 'string' && id.length > 0) &&
+    sixOf(support.group_ppm, ppm) &&
+    sixOf(support.pending_delta_ppm, n => Number.isInteger(n) && Math.abs(n) <= 1000000) &&
+    sixOf(support.weight_ppm, ppm) &&
+    (shares === 1000000 || (integrityFailure && shares === 0))
+}
+
+/** The election result: a projection while the campaign runs, a verdict once it has closed. */
+function validElection(election, closed) {
+  return !!election && ['projected', 'won', 'lost'].includes(election.status) &&
+    (election.status === 'projected') === !closed &&
+    sixOf(election.settled_group_ppm, ppm) &&
+    ppm(election.weighted_support_ppm) && ppm(election.blocs_held_ppm) &&
+    ppm(election.min_support_ppm) && ppm(election.min_blocs_ppm) && ppm(election.held_above_ppm)
+}
+
 /** Validate the real SSE/snapshot envelope before admitting it to the cache. */
 export function validSnapshot(raw, campaignId) {
   if (typeof raw !== 'object' || raw === null) return false
@@ -87,5 +114,9 @@ export function validSnapshot(raw, campaignId) {
     s.evidence.indicators.every(item=>typeof item.variable_id==='string' &&
       typeof item.display_value==='string' && typeof item.source_url==='string' &&
       item.source_url.startsWith('https://') && Array.isArray(item.quality_flags)) &&
+    validSupport(s.support, s.comparison.mode==='verification_failed') &&
+    validElection(s.election, s.closed) &&
+    // What is queued to land is exactly settled support minus current support.
+    s.support.pending_delta_ppm.every((d,i)=>d===s.election.settled_group_ppm[i]-s.support.group_ppm[i]) &&
     !!s.treasury && Object.values(s.treasury).every(n=>Number.isInteger(n) && n>=0 && n<=100)
 }

@@ -35,6 +35,59 @@ pub const RESPONSE_CLIP_PPM: i64 = 40_000;
 /// The most one scripted exogenous event can move one group's support, either way (was 8_000).
 pub const SHOCK_CAP_PPM: u32 = 40_000;
 
+/// Election bars (decision 0004, provisional): win with at least this overall support...
+pub const ELECTION_MIN_SUPPORT_PPM: u32 = 550_000;
+/// ...and with groups worth at least this share of the voters above [`ELECTION_HELD_ABOVE_PPM`].
+pub const ELECTION_MIN_BLOCS_PPM: u32 = 600_000;
+/// A group is "held" only if its support is strictly above this.
+pub const ELECTION_HELD_ABOVE_PPM: u32 = 500_000;
+
+/// What an election would return. The bars only read a final state and never change how the game
+/// evolves, so they are deliberately **not** part of the hashed scenario file: re-tuning them does not
+/// invalidate saved games (decision 0006).
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ElectionProjection {
+    /// Support per group once every queued response has landed (urban low, middle, high, then rural).
+    pub group_support_ppm: [u32; 6],
+    /// Overall support: the groups' support weighted by their share of the voters.
+    pub weighted_support_ppm: u32,
+    /// Share of the voters (ppm) that sit in groups held above [`ELECTION_HELD_ABOVE_PPM`].
+    pub blocs_held_ppm: u32,
+}
+impl ElectionProjection {
+    pub fn meets_support_bar(&self) -> bool {
+        self.weighted_support_ppm >= ELECTION_MIN_SUPPORT_PPM
+    }
+    pub fn meets_blocs_bar(&self) -> bool {
+        self.blocs_held_ppm >= ELECTION_MIN_BLOCS_PPM
+    }
+    /// Both bars must be met: high overall support alone can hide a narrow coalition.
+    pub fn is_win(&self) -> bool {
+        self.meets_support_bar() && self.meets_blocs_bar()
+    }
+}
+/// The election rule as a pure function of the six groups' support and their voter shares.
+pub fn evaluate_election(
+    group_support_ppm: [u32; 6],
+    weights: &CohortWeights,
+) -> Result<ElectionProjection, Rejection> {
+    let shares = weights.parts_ppm();
+    let mut weighted = 0_u128;
+    let mut held = 0_u32;
+    for (support, share) in group_support_ppm.iter().zip(shares.iter()) {
+        weighted += u128::from(*support) * u128::from(*share);
+        if *support > ELECTION_HELD_ABOVE_PPM {
+            held = held.checked_add(*share).ok_or(Rejection::Arithmetic)?;
+        }
+    }
+    Ok(ElectionProjection {
+        group_support_ppm,
+        weighted_support_ppm: u32::try_from(weighted / 1_000_000)
+            .map_err(|_| Rejection::Arithmetic)?,
+        blocs_held_ppm: held,
+    })
+}
+
 /// Authored, immutable per-run offline mechanism assumptions.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Rules {
@@ -273,6 +326,14 @@ impl Campaign {
             }
         }
         Ok((cells, pending.len()))
+    }
+
+    /// The election if it were held now: every response already queued lands first (the last
+    /// quarter's work counts) and nothing new is delivered. Once the campaign is over this is the
+    /// result; before that it is a projection. It reads state and never changes it.
+    pub fn election_projection(&self) -> Result<ElectionProjection, Rejection> {
+        let (settled, _) = self.settle_pending_support()?;
+        evaluate_election(settled, self.world.cohort_weights())
     }
 
     pub(crate) fn reports(&self) -> &[QuarterReport] {
@@ -2210,5 +2271,88 @@ mod tests {
         assert_eq!(loudest, RESPONSE_CLIP_PPM);
         let harshest = cohort_response_scaled(2, [100, 0, 0], 150).unwrap();
         assert_eq!(harshest, -RESPONSE_CLIP_PPM);
+    }
+    fn voters() -> CohortWeights {
+        CohortWeights::new([260000, 320000, 220000, 70000, 80000, 50000]).unwrap()
+    }
+    #[test]
+    fn election_needs_both_bars_and_each_can_bind_alone() {
+        let w = voters();
+        // Nobody moved: 50% overall, no group held. Loses on both bars.
+        let flat = evaluate_election([500_000; 6], &w).unwrap();
+        assert_eq!(flat.weighted_support_ppm, 500_000);
+        assert_eq!(flat.blocs_held_ppm, 0);
+        assert!(!flat.is_win());
+        // Everyone just above the overall bar wins.
+        let broad = evaluate_election([551_000; 6], &w).unwrap();
+        assert_eq!(broad.weighted_support_ppm, 551_000);
+        assert_eq!(broad.blocs_held_ppm, 1_000_000);
+        assert!(broad.is_win());
+        // Broad but lukewarm: every group is held, yet 52% overall is below the support bar.
+        let lukewarm = evaluate_election([520_000; 6], &w).unwrap();
+        assert!(lukewarm.meets_blocs_bar() && !lukewarm.meets_support_bar() && !lukewarm.is_win());
+        // Warm but narrow: urban middle and high at 70% lift overall support to 56.2%, but those two
+        // groups are only 54% of the voters, so the coalition bar fails.
+        let narrow =
+            evaluate_election([400_000, 700_000, 700_000, 400_000, 400_000, 400_000], &w).unwrap();
+        assert_eq!(narrow.weighted_support_ppm, 562_000);
+        assert_eq!(narrow.blocs_held_ppm, 540_000);
+        assert!(narrow.meets_support_bar() && !narrow.meets_blocs_bar() && !narrow.is_win());
+    }
+    #[test]
+    fn a_group_is_held_only_when_strictly_above_fifty_percent() {
+        let w = voters();
+        let at =
+            evaluate_election([500_000, 600_000, 600_000, 600_000, 600_000, 600_000], &w).unwrap();
+        let above =
+            evaluate_election([500_001, 600_000, 600_000, 600_000, 600_000, 600_000], &w).unwrap();
+        // Urban low holds 260,000 of the voters; exactly 50% does not count, one ppm more does.
+        assert_eq!(at.blocs_held_ppm, 740_000);
+        assert_eq!(above.blocs_held_ppm, 1_000_000);
+    }
+    #[test]
+    fn balanced_term_wins_with_the_numbers_the_independent_replica_predicts() {
+        // Expected values come from tools/support-model (a separate implementation that matches the
+        // engine to the ppm), not from this code, so this is a cross-check and not a tautology.
+        let mut c = campaign();
+        open(&mut c, Allocation::draft(50, 40, 10).unwrap());
+        votes(&mut c, [true, true, true]);
+        c.apply(player(
+            &c,
+            "ratify",
+            PlayerCommand::Ratify {
+                meeting_id: "q1".into(),
+                proposal_version: c.proposal_version().unwrap(),
+            },
+        ))
+        .unwrap();
+        for i in 0..6 {
+            c.apply(player(
+                &c,
+                &format!("advance{i}"),
+                PlayerCommand::AdvanceQuarter,
+            ))
+            .unwrap();
+        }
+        let election = c.election_projection().unwrap();
+        assert_eq!(
+            election.group_support_ppm,
+            [571_800, 602_000, 472_200, 579_240, 615_600, 491_960]
+        );
+        assert_eq!(election.weighted_support_ppm, 559_584);
+        assert_eq!(election.blocs_held_ppm, 730_000);
+        assert!(election.is_win());
+        // High-income urban and rural groups are left behind even in a win: the intended tension.
+        assert!(election.group_support_ppm[2] < 500_000 && election.group_support_ppm[5] < 500_000);
+    }
+    #[test]
+    fn projection_reads_state_without_changing_it() {
+        let mut c = campaign();
+        open(&mut c, Allocation::draft(50, 40, 10).unwrap());
+        let before = c.world().world_version();
+        let first = c.election_projection().unwrap();
+        assert_eq!(first, c.election_projection().unwrap());
+        assert_eq!(c.world().world_version(), before);
+        assert!(!first.is_win());
     }
 }

@@ -40,6 +40,26 @@ export interface Snapshot {
     quarter: number; outcome: string; allocation: { staff: number; repairs: number; access: number } | null
     final_support: number; final_votes: number
   }[]
+  /** How the public feels, group by group. Every array follows `group_ids` (urban low, middle, high, then rural). */
+  support: {
+    group_ids: string[]
+    /** As of the last resolved quarter; 500,000 is 50%. */
+    group_ppm: number[]
+    /** What is already queued to land: next quarter's change of mood. */
+    pending_delta_ppm: number[]
+    /** Each group's share of the voters; sums to 1,000,000. */
+    weight_ppm: number[]
+  }
+  /** Projected while the campaign runs (every queued response lands), won or lost once it has closed. */
+  election: {
+    status: 'projected' | 'won' | 'lost'
+    settled_group_ppm: number[]
+    weighted_support_ppm: number
+    blocs_held_ppm: number
+    min_support_ppm: number
+    min_blocs_ppm: number
+    held_above_ppm: number
+  }
   news: {
     date: string; kind: 'real_source_update' | 'fictional_simulation_news'; title: string
     summary: string; url: string | null
