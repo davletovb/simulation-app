@@ -1,5 +1,10 @@
 # Goal and score: draft for decision
 
+> **Update:** a "stay in power" goal is the better headline, and it is worked out in
+> [`stay-in-power.md`](stay-in-power.md). Public support cannot carry a goal *with today's numbers*
+> (that is what this page shows), but a small recalibration fixes that. The Delivery Score below
+> then becomes the second line on the end screen, **Legacy**.
+
 **Status: proposal. Nothing in the app computes a score yet.** Every number below comes from
 playing the real engine to the end (scripted ministers, `MYTH_MODE=scripted`), not from
 reading the rules, because reading the rules alone led to two wrong assumptions (see

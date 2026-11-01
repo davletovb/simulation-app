@@ -1,0 +1,141 @@
+# "Stay in power" as the goal: design proposal
+
+**Status: proposal for decision. Nothing here is built.** Evidence is reproducible:
+`python3 tools/support-model/support_model.py --check` replays ten strategies that were played
+against the real service and must match the engine's support figures to the ppm (it does: 60 of 60).
+
+## Short answer
+
+Yes, we can, and I now think it is the better goal. It is a concept every player knows (an
+election), it makes the six public groups matter, and the engine was built with it in mind:
+`framework.md` says *"Staying in power can be one scenario objective"* and *"election rules and a
+'remain in power' objective belong in scenarios that specify them"*, and it already lists **polls as
+"reported observations" kept separate from true support**.
+
+I recommended a delivery score first because **today's support numbers can't carry a goal**, not
+because the idea is wrong. Three specific things in the engine make them unusable, and they are all
+changeable:
+
+| # | What the engine does today | Where | Effect |
+|---|---|---|---|
+| 1 | Every delivered unit has a benefit **and** a flat cost (400 ppm per unit), so they nearly cancel: Staffing nets about +100, Repairs about 0 (negative for some groups), Access +350 | `cohort_response_scaled`, `reducer.rs` | Delivering the work your ministers need barely helps you, and Access-only plans out-poll Balanced |
+| 2 | A hard clamp of ±8,000 ppm (0.8 points) per group per quarter, and a validator that only allows scale 50, 100 or 150 | `reducer.rs` `Rules::validate` and the clamp | Even perfect play moves a group at most about 4.8 points; the whole range across 72 variants is 50.04% to 50.36% |
+| 3 | A response lag of one quarter and a count at the end of Q6 | `reducer.rs` queued responses | The last quarter's work never reaches the final figure |
+
+## Why "turn the volume up" is not enough
+
+Playing real strategies and then re-running the same model with different numbers (the correlation
+is how well the *ranking by support* follows the *ranking by work delivered*, 1.0 being perfect):
+
+| Calibration | Correlation | What goes wrong |
+|---|---:|---|
+| Today | +0.30 | Support is flat (49.7 to 50.5%), and "Balanced two quarters late" beats "Balanced on time" |
+| Today × 5, clamp × 5 | +0.30 | Same order, bigger swings: the Access-only plan (59 delivered) still wins and on-time Balanced still loses to late Balanced |
+| Bigger benefits (Staffing 1500, Repairs 1200) | +0.98 | Ranking is right, but **every group ends above 50% for every plan that delivers anything**, so nobody is ever left behind and the election is trivial |
+
+## A calibration that has the right shape
+
+Changing only numbers the engine already has (benefit per unit, cost per unit, scale, clamp) and
+counting the final quarter at election night. A search of 720 settings found **22** that both track
+delivery (correlation +0.90 to +0.99) and still leave some groups behind. The one I'd start from:
+
+> Benefit per delivered unit: Staffing **800**, Repairs **700**, Access **750** (ppm, before group multipliers).
+> Cost per unit: **500**. Scale **400%**, clamp **±40,000**. Response lag 1. Election after Q6 resolves.
+> **Win = overall support ≥ 55% and hold blocs worth ≥ 60% of voters.**
+
+Its correlation with work delivered is **+0.99** (today: +0.30), and the results are in the table below.
+
+Played against the ten real strategies:
+
+| Strategy | Work delivered | Support | Voters held | Urban L/M/H · Rural L/M/H | Result |
+|---|---:|---:|---:|---|---|
+| Balanced in Q1 | 100 | 55.96% | 73% | 57 · 60 · **47** · 58 · 62 · **49** | **Win** |
+| Staffing-first | 100 | 56.12% | 73% | 59 · 61 · **47** · 58 · 61 · **47** | **Win** |
+| Staffing 45 / 40 / 10 | 94 | 55.57% | 73% | 56 · 60 · **48** · 58 · 61 · **50** | **Win** |
+| Balanced a quarter late | 88 | 55.35% | 73% | 57 · 59 · **47** · 57 · 60 · **48** | **Win** (barely) |
+| Stagger then re-plan | 78 | 54.71% | 73% | 56 · 58 · **48** · 57 · 59 · **49** | Lose (narrowly) |
+| Balanced two quarters late | 66 | 54.10% | 73% | 56 · 57 · **48** · 56 · 58 · **49** | Lose (narrowly) |
+| Access-only 24 + Repairs 35 | 59 | 53.69% | 78% | 53 · 55 · **48** · 59 · 61 · 53 | Lose |
+| Staffing-only 45 | 44 | 52.82% | 73% | 56 · 55 · **48** · 52 · 53 · **46** | Lose |
+| Repairs-only 35 | 35 | 51.69% | 74% | 50 · 53 · 50 · 52 · 56 · 54 | Lose |
+| Never spend | 0 | 50.00% | 0% | all 50 | Lose |
+
+What this gives a player:
+
+- **Doing the job, early, wins.** Work that arrives late or is dropped loses the election, and
+  re-planning has a visible political cost (the stagger run loses).
+- **You always leave someone behind.** High-income urban and rural groups finish below 50% even
+  when you win, because delivery costs them more than it gives. That is the "popular versus
+  needed" trade-off the framework describes, and it now has numbers.
+- **Doing nothing is not safe.** It scores exactly 50.0%, which is a loss.
+
+## The goal and the end screen
+
+> **Win the election.** Six quarters from now the public votes. Hold at least 55% overall support
+> and blocs worth 60% of the voters, while the people who were promised work are still waiting for it.
+
+Election night, as the end screen, in this order: the result (**Re-elected**, **Narrow defeat** at
+52% or more, **Heavy defeat** below that), a map of the six blocs sized by how many voters they hold
+(the weights are 26/32/22/7/8/5%), each bloc's final mood, and who was left behind.
+
+Keep the delivery score from [`goal-and-score.md`](goal-and-score.md) as a second line, **Legacy**:
+"Re-elected, legacy 94." Power is what you play for; Legacy is whether it was real. They mostly
+agree under this calibration and diverge at the margins, which is where the interesting stories are.
+
+## Gamifying the mechanisms
+
+Each of these already exists in the engine or the framework; the column on the right says what it
+takes to show it to a player.
+
+| Mechanism | What the player sees | Status |
+|---|---|---|
+| **Voter blocs** | Six bars with a mood, sized on a map by voter weight | Exists in the engine; **the snapshot only exposes the weighted total.** Needs per-group support in the snapshot |
+| **Next quarter's mood** | "Coming next quarter: urban-middle +1.4, urban-high −0.9" | The engine already queues the response a quarter ahead. Expose the queue |
+| **Honeymoon and backlash** | The one-quarter lag becomes the drama: you act now, you are judged next quarter | Exists; needs the previous item to be visible |
+| **Lobbies** | School Staff Association (influence, strike threat) and Community Access Network (volunteer days, access boost) as allies you keep or lose | Exist in the engine and are described on the Progress screen; their live balances are not in the snapshot |
+| **News calendar** | A scripted event each quarter that hits some groups (a shortage headline, a funding row) | Hook exists (`shocks`, per group per quarter) but is all-zero and capped at ±8,000; raise the cap and author the events. The calendar is frozen, so branches stay comparable |
+| **Scrutiny** | An audit is the inspectorate report. If a minister overstated, it hurts | Needs audit results shown in the app and ministers that can misreport (see `goal-and-score.md`) |
+| **Polls** | A noisy poll each quarter, with the true figure revealed only on election night | The framework calls polls "reported observations". New content: a deterministic, seeded error so replays still match |
+
+## Engine changes this needs (Rust, so deliberate)
+
+1. Allow the new scale and clamp: `Rules::validate` and the clamp in `cohort_response_scaled`
+   (`crates/domain/src/reducer.rs`), plus the benefit and cost table.
+2. Expose in the snapshot: support for each of the six groups, the queued responses, and (later)
+   the two lobbies' balances. Regenerate the TypeScript and schemas (CI checks they match).
+3. An election rule and an end-of-campaign result in the snapshot, counting the last quarter's work.
+4. **CI pins the sensitivity results.** Changing the coefficients changes
+   `docs/p3-sensitivity-report.md` and `data/england-school-pilot-v1/p3-sensitivity-results.csv`,
+   and CI fails if they differ. Regenerate them in the same change with
+   `cargo run -p myth-domain --example p3_report`, and update the `TODAY` numbers in
+   `tools/support-model/support_model.py` so `--check` passes again.
+5. Replay and recovery tests must be re-run: these constants are part of the deterministic journal.
+
+## Honest limits
+
+- **These are authored hypotheses, not data.** The framework and the case contract say so, and this
+  proposal keeps that: the numbers are tuned for play, not predicted from England.
+- **Balanced still wins, with a margin of only about 1 point over the bar.** With scripted ministers
+  and no events, the best plan is still known in advance. The news calendar and ministers who slow
+  down are what make the player adapt. I have *not* simulated them, so treat the thin margin as a
+  reason to build them, not as a tested design.
+- **The model is validated against ten plays**, which is enough to trust the replica's arithmetic
+  but is not a tuned, balanced game. Expect to re-tune once events exist.
+- A "remain in power" objective for a real-country twin needs the framework's care: fictional
+  officeholders and the renamed data-twin mode it already suggests.
+
+## Decisions I need
+
+1. **Power as the headline, Legacy as the second line?** (My recommendation.) Or Power only?
+2. **One election at the end of Q6**, or also a mid-term poll at Q3 as a warning (no game over)?
+3. **Is it acceptable to change the frozen engine numbers**, with the pinned sensitivity report and
+   CSV regenerated in the same change?
+4. **Win bar:** 55% overall and 60% of voters is a starting point from ten plays. Harder or easier?
+
+## Suggested order of work
+
+1. **Recalibrate and expose** (Rust: items 1 to 5 above). Smallest change that makes support meaningful.
+2. **Election night and the bloc map** (UI, plus the Legacy line). The player now has a goal.
+3. **Events and ministers that slow down or misreport** (content). This is what makes it a game
+   rather than a solved puzzle.
+4. **Mood forecast, lobbies, polls** (UI and light engine exposure). The gamification layer.
