@@ -36,12 +36,12 @@
       "staffing_effort_permille_default": 1000,
       "repairs_effort_permille_default": 1000,
       "access_effort_permille": 1000,
-      "quarter_response_clip_ppm": 8000,
+      "quarter_response_clip_ppm": 40000,
       "response_coefficients_ppm_per_delivered_unit": {
-        "staffing": 500,
-        "repairs": 400,
-        "access": 750,
-        "cost": 400
+        "staffing": 3200,
+        "repairs": 2800,
+        "access": 3000,
+        "cost": 2000
       },
       "geography_multiplier_percent": {
         "urban": {

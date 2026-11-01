@@ -15,6 +15,26 @@ use crate::{
 };
 use std::collections::{BTreeMap, BTreeSet};
 
+/// Authored public-response model, recalibrated by decision 0003 (`docs/decisions`).
+///
+/// Mirrored in `data/england-school-pilot-v1/authored.json` and cross-checked by a test in
+/// `myth-contracts`, so the data file and the code cannot drift apart silently. Order is
+/// staffing, repairs, access, cost: ppm of support per delivered unit, before the geography and
+/// income multipliers. Before decision 0003 this was `[500, 400, 750, 400]`.
+pub const RESPONSE_BASE_PPM: [i128; 4] = [3200, 2800, 3000, 2000];
+/// Geography multipliers (urban, rural) per channel, in percent. Unchanged by decision 0003.
+pub const GEOGRAPHY_PERCENT: [[i128; 4]; 2] = [[100, 100, 100, 100], [80, 130, 140, 100]];
+/// Income multipliers (low, middle, high) per channel, in percent. Unchanged by decision 0003.
+pub const INCOME_PERCENT: [[i128; 4]; 3] = [
+    [120, 90, 130, 130],
+    [100, 100, 100, 100],
+    [80, 110, 70, 150],
+];
+/// The most one quarter's delivery can move one group's support, either way (was 8_000).
+pub const RESPONSE_CLIP_PPM: i64 = 40_000;
+/// The most one scripted exogenous event can move one group's support, either way (was 8_000).
+pub const SHOCK_CAP_PPM: u32 = 40_000;
+
 /// Authored, immutable per-run offline mechanism assumptions.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Rules {
@@ -45,7 +65,7 @@ impl Rules {
                 .shocks
                 .iter()
                 .flatten()
-                .any(|v| v.unsigned_abs() > 8_000)
+                .any(|v| v.unsigned_abs() > SHOCK_CAP_PPM)
         {
             return Err(Rejection::InvalidCondition);
         }
@@ -1213,13 +1233,9 @@ fn cohort_response_scaled(
     delivered: [u16; 3],
     magnitude_percent: u16,
 ) -> Result<i64, Rejection> {
-    let geography: [[i128; 4]; 2] = [[100, 100, 100, 100], [80, 130, 140, 100]];
-    let income: [[i128; 4]; 3] = [
-        [120, 90, 130, 130],
-        [100, 100, 100, 100],
-        [80, 110, 70, 150],
-    ];
-    let base = [500_i128, 400, 750, 400];
+    let geography = GEOGRAPHY_PERCENT;
+    let income = INCOME_PERCENT;
+    let base = RESPONSE_BASE_PPM;
     let geo = ix / 3;
     let inc = ix % 3;
     let mut terms = [0_i128; 4];
@@ -1239,7 +1255,8 @@ fn cohort_response_scaled(
         .checked_mul(i128::from(magnitude_percent))
         .ok_or(Rejection::Arithmetic)?
         / 100;
-    i64::try_from(scaled.clamp(-8000, 8000)).map_err(|_| Rejection::Arithmetic)
+    let clip = i128::from(RESPONSE_CLIP_PPM);
+    i64::try_from(scaled.clamp(-clip, clip)).map_err(|_| Rejection::Arithmetic)
 }
 
 #[cfg(test)]
@@ -2177,8 +2194,21 @@ mod tests {
     }
     #[test]
     fn signed_coefficients_keep_losing_cells_negative() {
+        // High-income cells lose from staffing (benefit shrinks, cost grows): urban-high and
+        // rural-high. This is the "popular versus needed" tension the calibration keeps on purpose.
         assert!(cohort_response(2, [1, 0, 0]).unwrap() < 0);
-        assert!(cohort_response(3, [1, 0, 0]).unwrap() < 0);
+        assert!(cohort_response(5, [1, 0, 0]).unwrap() < 0);
+        // Rural-low used to lose from staffing under the pre-0003 numbers (480 against 520); it
+        // gains now. Access stays the strongest single channel for most cells.
+        assert!(cohort_response(3, [1, 0, 0]).unwrap() > 0);
         assert!(cohort_response(0, [0, 0, 1]).unwrap() > 0);
+    }
+    #[test]
+    fn one_quarter_can_move_a_cell_by_four_points_but_never_more() {
+        // The clip is the loudest a single quarter can be.
+        let loudest = cohort_response_scaled(0, [0, 0, 100], 150).unwrap();
+        assert_eq!(loudest, RESPONSE_CLIP_PPM);
+        let harshest = cohort_response_scaled(2, [100, 0, 0], 150).unwrap();
+        assert_eq!(harshest, -RESPONSE_CLIP_PPM);
     }
 }

@@ -24,8 +24,8 @@
 | Queue-settled non-ties | 18 |
 | Queue-settled reversals versus non-tied reference | 0 |
 | Reference itself tied after settlement? | false |
-| Accepted Q6 support range (ppm) | 500383–503603 |
-| Accepted queue-settled support range (ppm) | 500013–501161 |
+| Accepted Q6 support range (ppm) | 514251–580386 |
+| Accepted queue-settled support range (ppm) | 526744–591950 |
 
 **Interpretation:** identical Q6 support in all 36 pairs is a **tie**, not evidence of ranking stability or zero reversals. Q6 deliveries can differ while the corresponding response is still pending. A reversal is defined only when the pinned authored_baseline/100%/original-lag/one-quarter-response **queue-settled** difference is strictly nonzero and the compared queue-settled difference has the opposite strict sign; tied comparisons are reported separately, never scored as stable ranks.
 
@@ -33,12 +33,12 @@
 
 | Fictional cell | Q6 min ppm | Q6 max ppm | Accepted Q6 below 500k | Accepted Q6 above 500k | Q6 paired ties | Settled paired ties | Settled reversals* |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| urban-low | 501795 | 507304 | 0 | 72 | 36 | 18 | 0 |
-| urban-middle | 502950 | 512450 | 0 | 72 | 36 | 18 | 0 |
-| urban-high | 477276 | 496426 | 72 | 0 | 36 | 18 | 0 |
-| rural-low | 502485 | 510454 | 0 | 72 | 36 | 18 | 0 |
-| rural-middle | 503850 | 515150 | 0 | 72 | 36 | 18 | 0 |
-| rural-high | 480606 | 497175 | 72 | 0 | 36 | 18 | 0 |
+| urban-low | 520980 | 605180 | 0 | 72 | 36 | 18 | 0 |
+| urban-middle | 523400 | 637400 | 0 | 72 | 36 | 18 | 0 |
+| urban-high | 458420 | 490620 | 72 | 0 | 36 | 18 | 0 |
+| rural-low | 523344 | 607304 | 0 | 72 | 36 | 18 | 0 |
+| rural-middle | 525920 | 647120 | 0 | 72 | 36 | 18 | 0 |
+| rural-high | 475736 | 493296 | 72 | 0 | 36 | 18 | 0 |
 
 *When a pinned reference is tied, reversals are **not identifiable**; the correct diagnostic is the tie count, not a claim of stability. Full per-cell pending deltas and settled support appear in the CSV next to the untouched Q6 values.
 

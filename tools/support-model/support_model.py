@@ -1,11 +1,18 @@
 #!/usr/bin/env python3
 """Replica of the engine's public-support model, for tuning "stay in power" without touching Rust.
 
-Source of truth: crates/domain/src/reducer.rs (`cohort_response_scaled`, quarter advance).
-`--check` replays ten strategies that were played against the real service
-(captured_runs.json) and must match the engine's reported support to the ppm.
-Without arguments it prints the election table for today's numbers and the
-proposed calibration. Standard library only.
+Source of truth: crates/domain/src/reducer.rs (RESPONSE_BASE_PPM, RESPONSE_CLIP_PPM,
+`cohort_response_scaled`, and the quarter advance). Two calibrations are kept so either can be
+reproduced and compared (see docs/decisions/0003-recalibrate-the-support-model.md):
+
+    v1  rules p4-england-education-rules-v1   base 500/400/750/400,    clip 8000   (before 2026-11-01)
+    v2  rules p4-england-education-rules-v2   base 3200/2800/3000/2000, clip 40000  (current)
+
+`--check` replays strategies that were played against the real service under each calibration
+(captured_runs_v1.json, captured_runs_v2.json) and requires the replica to match the engine's
+reported support to the ppm. Without arguments it prints the election table for both.
+To re-tune: change a number here, read the table, then change the engine constants and re-capture.
+Standard library only.
 
     python3 tools/support-model/support_model.py --check
     python3 tools/support-model/support_model.py
@@ -17,8 +24,18 @@ W = [260000, 320000, 220000, 70000, 80000, 50000]            # urban low/mid/hig
 LABEL = ['urbL', 'urbM', 'urbH', 'rurL', 'rurM', 'rurH']
 GEO = [[100, 100, 100, 100], [80, 130, 140, 100]]            # per channel: staff, repairs, access, cost
 INC = [[120, 90, 130, 130], [100, 100, 100, 100], [80, 110, 70, 150]]
-TODAY = dict(base=[500, 400, 750, 400], mag=100, clamp=8000)
-PROPOSED = dict(base=[800, 700, 750, 500], mag=400, clamp=40000)
+CALIBRATIONS = {
+    'v1': dict(base=[500, 400, 750, 400], mag=100, clamp=8000),
+    'v2': dict(base=[3200, 2800, 3000, 2000], mag=100, clamp=40000),
+}
+# Election bars (decision 0004, provisional): overall support and the share of voters in blocs above 50%.
+BAR_SUPPORT_PCT, BAR_BLOCS_PCT = 55.0, 60.0
+
+
+def trunc_div(a, b):
+    """Integer division that truncates toward zero, like Rust's `/` (Python's `//` floors)."""
+    q = abs(a) // abs(b)
+    return q if (a >= 0) == (b > 0) else -q
 
 
 def response(ix, d, base, mag, clamp):
@@ -26,7 +43,7 @@ def response(ix, d, base, mag, clamp):
     g, i = ix // 3, ix % 3
     t = [base[c] * GEO[g][c] * INC[i][c] // 10000 for c in range(4)]
     raw = t[0] * d[0] + t[1] * d[1] + t[2] * d[2] - t[3] * sum(d)
-    return max(-clamp, min(clamp, raw * mag // 100))
+    return max(-clamp, min(clamp, trunc_div(raw * mag, 100)))
 
 
 def play(cums, base, mag, clamp, lag=1, settle=False):
@@ -47,32 +64,43 @@ def play(cums, base, mag, clamp, lag=1, settle=False):
     return sup, sum(w * s for w, s in zip(W, sup)) // 10**6, history
 
 
-def check(runs):
-    bad = 0
-    for name, rows in runs.items():
-        got = play([r['cum'] for r in rows], **TODAY)[2]
-        bad += sum(g != r['support'] for g, r in zip(got, rows))
-    total = sum(len(v) for v in runs.values())
-    print(f"replica vs engine: {total - bad}/{total} quarter-values identical across {len(runs)} strategies")
-    return bad == 0
+def load(version):
+    return json.loads((HERE / f'captured_runs_{version}.json').read_text())
 
 
-def table(runs, title, params, bar=None):
+def check():
+    ok = True
+    for version, params in CALIBRATIONS.items():
+        path = HERE / f'captured_runs_{version}.json'
+        if not path.exists():
+            print(f"{version}: no captured runs yet ({path.name})")
+            ok = False
+            continue
+        runs = load(version)
+        bad = sum(g != r['support'] for rows in runs.values()
+                  for g, r in zip(play([r['cum'] for r in rows], **params)[2], rows))
+        total = sum(len(v) for v in runs.values())
+        print(f"{version}: replica vs engine: {total - bad}/{total} quarter-values identical across {len(runs)} strategies")
+        ok &= bad == 0
+    return ok
+
+
+def table(runs, title, params):
     print(f"\n== {title}")
-    print(f"{'strategy':32}{'work':>5}{'support':>9}{'voters held':>12}  " + ' '.join(f'{l:>5}' for l in LABEL) + ('  result' if bar else ''))
+    print(f"{'strategy':32}{'work':>5}{'support':>9}{'voters held':>12}  " + ' '.join(f'{l:>5}' for l in LABEL) + '  election')
     for name, rows in runs.items():
         sup, w, _ = play([r['cum'] for r in rows], settle=True, **params)
         held = sum(W[i] for i in range(6) if sup[i] > 500000) / 1e4
-        res = ''
-        if bar:
-            res = '  WIN' if w / 1e4 >= bar and held >= 60 else '  lose'
-        print(f"{name:32}{sum(rows[-1]['cum']):5}{w / 1e4:8.2f}%{held:11.0f}%  " + ' '.join(f'{s / 1e4:5.1f}' for s in sup) + res)
+        win = w / 1e4 >= BAR_SUPPORT_PCT and held >= BAR_BLOCS_PCT
+        print(f"{name:32}{sum(rows[-1]['cum']):5}{w / 1e4:8.2f}%{held:11.0f}%  " + ' '.join(f'{s / 1e4:5.1f}' for s in sup)
+              + ('  WIN' if win else '  lose'))
 
 
 if __name__ == '__main__':
-    runs = json.loads((HERE / 'captured_runs.json').read_text())
-    ok = check(runs)
+    ok = check()
     if '--check' in sys.argv:
         sys.exit(0 if ok else 1)
-    table(runs, 'today: election night counts the final quarter, no bar', TODAY)
-    table(runs, 'proposed calibration, win = support >= 55% and blocs worth >= 60% of voters', PROPOSED, bar=55.0)
+    for version, params in CALIBRATIONS.items():
+        if (HERE / f'captured_runs_{version}.json').exists():
+            table(load(version), f"{version}: election night counts the final quarter; win = support >= {BAR_SUPPORT_PCT:g}% "
+                  f"and blocs worth >= {BAR_BLOCS_PCT:g}% of voters", params)

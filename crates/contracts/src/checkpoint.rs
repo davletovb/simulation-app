@@ -902,6 +902,35 @@ mod p2_frozen_pack_tests {
             authored["narrative"]["patches"][0]["before"].as_u64(),
             pilot["capacity"]["repairs"].as_u64()
         );
+        // The public-response model: the data file states the numbers the engine actually uses.
+        let mechanism = &authored["pilot"]["authoritative_mechanism"];
+        assert_eq!(
+            mechanism["quarter_response_clip_ppm"].as_i64(),
+            Some(myth_domain::reducer::RESPONSE_CLIP_PPM),
+            "response clip drift"
+        );
+        let channels = ["staffing", "repairs", "access", "cost"];
+        for (i, key) in channels.iter().enumerate() {
+            assert_eq!(
+                mechanism["response_coefficients_ppm_per_delivered_unit"][key].as_i64(),
+                i64::try_from(myth_domain::reducer::RESPONSE_BASE_PPM[i]).ok(),
+                "response coefficient drift: {key}"
+            );
+            for (g, name) in ["urban", "rural"].iter().enumerate() {
+                assert_eq!(
+                    mechanism["geography_multiplier_percent"][name][key].as_i64(),
+                    i64::try_from(myth_domain::reducer::GEOGRAPHY_PERCENT[g][i]).ok(),
+                    "geography multiplier drift: {name}/{key}"
+                );
+            }
+            for (n, name) in ["low", "middle", "high"].iter().enumerate() {
+                assert_eq!(
+                    mechanism["income_multiplier_percent"][name][key].as_i64(),
+                    i64::try_from(myth_domain::reducer::INCOME_PERCENT[n][i]).ok(),
+                    "income multiplier drift: {name}/{key}"
+                );
+            }
+        }
         let board = &authored["board"];
         assert_eq!(board["initial_commitments"].as_array().unwrap().len(), 0);
         assert!(board.get("initial_political_promises").is_none());
