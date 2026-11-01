@@ -1,6 +1,8 @@
 # 0007. Two terms in one twelve-quarter campaign, with an explicit "begin term" move
 
-- **Status:** **Implemented** (rules v3). Supersedes the build recommendation in [0005](0005-a-win-starts-a-second-term.md)
+- **Status:** **Implemented** (rules v3), **partly superseded by [0008](0008-terms-continue-while-the-player-wins.md)**: the "exactly two terms" and
+  "final victory" parts were a misreading of what the owner asked and are gone (rules v4); one campaign, `begin_term` and the bars in
+  the hashed scenario stand. Supersedes the build recommendation in [0005](0005-a-win-starts-a-second-term.md)
   (two linked campaigns) and the "bars live in code" choice in [0006](0006-what-the-snapshot-exposes.md).
 - **Date:** 2026-11-01
 - **Decided by:** the project owner asked for the second term in conversation: *"start the second term, term 2 ends

@@ -6,8 +6,8 @@ needs to remember what the game actually is. The authoritative rules are in
 
 ## The idea in one paragraph
 
-You chair a cabinet of three ministers. The game is **up to two terms of six quarters**,
-and each term ends with an **election**. Each term gives you **100 credits that never
+You chair a cabinet of three ministers. The game is played in **terms of six quarters**, and each term ends with an
+**election**; win it and another term begins, for as long as you keep winning. Each term gives you **100 credits that never
 refill within the term**. Each quarter is one **turn**: you make a **spending plan**, the ministers **vote** on it, you
 **approve or postpone** it, and then you **end the turn** and watch work get
 delivered, late and in limited amounts.
@@ -16,8 +16,8 @@ delivered, late and in limited amounts.
 
 | The game | Well-known idea | In the screen |
 |---|---|---|
-| A quarter | A turn (as in any turn-based strategy game, with an "End turn" button) | "Term 1 of 2 · quarter 2 of 6", **End quarter** |
-| A term and its election | A term of office that ends at the ballot box | **Election night**, **Begin the second term** |
+| A quarter | A turn (as in any turn-based strategy game, with an "End turn" button) | "Term 1 · quarter 2 of 6", **End quarter** |
+| A term and its election | A term of office that ends at the ballot box | **Election night**, **Begin term 2** |
 | 100 credits a term, no refill | A fixed budget / war chest | **Budget**, "Left to spend" |
 | Staffing / Repairs / Access | Budget lines you allocate money to | The three sliders |
 | The board seats | A cabinet of ministers with portfolios | **Cabinet**: Finance, Education, Infrastructure |
@@ -46,7 +46,7 @@ should not have to.
 
 ### Rules that are easy to miss
 
-- **The budget is for the term.** A second term adds a fresh 100 credits to anything you
+- **The budget is for the term.** Each new term adds a fresh 100 credits to anything you
   did not spend. Credits turn into delivered work over time, and
   delivered work is spent for good. Credits you hold back, and credits promised to work
   that has not been delivered yet, can both be re-planned: a new plan may commit up to
@@ -64,20 +64,24 @@ should not have to.
   checks the truth.
 - **Ministers are scripted** in this build. No AI is called.
 
-## Elections and the second term
+## Elections and further terms
 
-After the sixth quarter the public votes. You win if **both** hold: overall support is at
-least **55%**, and the groups that back you (above 50%) hold at least **60% of the voters**.
+After the sixth quarter of every term the public votes. You win if **both** hold: overall
+support is at least **55%**, and the groups that back you (above 50%) hold at least **60% of
+the voters**.
 
-- **Win:** the screen stops on **election night**. Beginning the second term is always your own
-  move (the **Begin the second term** button; the game never starts it for you). You get a fresh
-  100 credits on top of anything unspent. Public support, ministers' memory, the two
-  organisations and any unfinished work carry over, and the free audit comes back.
+- **Win:** the screen stops on **election night**. Beginning the next term is always your own
+  move (the **Begin term N** button; the game never starts it for you). You get a fresh 100
+  credits on top of anything unspent. Public support, ministers' memory, the two organisations
+  and any unfinished work carry over, and the free audit comes back. Then it happens again:
+  another six quarters and another election, for as long as you keep winning. The game never
+  tells you in advance how many terms there will be, because that depends on you.
 - **Lose:** the game is over (a *narrow defeat* at 52% or more, otherwise a *heavy defeat*).
-- The second term ends with its own election. Winning that is the **final victory**.
+- There is only a technical ceiling: a game records at most ten terms, and winning the tenth
+  election ends it as *the longest tenure on record*.
 
-The rules for all of this are recorded in [`decisions/`](decisions/README.md) (0007 is the one that
-built the second term, and lists what is still weak about it).
+The rules for all of this are recorded in [`decisions/`](decisions/README.md) (0008 is the one
+that says terms continue while you win, and lists what is still weak about it).
 
 ## What changed in the interface, and why
 

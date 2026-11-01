@@ -1,7 +1,7 @@
 # 0005. A win starts a second term (option A)
 
-- **Status:** Accepted and **implemented** by [0007](0007-two-terms-in-one-campaign.md). Budget decided: R3. On 2026-11-01 the owner also
-  confirmed that **term 2 ends with its own election** and that **the free audit resets each term**. The recommended build
+- **Status:** Accepted and **implemented** by [0007](0007-two-terms-in-one-campaign.md) and [0008](0008-terms-continue-while-the-player-wins.md). Budget decided: R3. On 2026-11-01 the owner also
+  confirmed that **every term ends with its own election** (not just the first two: terms go on while the player wins, see 0008) and that **the free audit resets each term**. The recommended build
   (two chained campaigns) was **not** used: see 0007 for why one twelve-quarter campaign was built instead.
 - **Date:** 2026-11-01
 - **Decided by:** the project owner, in conversation. Asked what "if win then continues"

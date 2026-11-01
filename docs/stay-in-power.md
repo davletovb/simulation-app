@@ -2,10 +2,11 @@
 
 **Status (2026-11-01): decided and built. See [`decisions/`](decisions/README.md).** The goal is
 accepted (0001), the election rule is accepted (0002), the **engine recalibration (0003, rules v2), stage B
-(per-group support and the election result in the snapshot, 0006), the election night screen, and the second term
-(0005, 0007, rules v3) are done**, and the 55% / 60% win bar is accepted (0004). A win starts a second term with a
-fresh 100 credits added to anything unspent; the second term ends with its own election. **Known weak point:**
-the second election is nearly free for a player who won the first, because nothing erodes support yet (0007).
+(per-group support and the election result in the snapshot, 0006), the election night screen, and open-ended terms
+(0005, 0007, 0008, rules v4) are done**, and the 55% / 60% win bar is accepted (0004). Every win starts another term with a
+fresh 100 credits added to anything unspent, and every term ends with its own election: the game goes on for as long as the player
+keeps winning (there is only a technical ceiling of ten terms). **Known weak point:** nothing erodes support yet, so after the first
+win a player can do nothing and keep winning (0007, 0008).
 
 The calibration below is now the engine's, expressed as the equivalent base numbers (Staffing 3200,
 Repairs 2800, Access 3000, cost 2000, clip ±40,000) instead of "800 and 700 at 400% scale". The table
@@ -144,20 +145,21 @@ Asked on 2026-11-01 and answered by the owner (full records in [`decisions/`](de
 
 1. **Power as the headline, Legacy as the second line:** yes. ([0001](decisions/0001-goal-stay-in-power.md))
 2. **One election at the end; a win continues, a loss ends the game.** No mid-term gate. "Continues" means
-   **a second term of six quarters** carrying over support, lobbies, minister beliefs and unfinished
+   **another term of six quarters, and so on for as long as the player wins**, carrying over support, lobbies, minister beliefs and unfinished
    promises, with **a new allocation each term added to anything unspent** (R3). ([0002](decisions/0002-single-election-win-continues-loss-ends.md),
    [0005](decisions/0005-a-win-starts-a-second-term.md))
 3. **Change the frozen engine numbers and regenerate the pinned report in the same change:** yes, and done.
    ([0003](decisions/0003-recalibrate-the-support-model.md))
 4. **The win bar:** 55% overall and 60% of voters, accepted by the owner. ([0004](decisions/0004-election-win-bar.md))
-5. **A second term, ending with its own election; the free audit resets each term.** Built as one twelve-quarter
-   campaign. ([0007](decisions/0007-two-terms-in-one-campaign.md))
+5. **Terms continue for as long as the player keeps winning, each ending with its own election; the free audit resets each
+   term.** Built as one campaign that grows. ([0007](decisions/0007-two-terms-in-one-campaign.md),
+   [0008](decisions/0008-terms-continue-while-the-player-wins.md))
 
 ## Suggested order of work
 
 1. **Recalibrate** (done, 0003) **and expose** (done, 0006). Support is meaningful and available to the screen.
-2. **Election night and the bloc map** (UI, plus the Legacy line) and **the second term**. Done: the player has a goal,
-   and a win leads to a second term.
+2. **Election night and the bloc map** (UI, plus the Legacy line) and **open-ended terms**. Done: the player has a goal,
+   and a win leads to another term.
 3. **Events and ministers that slow down or misreport** (content). This is what makes it a game
    rather than a solved puzzle.
 4. **Mood forecast, lobbies, polls** (UI and light engine exposure). The gamification layer.
