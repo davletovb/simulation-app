@@ -89,7 +89,9 @@ test('real committed SSE envelope validates after cursor 12 to 17 transition',()
   assert.equal(newer(accepted,frame).operation.status,'completed')
   assert.equal(validSnapshot(frame,'another-campaign'),false)
   for (const invalid of [17,undefined,'17x','-1','1e3','17\n','17\r','17\u2028','\\d']) {
-    assert.equal(validSnapshot(completeSseFrame(invalid),'demo-england'),false,
+    const frameWithInvalidCursor=completeSseFrame()
+    frameWithInvalidCursor.operation.committed_cursor=invalid
+    assert.equal(validSnapshot(frameWithInvalidCursor,'demo-england'),false,
       'invalid operation cursor: '+String(invalid))
   }
   assert.equal(validSnapshot(completeSseFrame(null),'demo-england'),true)
