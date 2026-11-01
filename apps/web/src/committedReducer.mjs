@@ -109,6 +109,21 @@ function validTerms(s, held) {
 
 const FAMILIES = ['staffing', 'repairs', 'access']
 const tone = t => t === 'bad' || t === 'good'
+const isoDay = s => typeof s === 'string' && /^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/.test(s)
+/** A link to a real story is always https; nothing else is ever shown as a link. */
+const httpsLink = u => typeof u === 'string' && u.startsWith('https://') && u.length <= 300 && !/\s/.test(u)
+/** Where a real headline came from. Real news carries it and invented news must not (a missing field is an older server). */
+const realOk = h => h.source === 'real'
+  ? !!h.real && typeof h.real === 'object' && typeof h.real.publisher === 'string' && h.real.publisher.length > 0 &&
+    isoDay(h.real.published) && httpsLink(h.real.url) && typeof h.real.rule_id === 'string' && h.real.rule_id.length > 0 &&
+    typeof h.real.rule_label === 'string' && h.real.rule_label.length > 0
+  : h.real === null
+/** The real headlines imported so far, including those that only inform. */
+const realNewsOk = (list, quarter) => Array.isArray(list) && list.length <= 40 && list.every(n => !!n && typeof n === 'object' &&
+  Number.isInteger(n.term) && n.term >= 1 && n.term <= MAX_TERMS && typeof n.title === 'string' && n.title.length > 0 &&
+  typeof n.summary === 'string' && n.summary.length > 0 && isoDay(n.published) && httpsLink(n.url) &&
+  (n.rule_label === null || (typeof n.rule_label === 'string' && n.rule_label.length > 0)) &&
+  (n.quarter === null || (Number.isInteger(n.quarter) && n.quarter >= 2 && n.quarter <= MAX_QUARTERS && n.rule_label !== null)))
 const keepOk = d => !!d && typeof d === 'object' && FAMILIES.includes(d.family) && Number.isInteger(d.keep_pct) && d.keep_pct >= 0 && d.keep_pct <= 100 &&
   (d.quarters === 1 || d.quarters === 2)
 const effectOk = e => sixOf(e, n => Number.isInteger(n) && Math.abs(n) <= 40000)
@@ -137,7 +152,7 @@ const wordsOk = h => typeof h.id === 'string' && h.id.length > 0 && typeof h.tit
 function validCalendar(calendar, quarter) {
   if (!calendar || !Array.isArray(calendar.upcoming) || !Array.isArray(calendar.recent)) return false
   if (calendar.upcoming.length > 2 || calendar.recent.length > MAX_QUARTERS) return false
-  const upcomingOk = calendar.upcoming.every(h => wordsOk(h) && tone(h.tone) && quoteOk(h.effect_ppm) &&
+  const upcomingOk = calendar.upcoming.every(h => wordsOk(h) && realOk(h) && tone(h.tone) && quoteOk(h.effect_ppm) &&
     Number.isInteger(h.quarter) && h.quarter >= quarter && h.quarter <= quarter + 1 &&
     Number.isInteger(h.overall_ppm) && ['serious', 'minor', 'welcome'].includes(h.severity) &&
     h.relief_cut_pct >= 0 && h.relief_cut_pct <= 100 &&
@@ -154,14 +169,14 @@ function validCalendar(calendar, quarter) {
         (h.relief_cost === null || h.paid === null) &&
         (h.relief_cost === null || (Number.isInteger(h.relief_cost) && h.relief_cost >= 1 && h.relief_cost <= MAX_CREDITS)) &&
         (h.paid === null || (Number.isInteger(h.paid) && h.paid >= 1 && h.paid <= MAX_CREDITS))))
-  const landedOk = calendar.recent.every((h, i, all) => wordsOk(h) && tone(h.tone) && effectOk(h.effect_ppm) &&
+  const landedOk = calendar.recent.every((h, i, all) => wordsOk(h) && realOk(h) && tone(h.tone) && effectOk(h.effect_ppm) &&
     Number.isInteger(h.quarter) && h.quarter >= 1 && h.quarter <= MAX_QUARTERS && Number.isInteger(h.overall_ppm) &&
     typeof h.surprise === 'boolean' && typeof h.responded === 'boolean' &&
     (h.disruption === null || (h.tone === 'bad' && keepOk(h.disruption))) &&
     (h.scrutiny === null || (h.tone === 'bad' && h.disruption === null && inspectionOk(h.scrutiny, false))) &&
     grantOk(h.grant_credits) && (h.grant_credits === null || h.tone === 'good') &&
     (h.tone === 'bad' || !h.responded) && (i === 0 || all[i - 1].quarter < h.quarter))
-  return upcomingOk && landedOk
+  return upcomingOk && landedOk && realNewsOk(calendar.real_news, quarter)
 }
 
 /** Validate the real SSE/snapshot envelope before admitting it to the cache. */

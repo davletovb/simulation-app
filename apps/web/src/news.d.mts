@@ -14,5 +14,8 @@ export function inspectionText(
   options?: { landed?: boolean },
 ): string
 export function windfallText(credits: number, options?: { landed?: boolean }): string
+export function dayText(iso: string): string
+export function realSourceText(real: { publisher: string; published: string; rule_label: string }): string
+export function realNoteText(note: { rule_label: string | null; quarter: number | null }): string
 export function reliefText(headline: { relief_cost: number | null; relief_cut_pct: number }): string
 export function justIn<T extends { quarter: number }>(recent: readonly T[], currentQuarter: number): T[]

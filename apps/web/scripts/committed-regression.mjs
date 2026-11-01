@@ -67,7 +67,7 @@ const completeSseFrame = (cursor='17') => ({
     votes:[{ministry:'finance',stage:'first',position:'support'}],
     treasury:{available_credits:100,encumbered_staff:0,encumbered_repairs:0,
       encumbered_access:0,service_spent:0,audit_spent:0,relief_spent:0},
-    calendar:{upcoming:[],recent:[]},
+    calendar:{upcoming:[],recent:[],real_news:[]},
     decisions:[],news:[],delivery_history:[],
     support:{group_ids:['urban_low','urban_middle','urban_high','rural_low','rural_middle','rural_high'],
       group_ppm:[500000,500000,500000,500000,500000,500000],
@@ -217,15 +217,15 @@ test('a long game carries many allocations and many quarters of history',()=>{
 const upcoming = (over = {}) => ({
   quarter: 2, id: 'roof_scare', title: 'Roof scare closes classrooms', summary: 'Surveyors find unsafe ceilings.',
   source: 'invented', tone: 'bad', effect_ppm: [-9462, -11610, -1250, -36310, -40000, -9996], overall_ppm: -13000,
-  severity: 'minor', relief_cost: 13, relief_cut_pct: 60, paid: null, disruption: null, scrutiny: null, grant_credits: null, ...over,
+  severity: 'minor', relief_cost: 13, relief_cut_pct: 60, paid: null, disruption: null, scrutiny: null, grant_credits: null, real: null, ...over,
 })
 const landed = (over = {}) => ({
   quarter: 2, id: 'roof_scare', title: 'Roof scare closes classrooms', summary: 'Surveyors find unsafe ceilings.',
   source: 'invented', tone: 'bad', effect_ppm: [-3852, -5060, -500, -15448, -16000, -4975], overall_ppm: -5200,
-  surprise: false, responded: true, disruption: null, scrutiny: null, grant_credits: null, ...over,
+  surprise: false, responded: true, disruption: null, scrutiny: null, grant_credits: null, real: null, ...over,
 })
 test('the news calendar is validated, so a malformed headline never reaches the screen',()=>{
-  const withCalendar = calendar => { const f = completeSseFrame(); f.snapshot.quarter = 1; f.snapshot.calendar = calendar; return f }
+  const withCalendar = calendar => { const f = completeSseFrame(); f.snapshot.quarter = 1; f.snapshot.calendar = calendar === undefined ? undefined : { real_news: [], ...calendar }; return f }
   assert.equal(validSnapshot(withCalendar({ upcoming: [upcoming()], recent: [] }),'demo-england'),true)
   assert.equal(validSnapshot(withCalendar({ upcoming: [upcoming({ relief_cost: null, paid: 13 })], recent: [landed({ quarter: 1 })] }),'demo-england'),true)
   const good = upcoming({ tone: 'good', severity: 'welcome', relief_cost: null, paid: null, effect_ppm: [15000, 15000, 15000, 15000, 15000, 15000], overall_ppm: 15000 })
@@ -259,7 +259,7 @@ const flood = (over = {}) => ({
   effect_ppm: [1200, -12000, -1200, -10140, -24600, -15060], ...over,
 })
 test('a headline that stops work says so, and only bad news may',()=>{
-  const withCalendar = calendar => { const f = completeSseFrame(); f.snapshot.quarter = 1; f.snapshot.calendar = calendar; return f }
+  const withCalendar = calendar => { const f = completeSseFrame(); f.snapshot.quarter = 1; f.snapshot.calendar = calendar === undefined ? undefined : { real_news: [], ...calendar }; return f }
   const ok = c => assert.equal(validSnapshot(withCalendar(c),'demo-england'),true)
   const bad = (name, c) => assert.equal(validSnapshot(withCalendar(c),'demo-england'),false,name)
   ok({ upcoming: [upcoming({ disruption: flood() })], recent: [] })
@@ -279,7 +279,7 @@ test('a headline that stops work says so, and only bad news may',()=>{
 
 const inspection = (over = {}) => ({ families: ['staffing', 'repairs'], owed_units: [14, 15, 0], effect_ppm: [0, -6000, -600, -5070, -12300, -7530], ...over })
 test('an inspection says which work it counts and what would still be owed; only bad news sends inspectors',()=>{
-  const withCalendar = calendar => { const f = completeSseFrame(); f.snapshot.quarter = 1; f.snapshot.calendar = calendar; return f }
+  const withCalendar = calendar => { const f = completeSseFrame(); f.snapshot.quarter = 1; f.snapshot.calendar = calendar === undefined ? undefined : { real_news: [], ...calendar }; return f }
   const ok = c => assert.equal(validSnapshot(withCalendar(c),'demo-england'),true)
   const bad = (name, c) => assert.equal(validSnapshot(withCalendar(c),'demo-england'),false,name)
   ok({ upcoming: [upcoming({ scrutiny: inspection() })], recent: [] })
@@ -297,7 +297,7 @@ test('an inspection says which work it counts and what would still be owed; only
   bad('a scrutiny field that is missing altogether is an older server', { upcoming: [(() => { const h = upcoming(); delete h.scrutiny; return h })()], recent: [] })
 })
 test('a windfall brings a whole number of credits, and only good news can',()=>{
-  const withCalendar = calendar => { const f = completeSseFrame(); f.snapshot.quarter = 1; f.snapshot.calendar = calendar; return f }
+  const withCalendar = calendar => { const f = completeSseFrame(); f.snapshot.quarter = 1; f.snapshot.calendar = calendar === undefined ? undefined : { real_news: [], ...calendar }; return f }
   const ok = c => assert.equal(validSnapshot(withCalendar(c),'demo-england'),true)
   const bad = (name, c) => assert.equal(validSnapshot(withCalendar(c),'demo-england'),false,name)
   const grant = upcoming({ tone: 'good', severity: 'welcome', relief_cost: null, effect_ppm: [0, 0, 0, 0, 0, 0], overall_ppm: 0, grant_credits: 15 })
@@ -309,6 +309,39 @@ test('a windfall brings a whole number of credits, and only good news can',()=>{
   bad('bad news cannot bring credits', { upcoming: [upcoming({ grant_credits: 5 })], recent: [] })
   bad('a landed bad headline cannot have brought credits', { upcoming: [], recent: [landed({ quarter: 1, grant_credits: 5 })] })
   bad('a grant field that is missing altogether is an older server', { upcoming: [(() => { const h = { ...grant }; delete h.grant_credits; return h })()], recent: [] })
+})
+
+const realSource = (over = {}) => ({
+  publisher: 'GOV.UK, Department for Education', published: '2026-11-02',
+  url: 'https://www.gov.uk/government/news/teacher-pay-award-confirmed', rule_id: 'teacher_pay_good',
+  rule_label: 'Teacher pay and recruitment improve', ...over,
+})
+const note = (over = {}) => ({
+  term: 1, title: 'Teacher pay award confirmed', summary: 'Schools will be funded.', url: 'https://www.gov.uk/government/news/x',
+  published: '2026-11-02', rule_label: 'Teacher pay and recruitment improve', quarter: 2, ...over,
+})
+test('a real headline says where it came from, links only to https, and invented news never claims to be real',()=>{
+  const withCalendar = calendar => { const f = completeSseFrame(); f.snapshot.quarter = 1; f.snapshot.calendar = calendar === undefined ? undefined : { real_news: [], ...calendar }; return f }
+  const ok = c => assert.equal(validSnapshot(withCalendar(c),'demo-england'),true)
+  const bad = (name, c) => assert.equal(validSnapshot(withCalendar(c),'demo-england'),false,name)
+  const goodReal = upcoming({ tone: 'good', severity: 'welcome', relief_cost: null, effect_ppm: [12000, 12000, 12000, 12000, 12000, 12000], overall_ppm: 12000, source: 'real', real: realSource() })
+  ok({ upcoming: [goodReal], recent: [], real_news: [note()] })
+  ok({ upcoming: [], recent: [landed({ quarter: 1, tone: 'good', responded: false, source: 'real', real: realSource() })], real_news: [] })
+  // Real news that only informs: no rule, no quarter.
+  ok({ upcoming: [], recent: [], real_news: [note({ rule_label: null, quarter: null })] })
+  bad('real news with no source details', { upcoming: [{ ...goodReal, real: null }], recent: [] })
+  bad('invented news that claims a source', { upcoming: [upcoming({ real: realSource() })], recent: [] })
+  bad('a link that is not https', { upcoming: [{ ...goodReal, real: realSource({ url: 'http://www.gov.uk/x' }) }], recent: [] })
+  bad('a link with a script in it', { upcoming: [{ ...goodReal, real: realSource({ url: 'javascript:alert(1)' }) }], recent: [] })
+  bad('a link with a space in it', { upcoming: [{ ...goodReal, real: realSource({ url: 'https://www.gov.uk/a b' }) }], recent: [] })
+  bad('a publication date that is not a date', { upcoming: [{ ...goodReal, real: realSource({ published: '2 Nov 2026' }) }], recent: [] })
+  bad('no rule said to have matched', { upcoming: [{ ...goodReal, real: realSource({ rule_label: '' }) }], recent: [] })
+  bad('a real field that is missing altogether is an older server', { upcoming: [(() => { const h = { ...goodReal }; delete h.real; return h })()], recent: [] })
+  bad('the real news list is missing', { upcoming: [], recent: [], real_news: undefined })
+  bad('a real note with a bad link', { upcoming: [], recent: [], real_news: [note({ url: 'ftp://www.gov.uk/x' })] })
+  bad('a real note that claims a quarter without a rule', { upcoming: [], recent: [], real_news: [note({ rule_label: null, quarter: 3 })] })
+  bad('a real note for a term that cannot exist', { upcoming: [], recent: [], real_news: [note({ term: 11 })] })
+  bad('far too many real notes', { upcoming: [], recent: [], real_news: Array.from({ length: 41 }, (_, i) => note({ url: 'https://www.gov.uk/n' + i })) })
 })
 
 test('credits spent answering headlines are part of the treasury and must be a whole number',()=>{

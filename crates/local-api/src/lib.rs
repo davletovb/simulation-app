@@ -3,6 +3,7 @@
 #![forbid(unsafe_code)]
 pub mod checkpoint_store;
 pub mod connected;
+pub mod real_news;
 pub mod store;
 use axum::{
     Json, Router,
@@ -71,12 +72,24 @@ pub struct AppState {
     mode: Mode,
     store: Arc<SaveStore>,
     connected: Arc<connected::Connected>,
+    /// Whether the server fetches real headlines: the only network call it ever makes.
+    real_news: bool,
 }
 impl AppState {
+    /// A state that makes no network calls: the game plays on invented headlines alone.
     pub fn new(mode: Mode, save_dir: PathBuf) -> Result<Self, StoreError> {
+        Self::with_news(mode, save_dir, real_news::NewsSource::Off)
+    }
+    /// A state that fetches GOV.UK headlines at the start of each term, when `news` is on (decision 0013).
+    pub fn with_news(
+        mode: Mode,
+        save_dir: PathBuf,
+        news: real_news::NewsSource,
+    ) -> Result<Self, StoreError> {
         Ok(Self {
             mode,
-            connected: connected::Connected::new(save_dir.join("hiyal-campaigns"))
+            real_news: news.is_on(),
+            connected: connected::Connected::with_news(save_dir.join("hiyal-campaigns"), news)
                 .map_err(|_| StoreError::Corrupt)?,
             store: Arc::new(SaveStore::new(save_dir)?),
         })
@@ -146,7 +159,8 @@ async fn health(State(state): State<AppState>) -> Json<Health> {
         status: "ok",
         mode: state.mode,
         schema_version: d::SCHEMA_VERSION,
-        network_calls: false,
+        // The one thing the server ever fetches is the news (decision 0013), and only when it has been left on.
+        network_calls: state.real_news,
         authoritative_simulation: false,
         connected_authoritative_simulation: true,
     })

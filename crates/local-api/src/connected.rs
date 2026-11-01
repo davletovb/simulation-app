@@ -1,6 +1,7 @@
 //! P6 offline connected campaign owner. No LLM routing occurs in this module.
 //! A durable command acceptance record is written before HTTP 202. Only one
 //! task can advance a given Hiyal trial; no duplicated command ID can apply.
+use crate::real_news::NewsSource;
 use axum::{
     Json, Router,
     extract::{Path, State},
@@ -13,6 +14,7 @@ use axum::{
 };
 use futures_util::stream;
 use myth_contracts::Allocation as WireAllocation;
+use myth_contracts::RealItemWire;
 use myth_domain as d;
 use myth_domain::PolicyFamily;
 use myth_domain::reducer::{ELECTION_HELD_ABOVE_PPM, ELECTION_MIN_SUPPORT_PPM};
@@ -26,7 +28,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     convert::Infallible,
     fs::{self, File, OpenOptions},
     io::Write,
@@ -388,6 +390,33 @@ pub struct PublicUpcoming {
     pub scrutiny: Option<PublicScrutiny>,
     /// Set when it is a windfall: the credits that arrive when it lands (decision 0012).
     pub grant_credits: Option<u16>,
+    /// Set when the headline is real news: where it came from and which rule turned it into numbers (decision 0013).
+    pub real: Option<PublicRealSource>,
+}
+/// Where a real headline came from, and why it does what it does.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct PublicRealSource {
+    /// Who published it, for example `GOV.UK, Department for Education`.
+    pub publisher: String,
+    /// `YYYY-MM-DD`.
+    pub published: String,
+    pub url: String,
+    /// The keyword rule that matched, by id and in words.
+    pub rule_id: String,
+    pub rule_label: String,
+}
+/// A real headline imported for a term, whether or not it changes anything (decision 0013).
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct PublicRealNote {
+    pub term: u8,
+    pub title: String,
+    pub summary: String,
+    pub url: String,
+    pub published: String,
+    /// The rule that matched. Absent when nothing matched and the headline only informs.
+    pub rule_label: Option<String>,
+    /// The quarter it lands in, if it took one. Absent when it informs only, or no quarter of its tone was free.
+    pub quarter: Option<u8>,
 }
 /// What an inspection would count and take.
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -435,6 +464,8 @@ pub struct PublicLanded {
     pub scrutiny: Option<PublicLandedScrutiny>,
     /// Set when it was a windfall: the credits that arrived.
     pub grant_credits: Option<u16>,
+    /// Set when the headline was real news.
+    pub real: Option<PublicRealSource>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct PublicLandedScrutiny {
@@ -453,6 +484,8 @@ pub struct PublicCalendar {
     pub upcoming: Vec<PublicUpcoming>,
     /// Every headline that has landed, oldest first.
     pub recent: Vec<PublicLanded>,
+    /// Every real headline imported so far, oldest first, including those that only inform.
+    pub real_news: Vec<PublicRealNote>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -1013,6 +1046,8 @@ fn counted_families(families: [bool; 3]) -> Vec<String> {
         .map(|(name, _)| name.to_owned())
         .collect()
 }
+/// Who publishes the real headlines, as the screen says it.
+const REAL_PUBLISHER: &str = "GOV.UK, Department for Education";
 fn family_name(family: PolicyFamily) -> &'static str {
     match family {
         PolicyFamily::Staffing => "staffing",
@@ -1032,8 +1067,40 @@ fn public_calendar(campaign: &myth_domain::reducer::Campaign) -> Result<PublicCa
             .sum();
         i32::try_from(weighted / 1_000_000).map_err(|_| "headline effect out of range".to_string())
     };
-    let words = |s: &d::news::Scheduled| {
-        headline_text(s.tone, s.index).ok_or_else(|| "headline text missing".to_string())
+    let words = |s: &d::news::Scheduled| match s.real {
+        Some(slot) => campaign
+            .real_items(s.quarter.term())
+            .get(usize::from(slot.item))
+            .map(|item| (item.title.clone(), item.summary.clone()))
+            .ok_or_else(|| "real headline text missing".to_string()),
+        None => headline_text(s.tone, s.index).ok_or_else(|| "headline text missing".to_string()),
+    };
+    let real_source = |s: &d::news::Scheduled| -> Option<PublicRealSource> {
+        let slot = s.real?;
+        let item = campaign
+            .real_items(s.quarter.term())
+            .get(usize::from(slot.item))?;
+        let rule = item.rule.as_ref()?;
+        Some(PublicRealSource {
+            publisher: REAL_PUBLISHER.into(),
+            published: item.published.clone(),
+            url: item.url.clone(),
+            rule_id: rule.id.clone(),
+            rule_label: rule.label.clone(),
+        })
+    };
+    let headline_id = |s: &d::news::Scheduled| -> String {
+        match s.real {
+            Some(slot) => campaign
+                .real_items(s.quarter.term())
+                .get(usize::from(slot.item))
+                .and_then(|item| item.rule.as_ref())
+                .map_or_else(
+                    || "real_news".to_owned(),
+                    |rule| format!("real_{}", rule.id),
+                ),
+            None => s.headline().id.to_owned(),
+        }
     };
     let tone = |t: d::news::Tone| match t {
         d::news::Tone::Bad => "bad".to_string(),
@@ -1045,10 +1112,15 @@ fn public_calendar(campaign: &myth_domain::reducer::Campaign) -> Result<PublicCa
         let overall_ppm = overall(&up.expected)?;
         upcoming.push(PublicUpcoming {
             quarter: up.scheduled.quarter.value(),
-            id: up.scheduled.headline().id.to_owned(),
+            id: headline_id(&up.scheduled),
             title,
             summary,
-            source: "invented".into(),
+            source: if up.scheduled.real.is_some() {
+                "real"
+            } else {
+                "invented"
+            }
+            .into(),
             tone: tone(up.scheduled.tone),
             effect_ppm: up.expected,
             overall_ppm,
@@ -1077,6 +1149,7 @@ fn public_calendar(campaign: &myth_domain::reducer::Campaign) -> Result<PublicCa
                 effect_ppm: count.effect,
             }),
             grant_credits: (up.grant > 0).then_some(up.grant),
+            real: real_source(&up.scheduled),
         });
     }
     let mut recent = vec![];
@@ -1084,10 +1157,15 @@ fn public_calendar(campaign: &myth_domain::reducer::Campaign) -> Result<PublicCa
         let (title, summary) = words(&landed.scheduled)?;
         recent.push(PublicLanded {
             quarter: landed.scheduled.quarter.value(),
-            id: landed.scheduled.headline().id.to_owned(),
+            id: headline_id(&landed.scheduled),
             title,
             summary,
-            source: "invented".into(),
+            source: if landed.scheduled.real.is_some() {
+                "real"
+            } else {
+                "invented"
+            }
+            .into(),
             tone: tone(landed.scheduled.tone),
             effect_ppm: landed.shock,
             overall_ppm: overall(&landed.shock)?,
@@ -1117,9 +1195,28 @@ fn public_calendar(campaign: &myth_domain::reducer::Campaign) -> Result<PublicCa
                     owed_units: landed.owed,
                 }),
             grant_credits: (landed.granted > 0).then_some(landed.granted),
+            real: real_source(&landed.scheduled),
         });
     }
-    Ok(PublicCalendar { upcoming, recent })
+    let mut real_news = vec![];
+    for (term, items) in campaign.real_batches() {
+        for (i, item) in items.iter().enumerate() {
+            real_news.push(PublicRealNote {
+                term: *term,
+                title: item.title.clone(),
+                summary: item.summary.clone(),
+                url: item.url.clone(),
+                published: item.published.clone(),
+                rule_label: item.rule.as_ref().map(|r| r.label.clone()),
+                quarter: campaign.real_quarter(*term, i).map(|q| q.value()),
+            });
+        }
+    }
+    Ok(PublicCalendar {
+        upcoming,
+        recent,
+        real_news,
+    })
 }
 /// Hiyal's original campaign/trial identity is preserved in the journal;
 /// the API's logical branch ID is distinct and scopes commands/SSE.
@@ -1153,6 +1250,8 @@ struct Engine {
 }
 struct Owner {
     engine: AsyncMutex<Engine>,
+    /// Where this campaign's real headlines come from, if anywhere (decision 0013).
+    news: NewsSource,
     inflight: AtomicBool,
     sender: broadcast::Sender<Committed>,
     log_path: PathBuf,
@@ -1163,12 +1262,18 @@ struct Owner {
 }
 pub struct Connected {
     root: PathBuf,
+    news: NewsSource,
     owners: Mutex<BTreeMap<String, Arc<Owner>>>,
     loading: AsyncMutex<()>,
     _writer_lock: Arc<File>,
 }
 impl Connected {
+    /// A service with no real news: the game plays on invented headlines alone. This is what every test uses.
     pub fn new(root: PathBuf) -> Result<Arc<Self>, String> {
+        Self::with_news(root, NewsSource::Off)
+    }
+    /// A service that freezes real headlines into each campaign at the start of every term (decision 0013).
+    pub fn with_news(root: PathBuf, news: NewsSource) -> Result<Arc<Self>, String> {
         // Fail closed before opening a campaign if the immutable source archive is invalid.
         let cutoff = "2026-10-29T23:59:59Z";
         frozen_news(cutoff)?;
@@ -1214,6 +1319,7 @@ impl Connected {
         }
         Ok(Arc::new(Self {
             root,
+            news,
             owners: Mutex::new(BTreeMap::new()),
             loading: AsyncMutex::new(()),
             _writer_lock,
@@ -1298,6 +1404,7 @@ impl Connected {
                 log,
                 poisoned: false,
             }),
+            news: self.news.clone(),
             inflight: AtomicBool::new(false),
             sender,
             log_path: self.root.join(format!("{key}.commands.json")),
@@ -1329,6 +1436,8 @@ fn schedule(owner: Arc<Owner>) {
         return;
     }
     tokio::spawn(async move {
+        // The real headlines for a term that is about to begin, fetched with the lock released (decision 0013).
+        let mut prefetched: Option<(String, Vec<RealItemWire>)> = None;
         loop {
             let mut engine = owner.engine.lock().await;
             if engine.poisoned {
@@ -1342,6 +1451,16 @@ fn schedule(owner: Arc<Owner>) {
             else {
                 break;
             };
+            if owner.news.is_on() && engine.log.records[pos].kind == CommandKind::BeginTerm {
+                let command_id = engine.log.records[pos].command_id.clone();
+                if prefetched.as_ref().is_none_or(|(id, _)| *id != command_id) {
+                    let told = told_links(&engine);
+                    drop(engine);
+                    let items = owner.news.batch(&told).await;
+                    prefetched = Some((command_id, items));
+                    continue;
+                }
+            }
             let expected = engine.log.records[pos].expected_world_version.clone();
             let current = engine.trial.store.world().world_version.clone();
             // Accepted before dispatch; recovering after the Hiyal journal
@@ -1367,6 +1486,15 @@ fn schedule(owner: Arc<Owner>) {
                     Err(error) => Err(error),
                 };
                 engine.trial.clear_player_command();
+                // A new term's real headlines go into the record right after it begins, before the first plan.
+                if applied.is_ok()
+                    && engine.log.records[pos].kind == CommandKind::BeginTerm
+                    && let Some((id, items)) = prefetched.take()
+                    && id == command_id
+                    && let Err(reason) = freeze_news(&mut engine, items).await
+                {
+                    eprintln!("Real news could not be recorded for this term: {reason}");
+                }
                 applied
             };
             let snap = capture_for(&engine.trial, &owner.id);
@@ -1435,6 +1563,7 @@ fn schedule(owner: Arc<Owner>) {
                         calendar: PublicCalendar {
                             upcoming: vec![],
                             recent: vec![],
+                            real_news: vec![],
                         },
                         comparison: PublicComparison {
                             mode: "verification_failed".into(),
@@ -1476,6 +1605,45 @@ fn schedule(owner: Arc<Owner>) {
         }
     });
 }
+/// The links of every real story this campaign has already told, so none is told twice.
+fn told_links(engine: &Engine) -> BTreeSet<String> {
+    engine
+        .trial
+        .store
+        .world()
+        .fold()
+        .map(|campaign| {
+            campaign
+                .real_batches()
+                .values()
+                .flatten()
+                .map(|item| item.url.clone())
+                .collect()
+        })
+        .unwrap_or_default()
+}
+/// Freeze a batch of real headlines into the campaign's record, as the server's own command at the start of a term (decision
+/// 0013). Nothing happens, and nothing is journaled, if the game would not accept it (a plan has been made, or this term already
+/// has its batch): real news that arrives late is simply not used.
+async fn freeze_news(engine: &mut Engine, items: Vec<RealItemWire>) -> Result<(), String> {
+    if items.is_empty() {
+        return Ok(());
+    }
+    let world = engine.trial.store.world();
+    let campaign = world.fold()?;
+    let wanted: Vec<d::news::RealItem> = items.iter().cloned().map(Into::into).collect();
+    if !campaign.accepts_news_import(&wanted) {
+        return Ok(());
+    }
+    let term = (world.quarter - 1) / d::TERM_QUARTERS + 1;
+    let command_id = format!("news-t{term}");
+    engine
+        .trial
+        .select_player_command(&command_id, json!({"kind": "import_news", "items": items}))?;
+    let applied = advance_slice(&mut engine.trial).await;
+    engine.trial.clear_player_command();
+    applied.map(|_| ())
+}
 /// Campaign creation is an explicit POST, never a side effect of GET.
 async fn create(
     State(service): State<Arc<Connected>>,
@@ -1489,6 +1657,14 @@ async fn create(
         .owner(&id, true)
         .await
         .map_err(|_| status(StatusCode::CONFLICT, "campaign could not be created"))?;
+    // The first term's real headlines are fetched before anything is locked, then frozen in before the first plan.
+    if !exists && owner.news.is_on() {
+        let items = owner.news.batch(&BTreeSet::new()).await;
+        let mut engine = owner.engine.lock().await;
+        if let Err(reason) = freeze_news(&mut engine, items).await {
+            eprintln!("Real news could not be recorded for this campaign: {reason}");
+        }
+    }
     let engine = owner.engine.lock().await;
     let view = capture_for(&engine.trial, &owner.id)
         .map_err(|_| status(StatusCode::CONFLICT, "verification failed"))?;
@@ -3297,6 +3473,307 @@ mod tests {
         accepted_step(service, campaign, CommandKind::ContinueQuarter, *serial).await;
         *serial += 1;
         accepted_step(service, campaign, CommandKind::FinishContinuation, *serial).await
+    }
+    /// Writes the hand-written test feed (not a capture of any real feed) where a service can read it.
+    fn feed_file(name: &str) -> PathBuf {
+        let path =
+            std::env::temp_dir().join(format!("myth-feed-{}-{name}.xml", std::process::id()));
+        fs::write(&path, crate::real_news::tests::FIXTURE).unwrap();
+        path
+    }
+    #[tokio::test]
+    async fn real_headlines_are_frozen_into_each_term_and_match_the_independent_replica() {
+        // Chosen with tools/support-model/news_model.py: "rn112". The test feed has two stories a rule matches at the start (a
+        // teacher pay award, good, and a RAAC survey, bad) and two that match nothing; term 1 cannot carry bad news, so only the
+        // pay award takes a quarter (the first good one, 2). At the start of term 2 the stories already told are skipped, so the
+        // strike ballot is the only one left, and it takes the first bad quarter (10). Every number is the replica's, to the ppm.
+        let id = "rn112";
+        let dir = root();
+        let feed = feed_file("frozen");
+        let service = Connected::with_news(
+            dir.clone(),
+            crate::real_news::NewsSource::File(feed.clone()),
+        )
+        .unwrap();
+        let created = create(State(service.clone()), Path(id.to_owned()))
+            .await
+            .unwrap()
+            .1
+            .0
+            .snapshot;
+        let notes: Vec<_> = created
+            .calendar
+            .real_news
+            .iter()
+            .map(|n| (n.term, n.title.as_str(), n.rule_label.as_deref(), n.quarter))
+            .collect();
+        assert_eq!(
+            notes,
+            [
+                (
+                    1,
+                    "Teacher pay award confirmed for next year",
+                    Some("Teacher pay and recruitment improve"),
+                    Some(2)
+                ),
+                (
+                    1,
+                    "RAAC survey finds more unsafe buildings",
+                    Some("School buildings in trouble"),
+                    None
+                ),
+                (1, "New guidance published for school governors", None, None),
+                (1, "Consultation opens on the curriculum", None, None),
+            ]
+        );
+        assert_eq!(created.calendar.real_news[0].published, "2026-11-02");
+        assert_eq!(
+            created.calendar.real_news[0].summary,
+            "Schools will be funded for the award & given notice."
+        );
+        // Nothing is invented about where it came from: links outside GOV.UK never get in.
+        assert!(
+            created
+                .calendar
+                .real_news
+                .iter()
+                .all(|n| n.url.starts_with("https://www.gov.uk/"))
+        );
+        let mut serial = 0_usize;
+        let balanced = WireAllocation {
+            staff: 50,
+            repairs: 40,
+            access: 10,
+        };
+        let mut view = play_plan(&service, id, balanced, &mut serial).await;
+        for _ in 2..=6 {
+            view = keep_quarter(&service, id, &mut serial).await;
+        }
+        assert_eq!(view.phase, "ElectionNight");
+        let pay = view
+            .calendar
+            .recent
+            .iter()
+            .find(|h| h.quarter == 2)
+            .unwrap();
+        assert_eq!(
+            (
+                pay.id.as_str(),
+                pay.source.as_str(),
+                pay.tone.as_str(),
+                pay.surprise
+            ),
+            ("real_teacher_pay_good", "real", "good", false)
+        );
+        assert_eq!(pay.effect_ppm, [12_000; 6]);
+        let source = pay
+            .real
+            .as_ref()
+            .expect("a real headline says where it came from");
+        assert_eq!(
+            (
+                source.publisher.as_str(),
+                source.published.as_str(),
+                source.rule_id.as_str()
+            ),
+            (
+                "GOV.UK, Department for Education",
+                "2026-11-02",
+                "teacher_pay_good"
+            )
+        );
+        assert_eq!(
+            source.url,
+            "https://www.gov.uk/government/news/teacher-pay-award-confirmed"
+        );
+        assert!(
+            view.calendar
+                .recent
+                .iter()
+                .filter(|h| h.real.is_some())
+                .count()
+                == 1
+        );
+        assert_eq!(
+            view.support.group_ppm,
+            [602_120, 613_600, 484_280, 603_536, 620_080, 495_824]
+        );
+        assert_eq!(
+            view.election.settled_group_ppm,
+            [603_800, 624_000, 484_200, 611_240, 637_600, 503_960]
+        );
+        assert_eq!(view.election.weighted_support_ppm, 582_184);
+        // Beginning term 2 fetches again and freezes the new term's batch: only the strike ballot is left to tell.
+        serial += 1;
+        let second = accepted_step(&service, id, CommandKind::BeginTerm, serial).await;
+        assert_eq!((second.quarter, second.term), (7, 2));
+        let notes: Vec<_> = second
+            .calendar
+            .real_news
+            .iter()
+            .map(|n| (n.term, n.title.as_str(), n.quarter))
+            .collect();
+        assert_eq!(notes.len(), 5);
+        assert_eq!(
+            notes[4],
+            (2, "Strike ballot opens among teachers", Some(10))
+        );
+        let reserve = WireAllocation {
+            staff: 50,
+            repairs: 35,
+            access: 0,
+        };
+        let view = play_plan(&service, id, reserve, &mut serial).await;
+        assert_eq!(view.treasury.available_credits, 15);
+        let mut view = view;
+        for _ in 8..=8 {
+            view = keep_quarter(&service, id, &mut serial).await;
+        }
+        assert_eq!(view.quarter, 9);
+        // A quarter ahead the real headline is announced, quoted and priced like any other bad news, and says it is real.
+        let strike = view
+            .calendar
+            .upcoming
+            .iter()
+            .find(|h| h.quarter == 10)
+            .expect("announced");
+        assert_eq!(
+            (
+                strike.id.as_str(),
+                strike.source.as_str(),
+                strike.tone.as_str()
+            ),
+            ("real_teacher_supply_bad", "real", "bad")
+        );
+        assert_eq!(strike.title, "Strike ballot opens among teachers");
+        assert_eq!(
+            strike.effect_ppm,
+            [-27_260, -29_300, -2_500, -14_374, -16_010, -1_646]
+        );
+        assert_eq!(strike.overall_ppm, -19_382);
+        assert_eq!(strike.severity, "minor");
+        assert_eq!(strike.relief_cost, Some(20));
+        assert!(
+            strike.disruption.is_none()
+                && strike.scrutiny.is_none()
+                && strike.grant_credits.is_none()
+        );
+        let source = strike.real.as_ref().unwrap();
+        assert_eq!(
+            (
+                source.rule_id.as_str(),
+                source.rule_label.as_str(),
+                source.published.as_str()
+            ),
+            (
+                "teacher_supply_bad",
+                "Teacher supply under pressure",
+                "2026-10-31"
+            )
+        );
+        // The reserve is 15 credits and the answer costs 20: the game refuses, as it does for any headline.
+        let refused = command(
+            State(service.clone()),
+            Path(id.to_owned()),
+            Json(Command {
+                command_id: "answer-too-dear".into(),
+                expected_world_version: view.view_version.clone(),
+                kind: CommandKind::Respond {
+                    headline_quarter: 10,
+                },
+            }),
+        )
+        .await;
+        assert_eq!(refused.unwrap_err().0, StatusCode::CONFLICT);
+        view = keep_quarter(&service, id, &mut serial).await;
+        assert_eq!(view.quarter, 10);
+        let strike = view
+            .calendar
+            .upcoming
+            .iter()
+            .find(|h| h.quarter == 10)
+            .unwrap();
+        assert_eq!(
+            strike.effect_ppm,
+            [-33_236, -35_180, -2_500, -16_440, -18_182, -2_003]
+        );
+        assert_eq!(
+            (
+                strike.overall_ppm,
+                strike.severity.as_str(),
+                strike.relief_cost
+            ),
+            (-23_154, "serious", Some(24))
+        );
+        for _ in 10..=12 {
+            view = keep_quarter(&service, id, &mut serial).await;
+        }
+        assert_eq!(
+            (view.phase.as_str(), view.election.status.as_str()),
+            ("ElectionNight", "won")
+        );
+        let landed = view
+            .calendar
+            .recent
+            .iter()
+            .find(|h| h.quarter == 10)
+            .unwrap();
+        assert_eq!(
+            landed.effect_ppm,
+            [-33_236, -35_180, -2_500, -16_440, -18_182, -2_003]
+        );
+        assert!(landed.real.is_some() && !landed.responded);
+        assert_eq!(
+            view.election.settled_group_ppm,
+            [664_764, 701_820, 477_500, 637_060, 689_818, 497_838]
+        );
+        assert_eq!(view.election.weighted_support_ppm, 627_142);
+        // The headlines are in the record, not fetched again: reopening the same save with real news switched off shows
+        // exactly the same ones, and so does a service that could not reach any feed.
+        let before = serde_json::to_value(&view.calendar).unwrap();
+        drop(service);
+        let reopened = Connected::new(dir.clone()).unwrap();
+        let owner = reopened.owner(id, false).await.unwrap();
+        let again = capture_for(&owner.engine.lock().await.trial, id).unwrap();
+        assert_eq!(serde_json::to_value(&again.calendar).unwrap(), before);
+        assert_eq!(again.view_version, view.view_version);
+        drop(owner);
+        drop(reopened);
+        fs::remove_file(feed).unwrap();
+        fs::remove_dir_all(dir).unwrap();
+    }
+    #[tokio::test]
+    async fn a_feed_that_cannot_be_read_gives_a_campaign_with_no_real_news_and_nothing_breaks() {
+        let dir = root();
+        let missing = std::env::temp_dir().join("myth-feed-does-not-exist.xml");
+        let service =
+            Connected::with_news(dir.clone(), crate::real_news::NewsSource::File(missing)).unwrap();
+        let created = create(State(service.clone()), Path("down".to_owned()))
+            .await
+            .unwrap()
+            .1
+            .0
+            .snapshot;
+        assert!(created.calendar.real_news.is_empty());
+        let mut serial = 0_usize;
+        let view = play_plan(
+            &service,
+            "down",
+            WireAllocation {
+                staff: 50,
+                repairs: 40,
+                access: 10,
+            },
+            &mut serial,
+        )
+        .await;
+        assert_eq!(view.quarter, 2);
+        assert!(
+            view.calendar.real_news.is_empty()
+                && view.calendar.recent.iter().all(|h| h.real.is_none())
+        );
+        drop(service);
+        fs::remove_dir_all(dir).unwrap();
     }
     #[tokio::test]
     async fn inspections_and_windfalls_match_the_independent_replica() {

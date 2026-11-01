@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""An independent replica of the news calendar (decisions 0010, 0011 and 0012), to check the engine against.
+"""An independent replica of the news calendar (decisions 0010, 0011, 0012 and 0013), to check the engine against.
 
 Source of truth: crates/domain/src/news.rs and `Campaign::advance` in crates/domain/src/reducer.rs. This file repeats the
 rules from their description, reads the headlines from `data/england-school-pilot-v1/authored.json` (so the deck cannot drift
@@ -65,13 +65,27 @@ def schedule(seed, term):
     return out
 
 
+def schedule_real(seed, term, real=()):
+    """The calendar of one term with real headlines imported for it (decision 0013): `real` is a list of
+    (tone, effect) in import order, only those a rule matched. The invented calendar is drawn exactly as without real news, then
+    each real headline takes the first quarter of its tone that no real headline has taken, announced a quarter ahead (never a
+    surprise); at most two a term. Returns (quarter, tone, index, surprise, real) where `real` is the (item, tone, effect) taken."""
+    out = [[q, tone, index, surprise, None] for q, tone, index, surprise in schedule(seed, term)]
+    for item, (tone, effect) in list(enumerate(real))[:2]:
+        for slot in out:
+            if slot[4] is None and slot[1] == tone:
+                slot[4], slot[3] = (item, tone, effect), False
+                break
+    return [tuple(s) for s in out]
+
+
 FAMILIES = ('staffing', 'repairs', 'access')
 CAP = {'staffing': 12, 'repairs': 10, 'access': 4}
 LAG = {'staffing': 1, 'repairs': 2, 'access': 0}
 BALANCED = {'staffing': 50, 'repairs': 40, 'access': 10}
 
 
-def capacity_kept(seed, quarter, answers=()):
+def capacity_kept(seed, quarter, answers=(), real=None):
     """Percent of its usual capacity each kind of work keeps in `quarter`, given the disruptions in the news (decision 0011):
     a disruption lasts `quarters` from the quarter it lands in, may carry into the next term, an answered one is cut by 60% less,
     and where several meet the worst rules."""
@@ -80,8 +94,8 @@ def capacity_kept(seed, quarter, answers=()):
     for t in (max(term - 1, 0), term):
         if t < 1:
             continue
-        for q, tone, index, _surprise in schedule(seed, t):
-            d = NEWS[tone][index].get('disrupts') if tone == 'bad' else None
+        for q, tone, index, _surprise, taken in schedule_real(seed, t, (real or {}).get(t, ())):
+            d = NEWS[tone][index].get('disrupts') if tone == 'bad' and taken is None else None
             if not d or not (q <= quarter < q + d['quarters']):
                 continue
             kept = d['keep_pct']
@@ -91,7 +105,7 @@ def capacity_kept(seed, quarter, answers=()):
     return keep
 
 
-def deliveries(campaign_id, plans, answers=(), quarters=None, owed=None):
+def deliveries(campaign_id, plans, answers=(), quarters=None, owed=None, real=None):
     """Cumulative [staffing, repairs, access] after each quarter when `plans[t]` (a dict, or None to keep the programme) is
     approved in the first quarter of term t+1, delivered at full effort under the engine's lags and capacities, with the
     disruptions of this campaign's calendar. Work not delivered by the end of a term is dropped (a new plan replaces it).
@@ -103,7 +117,7 @@ def deliveries(campaign_id, plans, answers=(), quarters=None, owed=None):
         term, qt = (q - 1) // 6 + 1, (q - 1) % 6 + 1
         if qt == 1 and plans[term - 1] is not None:
             left = dict(plans[term - 1])
-        keep = capacity_kept(seed, q, answers)
+        keep = capacity_kept(seed, q, answers, real)
         for f in FAMILIES:
             if qt <= LAG[f]:
                 continue
@@ -136,6 +150,15 @@ def landing_shock(tone, index, term, support):
     return out
 
 
+def shock_from(tone, effect, term, support):
+    """What a headline does given only its numbers: a real headline, or any other once its deck entry is looked up."""
+    if tone == 'good':
+        return [min(g, SHOCK_CAP) for g in effect]
+    base, share = severity(term)
+    return [-min(SHOCK_CAP, exposure * (base + max(0, now - HELD_ABOVE) * share // 100) // 100)
+            for exposure, now in zip(effect, support)]
+
+
 def soften(shock):
     return [sm.trunc_div(x * (100 - NEWS['relief']['cut_pct']), 100) if x < 0 else x for x in shock]
 
@@ -163,26 +186,31 @@ def scrutiny_shock(owed, term):
     return [-min(SHOCK_CAP, max(0, sm.response(ix, owed, **P)) * pct // 100) for ix in range(6)]
 
 
-def play(cums, campaign_id, quarters, answers=(), owed=None):
+def play(cums, campaign_id, quarters, answers=(), owed=None, real=None):
     """Support after `quarters` quarters of the calendar and the given cumulative deliveries, as the engine does it: each
     quarter's headline lands first, then queued responses, then this quarter's delivery is queued. `answers` are the
     landing quarters whose headline was paid to soften. `owed` is what `deliveries` reports is still promised after each
     quarter (an inspection counts it). Returns (support, settled for election night, landed), where each landed entry ends
-    with the credits a windfall brought (zero otherwise)."""
+    with the credits a windfall brought (zero otherwise). `real` maps a term to the (tone, effect) of the real headlines imported
+    for it that a rule matched (decision 0013); a landed real headline is reported with the id `real`."""
     seed, sup, queue, prev, landed = news_seed(campaign_id), [500_000] * 6, {}, [0, 0, 0], []
     book = {}
     for term in range(1, (quarters - 1) // 6 + 2):
-        for q, tone, index, surprise in schedule(seed, term):
-            book[q] = (tone, index, surprise)
+        for q, tone, index, surprise, taken in schedule_real(seed, term, (real or {}).get(term, ())):
+            book[q] = (tone, index, surprise, taken)
     for q in range(1, quarters + 1):
         cum = cums[q - 1] if q - 1 < len(cums) else cums[-1]
         d = [cum[k] - prev[k] for k in range(3)]
         prev = list(cum)
         if q in book:
-            tone, index, surprise = book[q]
+            tone, index, surprise, taken = book[q]
             term = (q - 1) // 6 + 1
-            shock = landing_shock(tone, index, term, sup)
-            headline = NEWS[tone][index]
+            if taken is not None:
+                shock = shock_from(taken[1], taken[2], term, sup)
+                headline = {'id': 'real'}
+            else:
+                shock = landing_shock(tone, index, term, sup)
+                headline = NEWS[tone][index]
             if tone == 'bad' and headline.get('scrutiny'):
                 counted = headline['scrutiny']['families']
                 units = [owed[q - 1][f] if f in counted else 0 for f in FAMILIES]
@@ -298,6 +326,32 @@ def check():
     expect('sc156: the spot check, answered', shocks[11], [-4084, -6468, -500, -3988, -6764, -1123])
     expect('sc156: election night 2', settled12, [605375, 661958, 465900, 590775, 658810, 484347])
     expect('sc156: the donation', [c for q, _, _, _, _, c in landed12 if q == 12], [10])
+    # Campaign "rn112" (crates/local-api/src/connected.rs, the real-news test): the test feed (hand-written, not a real capture) gives
+    # term 1 a real teacher pay award (good, takes the first good quarter, 2) and a RAAC story (bad, no bad quarter in term 1, so it
+    # changes nothing), and term 2 a real strike ballot (bad, takes the first bad quarter, 10). Decision 0013.
+    cid = 'rn112'
+    pay, raac, strike = ('good', [12000] * 6), ('bad', [25, 25, 25, 75, 75, 75]), ('bad', [50, 50, 50, 25, 25, 25])
+    real = {1: [pay, raac], 2: [strike]}
+    seed = news_seed(cid)
+    expect('rn112: the real pay award takes quarter 2 and the bad one finds no room in term 1',
+           [(q, taken is not None) for q, _, _, _, taken in schedule_real(seed, 1, real[1])], [(2, True), (5, False)])
+    expect('rn112: the real strike ballot takes the first bad quarter of term 2',
+           [q for q, tone, _, _, taken in schedule_real(seed, 2, real[2]) if taken is not None], [10])
+    owed = []
+    cums = deliveries(cid, [BALANCED, plan2], quarters=12, owed=owed, real=real)
+    sup, settled, landed = play(cums[:6], cid, 6, owed=owed, real=real)
+    expect('rn112: support before election night 1', sup, [602120, 613600, 484280, 603536, 620080, 495824])
+    expect('rn112: election night 1', settled, [603800, 624000, 484200, 611240, 637600, 503960])
+    expect('rn112: the real pay award is a flat gift', [sh for q, _, h, _, sh, _ in landed if h == 'real'][0], [12000] * 6)
+    sup8, _, _ = play(cums[:8], cid, 8, owed=owed, real=real)
+    quote = shock_from('bad', strike[1], 2, sup8)
+    expect('rn112: the quote for the real strike ballot', quote, [-27260, -29300, -2500, -14374, -16010, -1646])
+    expect('rn112: ...overall, and what answering would cost', (overall_ppm(quote), relief_cost(quote)), (-19382, 20))
+    sup9, _, _ = play(cums[:9], cid, 9, owed=owed, real=real)
+    expect('rn112: a quarter later', shock_from('bad', strike[1], 2, sup9), [-33236, -35180, -2500, -16440, -18182, -2003])
+    _, settled12, landed12 = play(cums, cid, 12, owed=owed, real=real)
+    expect('rn112: election night 2', settled12, [664764, 701820, 477500, 637060, 689818, 497838])
+    expect('rn112: the strike ballot as it landed', [sh for q, _, _, _, sh, _ in landed12 if q == 10][0], [-33236, -35180, -2500, -16440, -18182, -2003])
     expect('scrutiny takes a share of what the work would have earned', scrutiny_shock([26, 30, 0], 2), [-14920, -20000, 0, -16276, -20000, -2684])
     expect('...growing with the term', [scrutiny_pct(t) for t in range(1, 11)], [50, 50, 65, 80, 95, 110, 125, 140, 155, 170])
     return ok

@@ -1,3 +1,4 @@
+use myth_local_api::real_news::NewsSource;
 use myth_local_api::{AppState, Config, router};
 use tower_http::services::ServeDir;
 
@@ -6,7 +7,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Credentials are never read or forwarded by the connected offline API.
     // Live model calls remain explicitly disabled until P6 C' is authorized.
     let config = Config::from_env()?;
-    let state = AppState::new(config.mode, config.save_dir)?;
+    // Real GOV.UK headlines are fetched at the start of each term unless MYTH_REAL_NEWS=off; this is the only network call the
+    // server makes, and it sends nothing about the game (decision 0013).
+    let news = NewsSource::from_env();
+    let state = AppState::with_news(config.mode, config.save_dir, news.clone())?;
     let listener = tokio::net::TcpListener::bind(config.bind).await?;
     println!(
         "Myth Maker offline API: http://{} (mode: {:?})",
@@ -14,6 +18,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         config.mode
     );
     println!("Local choice recordings: {}", state.save_root().display());
+    println!(
+        "Real news: {}",
+        match &news {
+            NewsSource::Off => "off (MYTH_REAL_NEWS=off): invented headlines only".to_owned(),
+            NewsSource::File(path) => format!("from the feed file {}", path.display()),
+            NewsSource::Http(url) =>
+                format!("on, from {url}; set MYTH_REAL_NEWS=off to play offline"),
+        }
+    );
     let assets = std::env::var("MYTH_WEB_DIST").unwrap_or_else(|_| "apps/web/dist".into());
     // Never serve the private campaign/save directory, even if configured as
     // a static asset root. A separate trust boundary is required.

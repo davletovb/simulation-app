@@ -63,6 +63,25 @@ export function disruptionText(disruption, { delayedUnits } = {}) {
   return `${base}. About ${delayedUnits} unit${delayedUnits === 1 ? '' : 's'} of the work you have promised would arrive after the election instead of before it.`
 }
 
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+/** `2026-11-02` as "2 Nov 2026". Read from the text, never through a time zone. */
+export function dayText(iso) {
+  const [year, month, day] = iso.split('-').map(Number)
+  return `${day} ${MONTHS[month - 1]} ${year}`
+}
+
+/** Where a real headline came from and why it does what it does (decision 0013), in one sentence. */
+export function realSourceText(real) {
+  return `Real news from ${real.publisher}, ${dayText(real.published)}. It moves support because it matched the rule “${real.rule_label}”.`
+}
+
+/** One imported real headline, for the list of real news: whether it changes support, and when. */
+export function realNoteText(note) {
+  if (note.rule_label === null) return 'Shown for information. It matched none of the rules, so it changes nothing.'
+  if (note.quarter === null) return `Matched the rule “${note.rule_label}”, but no quarter of its kind was free this term, so it changes nothing.`
+  return `Matched the rule “${note.rule_label}”. It lands at the end of quarter ${note.quarter}.`
+}
+
 /** "A", "A and B", "A, B and C". */
 function listWords(words) {
   if (words.length <= 1) return words.join('')

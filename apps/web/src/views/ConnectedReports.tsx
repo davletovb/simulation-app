@@ -1,7 +1,7 @@
 import { BudgetFigures } from '../components/BudgetFigures'
 import { Icon } from '../components/Icon'
 import { FAMILIES, MINISTERS, quarterLabel } from '../game'
-import { disruptionText, inspectionText, overallText, windfallText } from '../news.mjs'
+import { dayText, disruptionText, inspectionText, overallText, realNoteText, windfallText } from '../news.mjs'
 import { formatDay, formatPpm, formatUtc, humanize, outcomeLabel, pillTone, positionLabel, shortHash, stageLabel } from '../format'
 import { answeredMinistries, positionsFor } from '../positions.mjs'
 import { STEPS, turnState } from '../turn.mjs'
@@ -179,6 +179,23 @@ export function ConnectedCampaignReport() {
       </li>)}
     </ul> : <p className="forecast-empty"><Icon name="banner" size={20} />
       <span>No headline has landed yet. They are invented, for the game.</span></p>}
+
+    {snapshot.calendar.real_news.length > 0 && <>
+      <h3 className="section-label report-gap">Real news this game has used</h3>
+      <p className="hint">Real stories from GOV.UK, taken when each term began. A fixed list of keyword rules decides whether a story
+        moves support and how; a story that matches none is shown here and changes nothing.</p>
+      <ul className="ledger news-log real-news-log">
+        {[...snapshot.calendar.real_news].reverse().map(n => <li key={n.url} className="ledger-item headline">
+          <span className="tag">Term {n.term}</span>
+          <div className="ledger-body">
+            <div className="ledger-title"><strong>{n.title}</strong></div>
+            <p className="ledger-votes">{n.summary}</p>
+            <p className="ledger-votes">{dayText(n.published)}. {realNoteText(n)}{' '}
+              <a href={n.url} target="_blank" rel="noreferrer noopener">Read the story on GOV.UK</a></p>
+          </div>
+        </li>)}
+      </ul>
+    </>}
 
     <h3 className="section-label report-gap">Progress reports from the ministers</h3>
     {snapshot.delivery_history.length ? (

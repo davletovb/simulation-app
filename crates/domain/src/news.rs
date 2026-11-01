@@ -46,6 +46,10 @@ pub const SCRUTINY_PCT: u32 = 50;
 pub const SCRUTINY_STEP_PCT: u32 = 15;
 /// ...up to this many percent. More than 100 because a broken promise is punished harder than it would have been rewarded.
 pub const SCRUTINY_CAP_PCT: u32 = 200;
+/// The most real headlines that can replace invented ones in one term (decision 0013).
+pub const MAX_REAL_PER_TERM: usize = 2;
+/// The most real items one import can carry, counting those that are only shown and change nothing.
+pub const MAX_REAL_ITEMS: usize = 4;
 /// The most credits any one windfall brings.
 pub const MAX_WINDFALL_CREDITS: u16 = 15;
 /// The most credits windfalls can bring in a whole game: every headline of every term, if they were all the largest windfall.
@@ -224,20 +228,123 @@ pub const fn deck(tone: Tone) -> &'static [Headline] {
     }
 }
 
+/// What a real headline does, in numbers (decision 0013). The words, the link and the rule that chose these numbers are kept
+/// with the campaign; the rules of the game only ever see this. For bad news `effect` is each group's exposure in percent of the
+/// worst case, as for an invented headline; for good news it is each group's gain in ppm.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct RealEffect {
+    pub tone: Tone,
+    pub effect: [u32; 6],
+}
+/// A real headline waiting to take a slot: which item of the term's import it is, and what it does.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct RealSlot {
+    pub item: u8,
+    pub effect: RealEffect,
+}
+/// The real headlines each term has imported, by term (decision 0013).
+pub type RealCalendar = std::collections::BTreeMap<u8, Vec<RealSlot>>;
+
+/// The rule that turned a real headline into numbers: which it was, in words, and what it does.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RealRule {
+    /// A short identifier, for example `teacher_workforce_bad`.
+    pub id: String,
+    /// What the rule is about, in words for the screen.
+    pub label: String,
+    pub effect: RealEffect,
+}
+/// A real headline, imported once and from then on part of the campaign's record (decision 0013). Everything shown about it is
+/// here, so a replay shows exactly what the player saw; only `rule.effect` is ever used by the rules of the game.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RealItem {
+    pub title: String,
+    pub summary: String,
+    /// The page it came from. Always an `https://` link.
+    pub url: String,
+    /// `YYYY-MM-DD`: the day it was published.
+    pub published: String,
+    /// The rule that matched. `None` when nothing matched: it is shown and changes nothing.
+    pub rule: Option<RealRule>,
+}
+
+fn plain_text(s: &str, max_chars: usize) -> bool {
+    !s.is_empty() && s.chars().count() <= max_chars && !s.chars().any(char::is_control)
+}
+fn plain_date(s: &str) -> bool {
+    let b = s.as_bytes();
+    b.len() == 10
+        && b[4] == b'-'
+        && b[7] == b'-'
+        && b.iter()
+            .enumerate()
+            .all(|(i, c)| i == 4 || i == 7 || c.is_ascii_digit())
+        && matches!(s[5..7].parse::<u8>(), Ok(1..=12))
+        && matches!(s[8..10].parse::<u8>(), Ok(1..=31))
+}
+impl RealItem {
+    /// Whether this is a well-formed record: bounded text, a real-looking link and date, and numbers inside the same limits
+    /// as an invented headline.
+    pub fn is_valid(&self) -> bool {
+        let rule_ok = self.rule.as_ref().is_none_or(|r| {
+            plain_text(&r.id, 48)
+                && r.id
+                    .chars()
+                    .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
+                && plain_text(&r.label, 80)
+                && match r.effect.tone {
+                    Tone::Bad => r.effect.effect.iter().all(|e| *e <= 100),
+                    Tone::Good => r.effect.effect.iter().all(|e| *e <= SHOCK_CAP_PPM),
+                }
+        });
+        plain_text(&self.title, 200)
+            && plain_text(&self.summary, 400)
+            && self.url.starts_with("https://")
+            && plain_text(&self.url, 300)
+            && !self.url.contains(char::is_whitespace)
+            && plain_date(&self.published)
+            && rule_ok
+    }
+}
+/// A batch of real headlines is acceptable when every item is, there are not too many, only as many as can change the game
+/// carry a rule, and no link appears twice.
+pub fn valid_import(items: &[RealItem]) -> bool {
+    let mut urls: Vec<&str> = items.iter().map(|i| i.url.as_str()).collect();
+    urls.sort_unstable();
+    urls.dedup();
+    !items.is_empty()
+        && items.len() <= MAX_REAL_ITEMS
+        && items.iter().all(RealItem::is_valid)
+        && items.iter().filter(|i| i.rule.is_some()).count() <= MAX_REAL_PER_TERM
+        && urls.len() == items.len()
+}
+
 /// A headline placed on a quarter.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Scheduled {
     /// The quarter it lands in, at the end of that quarter.
     pub quarter: Quarter,
     pub tone: Tone,
-    /// Position in the deck of its tone.
+    /// Position in the deck of its tone (meaningless for a real headline).
     pub index: usize,
     /// Not announced in advance, and nothing can be done about it.
     pub surprise: bool,
+    /// Set when a real headline took this slot: which item of the term's import it is, and what it does.
+    pub real: Option<RealSlot>,
 }
 impl Scheduled {
-    pub fn headline(&self) -> &'static Headline {
-        &deck(self.tone)[self.index]
+    /// What it does. A real headline is a mood story and nothing else: no disruption, no inspection, no credits.
+    pub fn headline(&self) -> Headline {
+        match self.real {
+            Some(slot) => Headline {
+                id: "real_news",
+                effect: slot.effect.effect,
+                disrupts: None,
+                scrutiny: None,
+                grant: 0,
+            },
+            None => deck(self.tone)[self.index],
+        }
     }
 }
 
@@ -276,6 +383,28 @@ fn next(state: &mut u64) -> u64 {
 /// are chosen first by a partial shuffle of quarters 2 to 6, then, quarter by quarter, the tone, the headline and whether it
 /// is a surprise.
 pub fn schedule(seed: u64, term: u8) -> Vec<Scheduled> {
+    schedule_with(seed, term, &[])
+}
+
+/// The headlines of one term when real news has been imported for it (decision 0013). The invented calendar is drawn exactly
+/// as without real news, then each real headline in turn takes the first quarter of its tone not yet taken: it is announced a
+/// quarter ahead (it is already news) and is never a surprise. A real headline whose tone has no quarter left is not
+/// scheduled, so term 1, which has no bad news, can never carry a bad real headline.
+pub fn schedule_with(seed: u64, term: u8, real: &[RealSlot]) -> Vec<Scheduled> {
+    let mut out = invented(seed, term);
+    for slot in real.iter().take(MAX_REAL_PER_TERM) {
+        if let Some(target) = out
+            .iter_mut()
+            .find(|s| s.real.is_none() && s.tone == slot.effect.tone)
+        {
+            target.real = Some(*slot);
+            target.surprise = false;
+        }
+    }
+    out
+}
+
+fn invented(seed: u64, term: u8) -> Vec<Scheduled> {
     if term == 0 || term > crate::MAX_TERMS {
         return vec![];
     }
@@ -323,6 +452,7 @@ pub fn schedule(seed: u64, term: u8) -> Vec<Scheduled> {
             tone,
             index,
             surprise: surprise_roll == 0,
+            real: None,
         });
     }
     out
@@ -391,11 +521,16 @@ pub fn soften(shock: [i32; 6]) -> [i32; 6] {
 /// disruptions in the news. A disruption lands in the quarter its headline is scheduled for and lasts its `quarters`; one that
 /// starts in the last quarter of a term carries into the first of the next. An answered headline is cut by the same share a
 /// response takes off every loss. Where several disruptions meet, the worst one rules.
-pub fn capacity_kept(seed: u64, quarter: Quarter, answered: impl Fn(Quarter) -> bool) -> [u32; 3] {
+pub fn capacity_kept(
+    seed: u64,
+    quarter: Quarter,
+    answered: impl Fn(Quarter) -> bool,
+    real: &RealCalendar,
+) -> [u32; 3] {
     let mut keep = [100_u32; 3];
     let term = quarter.term();
     for t in [term.saturating_sub(1), term] {
-        for s in schedule(seed, t) {
+        for s in schedule_with(seed, t, real.get(&t).map_or(&[][..], Vec::as_slice)) {
             let Some(d) = s.headline().disrupts.filter(|_| s.tone == Tone::Bad) else {
                 continue;
             };
@@ -567,6 +702,7 @@ mod tests {
             tone: Tone::Bad,
             index: 3, // rural bus cuts: 0% urban, 100% rural
             surprise: false,
+            real: None,
         };
         let flat = landing_shock(&bad, 2, &[500_000; 6]);
         assert_eq!(flat, [0, 0, 0, -5_000, -5_000, -5_000]);
@@ -590,6 +726,7 @@ mod tests {
             tone: Tone::Good,
             index: 1, // volunteer surge: rural groups
             surprise: true,
+            real: None,
         };
         assert_eq!(
             landing_shock(&good, 1, &[900_000; 6]),
@@ -603,7 +740,12 @@ mod tests {
         for seed in 0..200_u64 {
             for q in 1..=6 {
                 assert_eq!(
-                    capacity_kept(seed, Quarter::new(q).unwrap(), |_| false),
+                    capacity_kept(
+                        seed,
+                        Quarter::new(q).unwrap(),
+                        |_| false,
+                        &RealCalendar::new()
+                    ),
                     [100; 3],
                     "seed {seed} quarter {q}"
                 );
@@ -625,7 +767,12 @@ mod tests {
         let d = s.headline().disrupts.unwrap();
         let slot = family_slot(d.family);
         let at = |q: u8, answered: bool| {
-            capacity_kept(seed, Quarter::new(q).unwrap(), move |_| answered)
+            capacity_kept(
+                seed,
+                Quarter::new(q).unwrap(),
+                move |_| answered,
+                &RealCalendar::new(),
+            )
         };
         assert_eq!(
             at(s.quarter.value() - 1, false)[slot],
@@ -667,7 +814,12 @@ mod tests {
         });
         let (seed, s) = found.expect("some calendar disrupts the last quarter of a term");
         let d = s.headline().disrupts.unwrap();
-        let carried = capacity_kept(seed, Quarter::new(13).unwrap(), |_| false);
+        let carried = capacity_kept(
+            seed,
+            Quarter::new(13).unwrap(),
+            |_| false,
+            &RealCalendar::new(),
+        );
         assert!(
             carried[family_slot(d.family)] <= d.keep_pct,
             "the first quarter of term 3 is still disrupted"
@@ -735,6 +887,146 @@ mod tests {
         let most = crate::PILOT_CREDITS * u16::from(crate::MAX_TERMS) + MAX_WINDFALL_TOTAL;
         assert_eq!(crate::MAX_CREDITS, most);
         assert_eq!(MAX_WINDFALL_TOTAL, 15 * (2 + 4 * 9));
+    }
+
+    fn real_slot(item: u8, tone: Tone, effect: [u32; 6]) -> RealSlot {
+        RealSlot {
+            item,
+            effect: RealEffect { tone, effect },
+        }
+    }
+    #[test]
+    fn real_headlines_take_the_first_free_quarter_of_their_tone_and_nothing_else_moves() {
+        for seed in [0_u64, 1, 7, 12345, u64::MAX] {
+            // No real news: the calendar is exactly the invented one.
+            for term in 1..=crate::MAX_TERMS {
+                assert_eq!(schedule_with(seed, term, &[]), schedule(seed, term));
+            }
+            // Term 2 has bad headlines; two real bad ones take the first two bad quarters, in order, announced.
+            let plain = schedule(seed, 2);
+            let bad: Vec<_> = plain.iter().filter(|s| s.tone == Tone::Bad).collect();
+            let real = [
+                real_slot(0, Tone::Bad, [50; 6]),
+                real_slot(3, Tone::Bad, [20; 6]),
+            ];
+            let with = schedule_with(seed, 2, &real);
+            assert_eq!(with.len(), plain.len());
+            for (a, b) in with.iter().zip(&plain) {
+                assert_eq!(
+                    (a.quarter, a.tone),
+                    (b.quarter, b.tone),
+                    "quarters never move"
+                );
+            }
+            let taken: Vec<_> = with.iter().filter(|s| s.real.is_some()).collect();
+            assert_eq!(taken.len(), bad.len().min(2), "seed {seed}");
+            for (s, wanted) in taken.iter().zip(&bad) {
+                assert_eq!(
+                    s.quarter, wanted.quarter,
+                    "the first free quarter of that tone"
+                );
+                assert!(!s.surprise, "a real headline is already news");
+                assert_eq!(s.headline().effect, s.real.unwrap().effect.effect);
+                assert_eq!(
+                    (
+                        s.headline().disrupts,
+                        s.headline().scrutiny,
+                        s.headline().grant
+                    ),
+                    (None, None, 0)
+                );
+            }
+            // Untouched slots are the invented ones.
+            for (a, b) in with.iter().zip(&plain).filter(|(a, _)| a.real.is_none()) {
+                assert_eq!(a, b);
+            }
+            // A third real headline of the same tone finds no room: at most two a term.
+            let three = [real[0], real[1], real_slot(9, Tone::Bad, [10; 6])];
+            assert_eq!(
+                schedule_with(seed, 2, &three)
+                    .iter()
+                    .filter(|s| s.real.is_some())
+                    .count(),
+                taken.len()
+            );
+            // Term 1 has good news only, so a bad real headline has nowhere to go and a good one replaces a good one.
+            assert!(
+                schedule_with(seed, 1, &[real_slot(0, Tone::Bad, [50; 6])])
+                    .iter()
+                    .all(|s| s.real.is_none())
+            );
+            let good = schedule_with(seed, 1, &[real_slot(2, Tone::Good, [9_000; 6])]);
+            assert_eq!(good.iter().filter(|s| s.real.is_some()).count(), 1);
+            assert_eq!(good[0].real.unwrap().item, 2);
+        }
+    }
+
+    fn item(url: &str, rule: Option<RealRule>) -> RealItem {
+        RealItem {
+            title: "Teacher pay award announced".into(),
+            summary: "Schools will receive funding for the award.".into(),
+            url: url.into(),
+            published: "2026-11-02".into(),
+            rule,
+        }
+    }
+    fn rule(tone: Tone, effect: [u32; 6]) -> Option<RealRule> {
+        Some(RealRule {
+            id: "teacher_workforce_good".into(),
+            label: "Teacher pay and recruitment".into(),
+            effect: RealEffect { tone, effect },
+        })
+    }
+    #[test]
+    fn an_import_must_be_small_well_formed_and_bounded_like_an_invented_headline() {
+        let good = || {
+            item(
+                "https://www.gov.uk/government/news/a",
+                rule(Tone::Good, [12_000; 6]),
+            )
+        };
+        assert!(valid_import(&[good()]));
+        assert!(valid_import(&[good(), item("https://www.gov.uk/b", None)]));
+        assert!(!valid_import(&[]), "nothing to import");
+        let many: Vec<_> = (0..=MAX_REAL_ITEMS)
+            .map(|i| item(&format!("https://www.gov.uk/n{i}"), None))
+            .collect();
+        assert!(!valid_import(&many), "too many");
+        // Only as many as can change the game may carry a rule.
+        let three_rules: Vec<_> = (0..3)
+            .map(|i| {
+                item(
+                    &format!("https://www.gov.uk/r{i}"),
+                    rule(Tone::Good, [1; 6]),
+                )
+            })
+            .collect();
+        assert!(!valid_import(&three_rules));
+        // The same link twice, a link that is not https, a bad date, empty or oversized text, control characters.
+        assert!(!valid_import(&[good(), good()]));
+        assert!(!valid_import(&[item("http://www.gov.uk/x", None)]));
+        assert!(!valid_import(&[item("https://www.gov.uk/x y", None)]));
+        let mut bad = good();
+        bad.published = "2026-13-02".into();
+        assert!(!valid_import(&[bad]));
+        let mut bad = good();
+        bad.title = String::new();
+        assert!(!valid_import(&[bad]));
+        let mut bad = good();
+        bad.summary = "x".repeat(401);
+        assert!(!valid_import(&[bad]));
+        let mut bad = good();
+        bad.title = "line\nbreak".into();
+        assert!(!valid_import(&[bad]));
+        // Numbers stay inside the limits an invented headline keeps to.
+        assert!(!valid_import(&[item(
+            "https://www.gov.uk/x",
+            rule(Tone::Bad, [101; 6])
+        )]));
+        assert!(!valid_import(&[item(
+            "https://www.gov.uk/x",
+            rule(Tone::Good, [SHOCK_CAP_PPM + 1; 6])
+        )]));
     }
 
     #[test]

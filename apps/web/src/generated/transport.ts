@@ -13,7 +13,21 @@ export type Vote = "support" | "conditional" | "oppose";
 
 export type Condition = { kind_id: string, family: Family, units: number, due_quarter: number, };
 
-export type PlayerAction = { "kind": "propose", meeting_id: string, allocation: Allocation, } | { "kind": "amend", meeting_id: string, proposal_version: string, allocation: Allocation, } | { "kind": "ratify", meeting_id: string, proposal_version: string, } | { "kind": "request_capacity_cap", meeting_id: string, caps: CapacityCaps, } | { "kind": "order_audit", family: Family, inspected_quarter: number, } | { "kind": "disclose_evidence", evidence_id: string, evidence_version: string, recipients: Array<Ministry>, } | { "kind": "defer", } | { "kind": "advance_quarter", } | { "kind": "begin_term", } | { "kind": "respond", headline_quarter: number, };
+export type RealToneWire = "bad" | "good";
+
+export type RealRuleWire = { id: string, label: string, tone: RealToneWire, 
+/**
+ * Bad news: each group's exposure in percent of the worst case. Good news: each group's gain in ppm.
+ */
+effect: [number, number, number, number, number, number], };
+
+export type RealItemWire = { title: string, summary: string, url: string, 
+/**
+ * `YYYY-MM-DD`.
+ */
+published: string, rule: RealRuleWire | null, };
+
+export type PlayerAction = { "kind": "propose", meeting_id: string, allocation: Allocation, } | { "kind": "amend", meeting_id: string, proposal_version: string, allocation: Allocation, } | { "kind": "ratify", meeting_id: string, proposal_version: string, } | { "kind": "request_capacity_cap", meeting_id: string, caps: CapacityCaps, } | { "kind": "order_audit", family: Family, inspected_quarter: number, } | { "kind": "disclose_evidence", evidence_id: string, evidence_version: string, recipients: Array<Ministry>, } | { "kind": "defer", } | { "kind": "advance_quarter", } | { "kind": "begin_term", } | { "kind": "respond", headline_quarter: number, } | { "kind": "import_news", items: Array<RealItemWire>, };
 
 export type CommandEnvelope = { schema_version: number, campaign_id: string, command_id: string, expected_world_version: string, command: PlayerAction, };
 

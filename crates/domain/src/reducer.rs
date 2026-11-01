@@ -322,6 +322,8 @@ pub struct Campaign {
     landed: Vec<Landed>,
     /// Responses that were paid for, oldest first.
     responses: Vec<Response>,
+    /// The real headlines imported for each term, frozen when they came in (decision 0013).
+    real: BTreeMap<u8, Vec<news::RealItem>>,
 }
 
 pub enum Action {
@@ -377,12 +379,86 @@ impl Campaign {
             term_audits: 0,
             landed: vec![],
             responses: vec![],
+            real: BTreeMap::new(),
         })
     }
     /// The elections held so far. After the last quarter of a term there is a new entry, and its `won`
     /// decides whether the game goes on.
     pub fn elections(&self) -> &[ElectionRecord] {
         &self.elections
+    }
+    /// The real headlines imported for a term, in the order they were imported (decision 0013).
+    pub fn real_items(&self, term: u8) -> &[news::RealItem] {
+        self.real.get(&term).map_or(&[][..], Vec::as_slice)
+    }
+    /// Every term that has imported real headlines, with them.
+    pub fn real_batches(&self) -> &BTreeMap<u8, Vec<news::RealItem>> {
+        &self.real
+    }
+    /// What the imported headlines do, for the schedule: only those a rule matched.
+    fn real_calendar(&self) -> news::RealCalendar {
+        self.real
+            .iter()
+            .map(|(term, items)| {
+                let slots = items
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(i, item)| {
+                        Some(news::RealSlot {
+                            item: u8::try_from(i).ok()?,
+                            effect: item.rule.as_ref()?.effect,
+                        })
+                    })
+                    .collect();
+                (*term, slots)
+            })
+            .collect()
+    }
+    /// The quarter an imported item will land in, if a quarter of its tone was free for it.
+    pub fn real_quarter(&self, term: u8, item: usize) -> Option<Quarter> {
+        let seed = self.rules.news_seed?;
+        self.schedule_of(seed, term)
+            .into_iter()
+            .find(|s| s.real.is_some_and(|r| usize::from(r.item) == item))
+            .map(|s| s.quarter)
+    }
+    /// The headlines of one term, with any real news that has been imported for it.
+    fn schedule_of(&self, seed: u64, term: u8) -> Vec<Scheduled> {
+        news::schedule_with(
+            seed,
+            term,
+            self.real_calendar()
+                .get(&term)
+                .map_or(&[][..], Vec::as_slice),
+        )
+    }
+    /// Freeze a batch of real headlines for this term. It is allowed once per term, in its first quarter, before anything has
+    /// been planned, so the headlines a player sees never change under them and a replay sees the same ones.
+    fn import_news(&mut self, items: &[news::RealItem]) -> Result<(), Rejection> {
+        if !self.accepts_news_import(items) {
+            return Err(Rejection::InvalidCondition);
+        }
+        self.real
+            .insert(self.world.quarter().term(), items.to_vec());
+        Ok(())
+    }
+    /// Whether a batch could be frozen in right now: the first quarter of a term with nothing planned, no batch for this term
+    /// yet, a well-formed batch, and no story the game has already told.
+    pub fn accepts_news_import(&self, items: &[news::RealItem]) -> bool {
+        let q = self.world.quarter();
+        self.rules.news_seed.is_some()
+            && self.world.phase() == MeetingPhase::QuarterOpen
+            && self.meeting.is_none()
+            && !self.meeting_used
+            && q.in_term() == 1
+            && !self.real.contains_key(&q.term())
+            && news::valid_import(items)
+            && !items.iter().any(|item| {
+                self.real
+                    .values()
+                    .flatten()
+                    .any(|earlier| earlier.url == item.url)
+            })
     }
     /// Headlines that have landed, oldest first.
     pub fn landed_headlines(&self) -> &[Landed] {
@@ -405,7 +481,7 @@ impl Campaign {
         ) {
             return vec![];
         }
-        news::schedule(seed, now.term())
+        self.schedule_of(seed, now.term())
             .into_iter()
             .filter(|s| {
                 !s.surprise
@@ -873,6 +949,7 @@ impl Campaign {
                     crate::PlayerCommand::Respond { headline_quarter } => {
                         self.respond(*headline_quarter, receipt)?;
                     }
+                    crate::PlayerCommand::ImportNews(items) => self.import_news(items)?,
                     crate::PlayerCommand::OrderAudit {
                         family,
                         inspected_quarter,
@@ -1307,7 +1384,8 @@ impl Campaign {
         if headline_quarter < now || headline_quarter.value() > now.value() + 1 {
             return Err(Rejection::InvalidCondition);
         }
-        let scheduled = news::schedule(seed, headline_quarter.term())
+        let scheduled = self
+            .schedule_of(seed, headline_quarter.term())
             .into_iter()
             .find(|s| s.quarter == headline_quarter)
             .ok_or(Rejection::InvalidCondition)?;
@@ -1392,9 +1470,12 @@ impl Campaign {
         // Disruptions in the news cut what a kind of work can deliver this quarter (decision 0011). The due schedule is cut the
         // same way, so a minister is never reported as behind schedule for something the world did.
         let kept = self.rules.news_seed.map_or([100_u32; 3], |seed| {
-            news::capacity_kept(seed, q, |hq| {
-                self.responses.iter().any(|r| r.headline_quarter == hq)
-            })
+            news::capacity_kept(
+                seed,
+                q,
+                |hq| self.responses.iter().any(|r| r.headline_quarter == hq),
+                &self.real_calendar(),
+            )
         });
         let caps: [u16; 3] = std::array::from_fn(|ix| {
             u16::try_from(u32::from(caps[ix]) * kept[ix] / 100).unwrap_or(caps[ix])
@@ -1524,7 +1605,8 @@ impl Campaign {
         // takes depends on where each group stands, a response softens it, and good news is a flat gift.
         let mut headline_shock = [0_i32; 6];
         if let Some(seed) = self.rules.news_seed
-            && let Some(scheduled) = news::schedule(seed, q.term())
+            && let Some(scheduled) = self
+                .schedule_of(seed, q.term())
                 .into_iter()
                 .find(|s| s.quarter == q)
         {
@@ -3445,6 +3527,213 @@ mod tests {
             biggest > cap,
             "no quote went past one cap, so the sweep proves nothing about the bound ({biggest})"
         );
+    }
+    // ---- real news (decision 0013) ----
+    fn real_item(url: &str, rule: Option<(Tone, [u32; 6])>) -> news::RealItem {
+        news::RealItem {
+            title: format!("Real headline {url}"),
+            summary: "A short summary of the real story.".into(),
+            url: format!("https://www.gov.uk/government/news/{url}"),
+            published: "2026-11-02".into(),
+            rule: rule.map(|(tone, effect)| news::RealRule {
+                id: "teacher_workforce".into(),
+                label: "Teacher pay and recruitment".into(),
+                effect: news::RealEffect { tone, effect },
+            }),
+        }
+    }
+    fn import(c: &mut Campaign, id: &str, items: Vec<news::RealItem>) -> Result<(), Rejection> {
+        c.apply(player(c, id, PlayerCommand::ImportNews(items)))
+            .map(|_| ())
+    }
+    #[test]
+    fn real_headlines_are_frozen_once_a_term_before_the_first_plan_and_never_twice() {
+        let mut c = with_calendar(5);
+        // Nothing real yet, and an empty or oversized import is refused.
+        assert!(c.real_items(1).is_empty());
+        // A batch that is not well formed never even becomes a command.
+        let envelope = |items| {
+            CommandEnvelope::new(
+                "case".into(),
+                "x".into(),
+                WireU64::new(0),
+                PlayerCommand::ImportNews(items),
+            )
+        };
+        assert!(envelope(vec![]).is_err());
+        assert!(envelope(vec![real_item("same", None), real_item("same", None)]).is_err());
+        assert!(envelope(vec![real_item("ok", None)]).is_ok());
+        let good = real_item("a", Some((Tone::Good, [9_000; 6])));
+        let note = real_item("b", None);
+        import(&mut c, "import-1", vec![good.clone(), note.clone()]).unwrap();
+        assert_eq!(c.real_items(1), [good.clone(), note]);
+        // Once per term, whatever the batch.
+        assert_eq!(
+            import(&mut c, "import-1b", vec![real_item("c", None)]),
+            Err(Rejection::InvalidCondition)
+        );
+        // Not after the term has begun: once a plan is made, the headlines are fixed for good.
+        let mut late = with_calendar(5);
+        ratify_balanced_q1(&mut late);
+        assert_eq!(
+            import(&mut late, "late", vec![real_item("d", None)]),
+            Err(Rejection::InvalidCondition)
+        );
+        // Not in the middle of a term.
+        let mut mid = with_calendar(5);
+        ratify_balanced_q1(&mut mid);
+        coast(&mut mid, 2, "m-");
+        assert_eq!(
+            import(&mut mid, "mid", vec![real_item("e", None)]),
+            Err(Rejection::InvalidCondition)
+        );
+        // Not when there is no calendar to put them in.
+        let mut none = campaign();
+        assert_eq!(
+            import(&mut none, "none", vec![real_item("f", None)]),
+            Err(Rejection::InvalidCondition)
+        );
+        // The same story is not told twice in one game, even in a later term.
+        ratify_balanced_q1(&mut c);
+        coast(&mut c, 6, "t1-");
+        c.apply(player(&c, "begin", PlayerCommand::BeginTerm))
+            .unwrap();
+        assert_eq!(
+            import(&mut c, "again", vec![good]),
+            Err(Rejection::InvalidCondition)
+        );
+        import(&mut c, "import-2", vec![real_item("z", None)]).unwrap();
+        assert_eq!(c.real_batches().len(), 2);
+        c.world().validate().unwrap();
+    }
+    #[test]
+    fn a_real_good_headline_takes_a_good_quarter_and_lands_as_a_flat_gift() {
+        let mut c = with_calendar(5);
+        let gain: [i32; 6] = [9_000, 9_000, 9_000, 0, 0, 0];
+        import(
+            &mut c,
+            "import-1",
+            vec![real_item(
+                "pay-award",
+                Some((Tone::Good, gain.map(i32::unsigned_abs))),
+            )],
+        )
+        .unwrap();
+        ratify_balanced_q1(&mut c);
+        coast(&mut c, 6, "t1-");
+        let landed = c.landed_headlines();
+        assert_eq!(landed.len(), 2, "term 1 still has its two good headlines");
+        let real: Vec<_> = landed
+            .iter()
+            .filter(|l| l.scheduled.real.is_some())
+            .collect();
+        assert_eq!(real.len(), 1);
+        assert_eq!(real[0].shock, gain, "a gift, whatever the lead");
+        assert!(!real[0].scheduled.surprise && !real[0].responded);
+        assert_eq!(
+            real[0].scheduled.real.unwrap().item,
+            0,
+            "the first imported item"
+        );
+        // It is the first good quarter of the term that was replaced.
+        assert_eq!(real[0].scheduled.quarter, landed[0].scheduled.quarter);
+        c.world().validate().unwrap();
+    }
+    /// A seed whose term 2 has a bad headline in quarter 9 to 11 (the first one of its tone), so there is time to answer it.
+    fn seed_with_a_late_first_bad_headline() -> u64 {
+        (0..20_000_u64)
+            .find(|seed| {
+                news::schedule(*seed, 2)
+                    .iter()
+                    .find(|s| s.tone == Tone::Bad)
+                    .is_some_and(|s| {
+                        (9..=11).contains(&s.quarter.value()) && s.headline().disrupts.is_none()
+                    })
+            })
+            .unwrap()
+    }
+    #[test]
+    fn a_real_bad_headline_is_announced_priced_answerable_and_lands_like_any_bad_news() {
+        let seed = seed_with_a_late_first_bad_headline();
+        let first_bad = news::schedule(seed, 2)
+            .into_iter()
+            .find(|s| s.tone == Tone::Bad)
+            .unwrap();
+        let exposure = [20, 20, 20, 40, 40, 40];
+        let play = |answer: bool| {
+            let mut c = with_calendar(seed);
+            ratify_balanced_q1(&mut c);
+            coast(&mut c, 6, "t1-");
+            c.apply(player(&c, "begin", PlayerCommand::BeginTerm))
+                .unwrap();
+            import(
+                &mut c,
+                "import-2",
+                vec![real_item("rural-cuts", Some((Tone::Bad, exposure)))],
+            )
+            .unwrap();
+            open_meeting_with(&mut c, 7, Allocation::draft(50, 35, 0).unwrap());
+            coast_to(&mut c, first_bad.quarter.value() - 1, "to-");
+            let quote = c
+                .upcoming_headlines()
+                .into_iter()
+                .find(|u| u.scheduled.quarter == first_bad.quarter)
+                .expect("a real headline is announced a quarter ahead, never a surprise");
+            assert!(quote.scheduled.real.is_some() && !quote.scheduled.surprise);
+            assert!(quote.delivery.is_none() && quote.scrutiny.is_none() && quote.grant == 0);
+            let cost = quote.relief_cost.expect("it can be answered");
+            if answer {
+                respond_cmd(&mut c, "answer", first_bad.quarter).unwrap();
+                assert_eq!(c.world().treasury().relief_spent(), cost);
+            }
+            coast_to(&mut c, first_bad.quarter.value(), "near-");
+            let support = c.support_values();
+            advance(&mut c, "land").unwrap();
+            (c.landed_headlines().last().copied().unwrap(), support)
+        };
+        let (landed, support) = play(false);
+        assert_eq!(landed.scheduled.quarter, first_bad.quarter);
+        assert!(landed.scheduled.real.is_some());
+        // Exactly what an invented headline with these exposures would take, from where support stood.
+        assert_eq!(
+            landed.shock,
+            news::landing_shock(&landed.scheduled, 2, &support)
+        );
+        assert!(landed.shock[3] < 0 && landed.shock[0] < 0);
+        let (answered, _) = play(true);
+        assert!(answered.responded);
+        assert_eq!(answered.shock, news::soften(landed.shock));
+    }
+    #[test]
+    fn a_real_headline_that_replaces_a_stoppage_takes_its_disruption_with_it() {
+        // A seed whose term 2 would stop some work, with the first bad quarter being that stoppage.
+        let (seed, stoppage) = (0..20_000_u64)
+            .find_map(|seed| {
+                let first = news::schedule(seed, 2)
+                    .into_iter()
+                    .find(|s| s.tone == Tone::Bad)?;
+                first.headline().disrupts.map(|_| (seed, first))
+            })
+            .unwrap();
+        let family = stoppage.headline().disrupts.unwrap().family;
+        let slot = news::family_slot(family);
+        let q = stoppage.quarter;
+        let mut with = with_calendar(seed);
+        ratify_balanced_q1(&mut with);
+        coast(&mut with, 6, "t1-");
+        with.apply(player(&with, "begin", PlayerCommand::BeginTerm))
+            .unwrap();
+        let before = news::capacity_kept(seed, q, |_| false, &with.real_calendar());
+        assert!(before[slot] < 100, "the invented stoppage is in force");
+        import(
+            &mut with,
+            "import-2",
+            vec![real_item("story", Some((Tone::Bad, [30; 6])))],
+        )
+        .unwrap();
+        // The real story took the quarter, so the stoppage that was drawn for it is gone: no ghost disruption.
+        let after = news::capacity_kept(seed, q, |_| false, &with.real_calendar());
+        assert_eq!(after[slot], 100);
     }
     #[test]
     fn a_player_who_promised_nothing_owes_nothing_to_inspectors() {

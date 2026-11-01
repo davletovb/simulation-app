@@ -70,7 +70,7 @@ pub fn headline_text(tone: d::news::Tone, index: usize) -> Option<(String, Strin
 }
 /// A deliberate, migration-controlled behavior contract, not raw source text.
 /// Bump when P3 rules, parsing, adapters, scenario selection or model policy change.
-pub const RULES_VERSION: &str = "p4-england-education-rules-v8";
+pub const RULES_VERSION: &str = "p4-england-education-rules-v9";
 type FrozenSource = Result<(String, String, [u32; 6]), String>;
 static FROZEN: OnceLock<FrozenSource> = OnceLock::new();
 fn frozen() -> Result<&'static (String, String, [u32; 6]), String> {
@@ -448,6 +448,13 @@ impl GameWorld {
             }
             (Phase::QuarterOpen, "propose" | "order_audit" | "respond")
                 if !self.continuation_pending() =>
+            {
+                true
+            }
+            // The real headlines of a term are frozen into the record in its first quarter, before anything is planned
+            // (decision 0013). The domain rules check it again, and that it happens only once.
+            (Phase::QuarterOpen, "import_news")
+                if self.quarter % d::TERM_QUARTERS == 1 && !self.continuation_pending() =>
             {
                 true
             }

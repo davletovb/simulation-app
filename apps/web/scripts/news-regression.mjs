@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { canRespond, disruptionText, inspectionText, justIn, landsText, overallText, reliefText, whoItHits, windfallText } from '../src/news.mjs'
+import { canRespond, dayText, disruptionText, inspectionText, justIn, landsText, overallText, realNoteText, realSourceText, reliefText, whoItHits, windfallText } from '../src/news.mjs'
 
 const ids = ['urban_low', 'urban_middle', 'urban_high', 'rural_low', 'rural_middle', 'rural_high']
 const bad = (over = {}) => ({ tone: 'bad', relief_cost: 13, relief_cut_pct: 60, paid: null, ...over })
@@ -97,4 +97,22 @@ test('a windfall says how many credits it brings, and that they have arrived onc
   assert.equal(windfallText(15), 'Brings 15 credits to spend, on top of anything you have left.')
   assert.equal(windfallText(1), 'Brings 1 credit to spend, on top of anything you have left.')
   assert.equal(windfallText(10, { landed: true }), '10 credits arrived to spend.')
+})
+
+test('a real headline says who published it, when, and which published rule moved support', () => {
+  const real = { publisher: 'GOV.UK, Department for Education', published: '2026-11-02', rule_label: 'Teacher pay and recruitment improve' }
+  assert.equal(realSourceText(real),
+    'Real news from GOV.UK, Department for Education, 2 Nov 2026. It moves support because it matched the rule “Teacher pay and recruitment improve”.')
+  // Dates are read from the text, so no time zone can move a day.
+  assert.equal(dayText('2026-01-01'), '1 Jan 2026')
+  assert.equal(dayText('2027-12-31'), '31 Dec 2027')
+})
+
+test('every imported real headline says whether it changes anything, and why not when it does not', () => {
+  assert.equal(realNoteText({ rule_label: 'School buildings in trouble', quarter: 10 }),
+    'Matched the rule “School buildings in trouble”. It lands at the end of quarter 10.')
+  assert.equal(realNoteText({ rule_label: null, quarter: null }),
+    'Shown for information. It matched none of the rules, so it changes nothing.')
+  assert.equal(realNoteText({ rule_label: 'School buildings in trouble', quarter: null }),
+    'Matched the rule “School buildings in trouble”, but no quarter of its kind was free this term, so it changes nothing.')
 })

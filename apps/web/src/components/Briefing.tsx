@@ -70,7 +70,10 @@ export function Briefing({ open, onClose }: { open: boolean; onClose: () => void
             push work you have promised past the election. Others send inspectors to count the promises you have made and not
             yet kept, so a smaller plan has less to count. A few good ones bring a grant of credits to spend. Most are
             announced a quarter ahead, and at the start of a quarter you can pay credits to take 60% off a bad one: credits
-            that will not become delivered work. A few arrive unannounced. The first term brings good news only.</p>
+            that will not become delivered work. A few arrive unannounced. The first term brings good news only.
+            Some headlines are <strong>real</strong>: when a term begins and this computer is online, the game takes a
+            couple of stories from GOV.UK’s Department for Education news and a published list of keyword rules decides
+            whether each helps or hurts. They are marked, and link to the story. Offline, a term simply has none.</p>
         </div>
 
         <h3 className="section-label">You spend it on three things</h3>

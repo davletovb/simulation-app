@@ -4,8 +4,8 @@ use myth_contracts::checkpoint::{CountryPack, EventRecord, EvidenceRecord, Priva
 use myth_contracts::{
     Allocation, CapacityCaps, CommandEnvelope, Condition, Counterproposal, Family, ForecastLine,
     ForecastResponse, MinisterAction, Ministry, PlayerAction, PreviewCalculator, PreviewKind,
-    PublicCommitment, PublicRoleView, ScriptedSeatVote, ScriptedVoteKind, ScriptedVotes, Stage,
-    Vote,
+    PublicCommitment, PublicRoleView, RealItemWire, RealRuleWire, RealToneWire, ScriptedSeatVote,
+    ScriptedVoteKind, ScriptedVotes, Stage, Vote,
 };
 use schemars::schema_for;
 use std::{
@@ -23,6 +23,9 @@ fn generated_types() -> String {
         <Family as TS>::decl(&config),
         <Vote as TS>::decl(&config),
         <Condition as TS>::decl(&config),
+        <RealToneWire as TS>::decl(&config),
+        <RealRuleWire as TS>::decl(&config),
+        <RealItemWire as TS>::decl(&config),
         <PlayerAction as TS>::decl(&config),
         <CommandEnvelope as TS>::decl(&config),
         <Stage as TS>::decl(&config),

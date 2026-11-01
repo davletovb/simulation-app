@@ -198,6 +198,60 @@ pub enum PlayerAction {
         #[schemars(range(min = 2, max = 60))]
         headline_quarter: u8,
     },
+    /// Freeze the real headlines fetched for this term into the record (decision 0013). Issued by the server, never the browser.
+    ImportNews {
+        #[schemars(length(min = 1, max = 4))]
+        items: Vec<RealItemWire>,
+    },
+}
+/// Whether a real headline is good or bad news.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum RealToneWire {
+    Bad,
+    Good,
+}
+/// The rule that turned a real headline into numbers (decision 0013).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(deny_unknown_fields)]
+pub struct RealRuleWire {
+    pub id: String,
+    pub label: String,
+    pub tone: RealToneWire,
+    /// Bad news: each group's exposure in percent of the worst case. Good news: each group's gain in ppm.
+    pub effect: [u32; 6],
+}
+/// A real headline: its words and link, and the rule that matched it, if any.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(deny_unknown_fields)]
+pub struct RealItemWire {
+    pub title: String,
+    pub summary: String,
+    pub url: String,
+    /// `YYYY-MM-DD`.
+    pub published: String,
+    pub rule: Option<RealRuleWire>,
+}
+impl From<RealItemWire> for d::news::RealItem {
+    fn from(w: RealItemWire) -> Self {
+        Self {
+            title: w.title,
+            summary: w.summary,
+            url: w.url,
+            published: w.published,
+            rule: w.rule.map(|r| d::news::RealRule {
+                id: r.id,
+                label: r.label,
+                effect: d::news::RealEffect {
+                    tone: match r.tone {
+                        RealToneWire::Bad => d::news::Tone::Bad,
+                        RealToneWire::Good => d::news::Tone::Good,
+                    },
+                    effect: r.effect,
+                },
+            }),
+        }
+    }
 }
 impl TryFrom<PlayerAction> for d::PlayerCommand {
     type Error = WireError;
@@ -269,6 +323,9 @@ impl TryFrom<PlayerAction> for d::PlayerCommand {
             PlayerAction::Respond { headline_quarter } => Self::Respond {
                 headline_quarter: d::Quarter::new(headline_quarter)?,
             },
+            PlayerAction::ImportNews { items } => {
+                Self::ImportNews(items.into_iter().map(Into::into).collect())
+            }
         })
     }
 }

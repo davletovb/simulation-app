@@ -1,10 +1,21 @@
 import { useCampaign, type Landed, type Snapshot, type Upcoming } from '../campaign'
 import { quarterLabel } from '../game'
-import { canRespond, disruptionText, inspectionText, justIn, landsText, overallText, reliefText, whoItHits, windfallText } from '../news.mjs'
+import { canRespond, disruptionText, inspectionText, justIn, landsText, overallText, realSourceText, reliefText, whoItHits, windfallText } from '../news.mjs'
 import { ActionButton } from './ConnectedControls'
 import { Icon } from './Icon'
 
 const TONE_WORD = { serious: 'Serious', minor: 'Minor', welcome: 'Good news' } as const
+
+/** The mark of a real headline: who published it, when, the rule that moved support, and a link to the story itself. */
+function RealMark({ real }: { real: NonNullable<Upcoming['real']> }) {
+  return (
+    <p className="headline-real">
+      <span className="tag headline-source">Real news</span>{' '}
+      {realSourceText(real)}{' '}
+      <a href={real.url} target="_blank" rel="noreferrer noopener">Read the story on GOV.UK</a>
+    </p>
+  )
+}
 
 /** One announced headline: what it is, who it hits, what it would cost, and the paid way to soften it. */
 function Announced({ headline, snapshot, step }: { headline: Upcoming; snapshot: Snapshot; step: string }) {
@@ -18,6 +29,7 @@ function Announced({ headline, snapshot, step }: { headline: Upcoming; snapshot:
         <strong id={labelId}>{headline.title}</strong>
       </div>
       <p className="headline-body">{headline.summary}</p>
+      {headline.real && <RealMark real={headline.real} />}
       {headline.grant_credits !== null ? (
         <p className="headline-facts">
           Lands {landsText(headline.quarter, snapshot.quarter)} ({quarterLabel(headline.quarter).label}).{' '}
@@ -60,6 +72,7 @@ function Landed({ headline }: { headline: Landed }) {
         <span className="tag">{quarterLabel(headline.quarter).short}</span>
         <strong>{headline.title}</strong>
       </div>
+      {headline.real && <RealMark real={headline.real} />}
       {headline.disruption && (
         <p className="headline-cut"><Icon name="hourglass" size={14} />{disruptionText(headline.disruption)}</p>
       )}
@@ -104,7 +117,7 @@ export function NewsCard({ snapshot, step }: { snapshot: Snapshot; step: string 
           <ul className="headlines">{lately.map(h => <Landed key={h.quarter} headline={h} />)}</ul>
         </>
       )}
-      <p className="hint">All headlines are invented, for the game.</p>
+      <p className="hint">Headlines marked “Real news” are real stories from GOV.UK. All the others are invented, for the game.</p>
     </section>
   )
 }

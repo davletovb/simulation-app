@@ -10,7 +10,7 @@ cleanup() {
 trap cleanup EXIT
 
 cargo build --locked -p myth-local-api
-MYTH_SAVE_DIR="$TMP/saves" MYTH_BIND="127.0.0.1:$PORT" MYTH_MODE=scripted \
+MYTH_SAVE_DIR="$TMP/saves" MYTH_BIND="127.0.0.1:$PORT" MYTH_MODE=scripted MYTH_REAL_NEWS=off \
   target/debug/myth-local-api >"$TMP/server.log" 2>&1 &
 PID=$!
 BASE="http://127.0.0.1:$PORT"
@@ -26,7 +26,7 @@ grep -q '"connected_authoritative_simulation":true' "$TMP/health"
 
 # Even on a different TCP port, a second process sharing the *same* private
 # Hiyal root must refuse to start before writing a single journal record.
-if MYTH_SAVE_DIR="$TMP/saves" MYTH_BIND="127.0.0.1:$((PORT+1))" MYTH_MODE=scripted \
+if MYTH_SAVE_DIR="$TMP/saves" MYTH_BIND="127.0.0.1:$((PORT+1))" MYTH_MODE=scripted MYTH_REAL_NEWS=off \
     target/debug/myth-local-api >"$TMP/duplicate-writer.log" 2>&1; then
   echo "Second API writer unexpectedly started on the same save root" >&2
   exit 1
@@ -98,7 +98,7 @@ saved_cursor=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["
 kill -9 "$PID"
 wait "$PID" 2>/dev/null || true
 PID=''
-MYTH_SAVE_DIR="$TMP/saves" MYTH_BIND="127.0.0.1:$PORT" MYTH_MODE=scripted \
+MYTH_SAVE_DIR="$TMP/saves" MYTH_BIND="127.0.0.1:$PORT" MYTH_MODE=scripted MYTH_REAL_NEWS=off \
   target/debug/myth-local-api >"$TMP/restarted.log" 2>&1 &
 PID=$!
 READY=''

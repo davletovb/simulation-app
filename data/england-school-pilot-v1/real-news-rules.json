@@ -1,0 +1,227 @@
+{
+  "schema_version": 1,
+  "label": "How a real GOV.UK headline becomes a change in support. These rules are the whole mapping. The headline's title is lower-cased and compared with the phrases below; the first rule with a phrase in it decides. A headline that matches no rule is shown and changes nothing.",
+  "source": {
+    "name": "GOV.UK, Department for Education news",
+    "feed_url": "https://www.gov.uk/search/news-and-communications.atom?organisations%5B%5D=department-for-education&order=updated-newest",
+    "allowed_link_prefix": "https://www.gov.uk/",
+    "licence": "Open Government Licence v3.0"
+  },
+  "max_items": 4,
+  "max_with_effect": 2,
+  "rules": [
+    {
+      "id": "teacher_pay_good",
+      "label": "Teacher pay and recruitment improve",
+      "tone": "good",
+      "any": [
+        "teacher pay award",
+        "pay award",
+        "pay rise for teachers",
+        "teacher training places",
+        "teacher recruitment boost",
+        "recruitment boost",
+        "more teachers",
+        "new teachers",
+        "teacher recruitment up",
+        "teacher retention boost"
+      ],
+      "gain_ppm": [
+        12000,
+        12000,
+        12000,
+        12000,
+        12000,
+        12000
+      ]
+    },
+    {
+      "id": "school_buildings_good",
+      "label": "School buildings improve",
+      "tone": "good",
+      "any": [
+        "school rebuilding",
+        "rebuilding programme",
+        "new school buildings",
+        "condition improvement",
+        "repair funding",
+        "schools rebuilt",
+        "upgraded classrooms",
+        "new schools",
+        "school building programme"
+      ],
+      "gain_ppm": [
+        10000,
+        10000,
+        10000,
+        20000,
+        20000,
+        20000
+      ]
+    },
+    {
+      "id": "attendance_good",
+      "label": "Attendance and support for families improve",
+      "tone": "good",
+      "any": [
+        "attendance improves",
+        "attendance up",
+        "attendance rises",
+        "absence falls",
+        "absence down",
+        "breakfast clubs",
+        "free school meals",
+        "free breakfast"
+      ],
+      "gain_ppm": [
+        20000,
+        10000,
+        0,
+        20000,
+        10000,
+        0
+      ]
+    },
+    {
+      "id": "funding_good",
+      "label": "More money for schools",
+      "tone": "good",
+      "any": [
+        "extra funding",
+        "funding boost",
+        "new funding",
+        "additional funding",
+        "million for schools",
+        "investment in schools",
+        "funding for schools"
+      ],
+      "gain_ppm": [
+        15000,
+        15000,
+        15000,
+        15000,
+        15000,
+        15000
+      ]
+    },
+    {
+      "id": "teacher_supply_bad",
+      "label": "Teacher supply under pressure",
+      "tone": "bad",
+      "any": [
+        "teacher shortage",
+        "teacher shortages",
+        "teacher vacancies",
+        "vacancies",
+        "recruitment target",
+        "missed target",
+        "teachers leaving",
+        "teacher retention",
+        "industrial action",
+        "strike",
+        "walkout",
+        "unfilled posts"
+      ],
+      "exposure_pct": [
+        50,
+        50,
+        50,
+        25,
+        25,
+        25
+      ]
+    },
+    {
+      "id": "school_buildings_bad",
+      "label": "School buildings in trouble",
+      "tone": "bad",
+      "any": [
+        "raac",
+        "crumbling",
+        "unsafe building",
+        "unsafe buildings",
+        "buildings closed",
+        "repair backlog",
+        "disrepair",
+        "condition of school buildings",
+        "school closures"
+      ],
+      "exposure_pct": [
+        25,
+        25,
+        25,
+        75,
+        75,
+        75
+      ]
+    },
+    {
+      "id": "funding_bad",
+      "label": "School funding under attack",
+      "tone": "bad",
+      "any": [
+        "funding cut",
+        "funding cuts",
+        "cuts to funding",
+        "budget cut",
+        "budget cuts",
+        "real terms cut",
+        "funding shortfall",
+        "underfunded",
+        "deficit"
+      ],
+      "exposure_pct": [
+        50,
+        50,
+        50,
+        50,
+        50,
+        50
+      ]
+    },
+    {
+      "id": "attendance_bad",
+      "label": "Absence and hardship for families",
+      "tone": "bad",
+      "any": [
+        "persistent absence",
+        "absence rises",
+        "attendance falls",
+        "attendance drops",
+        "absence rate",
+        "child poverty",
+        "cost of living"
+      ],
+      "exposure_pct": [
+        75,
+        40,
+        0,
+        75,
+        40,
+        0
+      ]
+    },
+    {
+      "id": "standards_bad",
+      "label": "Standards questioned",
+      "tone": "bad",
+      "any": [
+        "ofsted criticism",
+        "failing schools",
+        "inadequate rating",
+        "exam results fall",
+        "grades fall",
+        "standards fall",
+        "standards slip"
+      ],
+      "exposure_pct": [
+        0,
+        60,
+        75,
+        0,
+        40,
+        50
+      ]
+    }
+  ]
+}

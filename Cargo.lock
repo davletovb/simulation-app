@@ -771,6 +771,7 @@ dependencies = [
  "myth-contracts",
  "myth-domain",
  "myth-hiyal-adapter",
+ "reqwest",
  "serde",
  "serde_json",
  "sha2",

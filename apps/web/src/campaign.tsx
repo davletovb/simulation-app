@@ -38,10 +38,12 @@ export interface Snapshot {
     /** Credits spent answering headlines. */
     relief_spent: number
   }
-  /** The news calendar: invented headlines announced a quarter ahead (surprises are not), and the ones that have landed. */
+  /** The news calendar: headlines announced a quarter ahead (surprises are not), and the ones that have landed. */
   calendar: {
     upcoming: Upcoming[]
     recent: Landed[]
+    /** Every real headline imported so far, oldest first, including those that only inform. */
+    real_news: RealNote[]
   }
   decisions: {
     quarter: number; outcome: string; allocation: { staff: number; repairs: number; access: number } | null
@@ -129,10 +131,33 @@ export interface Upcoming {
   paid: number | null
   /** Set when the story also stops one kind of work. */
   disruption: Disruption | null
+  /** Set when the headline is real news: where it came from and which rule turned it into numbers (decision 0013). */
+  real: RealSource | null
   /** Set when inspectors will also count the promises that are still unkept (decision 0012). */
   scrutiny: Scrutiny | null
   /** Set when it is a windfall: the credits that arrive when it lands. */
   grant_credits: number | null
+}
+/** Where a real headline came from, and why it does what it does. */
+export interface RealSource {
+  publisher: string
+  /** `YYYY-MM-DD`. */
+  published: string
+  url: string
+  rule_id: string
+  rule_label: string
+}
+/** A real headline imported for a term, whether or not it changes anything. */
+export interface RealNote {
+  term: number
+  title: string
+  summary: string
+  url: string
+  published: string
+  /** The rule that matched; absent when nothing matched and the headline only informs. */
+  rule_label: string | null
+  /** The quarter it lands in, if it took one. */
+  quarter: number | null
 }
 /** What an inspection would count and take. */
 export interface Scrutiny {
@@ -169,6 +194,8 @@ export interface Landed {
   responded: boolean
   /** Set when the story also stopped one kind of work; `keep_pct` is what was applied, after any answer. */
   disruption: { family: 'staffing' | 'repairs' | 'access'; keep_pct: number; quarters: number } | null
+  /** Set when the headline was real news. */
+  real: RealSource | null
   /** Set when inspectors counted the promises that were still unkept: the units they found, staffing, repairs, access. */
   scrutiny: { families: ('staffing' | 'repairs' | 'access')[]; owed_units: number[] } | null
   /** Set when it was a windfall: the credits that arrived. */

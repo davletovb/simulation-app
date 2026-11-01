@@ -1245,6 +1245,9 @@ pub enum PlayerCommand {
     Respond {
         headline_quarter: Quarter,
     },
+    /// Freeze the real headlines fetched for this term into the record (decision 0013). The server issues it, once, at the start
+    /// of a term, before the first plan.
+    ImportNews(Vec<news::RealItem>),
 }
 
 impl PlayerCommand {
@@ -1255,6 +1258,9 @@ impl PlayerCommand {
             | Self::Ratify { meeting_id, .. }
             | Self::RequestCapacityCap { meeting_id, .. } => validate_identifier(meeting_id),
             Self::DiscloseEvidence { evidence_id, .. } => validate_identifier(evidence_id),
+            Self::ImportNews(items) if !news::valid_import(items) => {
+                Err(ContractError::InvalidCondition)
+            }
             _ => Ok(()),
         }
     }
