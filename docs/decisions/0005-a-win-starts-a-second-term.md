@@ -1,6 +1,7 @@
 # 0005. A win starts a second term (option A)
 
-- **Status:** Accepted (direction). **Two sub-decisions are still open** (below), so it cannot be built yet.
+- **Status:** Accepted (direction). **Budget decided: R3.** One smaller question (the audit allowance) and one
+  assumption to confirm (term 2 ends with a second election) remain. Not built yet.
 - **Date:** 2026-11-01
 - **Decided by:** the project owner, in conversation. Asked what "if win then continues"
   (decision 0002) means, with three options, they answered **"Option A"**. Recorded by Claude.
@@ -25,7 +26,14 @@ The second term **ends with a second election** and then the game ends: a win th
 a loss ends the game. Without a second election the second term would have no stakes. This was not
 stated; I am assuming it.
 
-## Open sub-decision 1: does the budget refill for the second term?
+## Sub-decision 1: does the budget refill for the second term? **Decided: R3** (2026-11-01)
+
+The owner chose **R3**: a fresh allocation each term (starting at 100, set in the scenario) is **added** to anything
+unspent, and unfinished promises stay promised. "Never refills" now means **within a term**. Not built yet; the
+briefing line "one budget for the whole game, it never refills" stays true for a single term and must be
+changed **when the second term is built**, not before (it would promise something that does not exist yet).
+
+The analysis that led to it:
 
 This is the one that changes how the second term plays, so it needs an answer before anything is built.
 Real plays show why "no refill" does not work:
@@ -42,10 +50,9 @@ Real plays show why "no refill" does not work:
 | **R2. Reset to 100** | A full new budget | Simple, but term 2 repeats term 1's decisions, and it contradicts "never refills" without saying so |
 | **R3. A new allocation each term (recommended)** | A fresh allocation (start at 100, set in the scenario) is **added** to anything unspent; unfinished promises stay promised | "Never refills **within a term**", with a spending review at each term. Doing well is not punished; hoarding still costs you delivery and votes |
 
-**Recommendation: R3.** Whichever is chosen, the briefing line "one budget for the whole game, it never
-refills" must change to say what is true.
+**Recommendation was R3, and R3 was chosen.**
 
-## Open sub-decision 2 (smaller): the audit allowance
+## Open sub-decision 2 (smaller): the audit allowance (still open)
 
 The first audit is free from Q3. Does that reset each term? I would reset it per term. Not blocking.
 

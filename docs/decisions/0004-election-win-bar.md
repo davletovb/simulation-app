@@ -42,8 +42,14 @@ does not (52.98%). 48 of the 72 accepted variants clear 55%; all 72 clear 52% an
 
 ## To change
 
-The two numbers should live in the scenario rules (and be mirrored in `authored.json`, with the same
-drift test as the response numbers) when stage B is built, so changing them is one edit plus
-regenerating the pinned files. Until then they exist only in `../stay-in-power.md` and in
-`tools/support-model/support_model.py` (`BAR_SUPPORT_PCT`, `BAR_BLOCS_PCT`). Record any change as a new
-decision and mark this one superseded.
+The bars are now named constants in `crates/domain/src/reducer.rs` (`ELECTION_MIN_SUPPORT_PPM = 550_000`,
+`ELECTION_MIN_BLOCS_PPM = 600_000`, `ELECTION_HELD_ABOVE_PPM = 500_000`), mirrored in
+`tools/support-model/support_model.py` (`BAR_SUPPORT_PCT`, `BAR_BLOCS_PCT`). **They are deliberately not in the
+hashed `authored.json`** (see [0006](0006-what-the-snapshot-exposes.md)): they only read a final state, so
+changing them does **not** invalidate saved games, and a change is a single edit plus the tests below.
+
+To change a bar: edit the constant, update the tool, then run `cargo test -p myth-domain -p myth-local-api`;
+the tests that pin a result (`balanced_term_wins_...`, `election_night_is_published_...`) will tell you if a
+change flips the headline cases. Record the change as a new decision and mark this one superseded.
+
+**Status update (2026-11-01):** implemented in the engine as the rule above, **still provisional**.

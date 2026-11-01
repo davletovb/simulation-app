@@ -2,8 +2,9 @@
 
 **Status (2026-11-01): decided in part. See [`decisions/`](decisions/README.md).** The goal is
 accepted (0001), the election rule is accepted except what "continues" means (0002), and the **engine
-recalibration is done** (0003, rules v2). The election result in the engine, per-group support in the
-snapshot and all the UI are **not built yet**, and the win bar is provisional (0004).
+recalibration (0003, rules v2) and stage B (per-group support and the election result in the snapshot, 0006)
+are done**. A win starts a second term, with a new allocation each term (0005, not built). The UI for all
+of it is **not built yet**, and the win bar is provisional (0004).
 
 The calibration below is now the engine's, expressed as the equivalent base numbers (Staffing 3200,
 Repairs 2800, Access 3000, cost 2000, clip ±40,000) instead of "800 and 700 at 400% scale". The table
@@ -112,10 +113,11 @@ takes to show it to a player.
 1. **Done** (`1c2dbee`): the new benefit and cost table, clip and shock cap in
    `crates/domain/src/reducer.rs`, the matching `authored.json`, and a test that keeps them equal.
    The scale stays within the validator's 50, 100, 150 because the baseline itself was rescaled.
-2. **Not done:** expose in the snapshot the support of each of the six groups, the queued responses and
-   (later) the two lobbies' balances. Regenerate the TypeScript and schemas (CI checks they match).
-3. **Not done:** an election rule and an end-of-campaign result in the snapshot, counting the last
-   quarter's work. The bars belong in the scenario rules (decision 0004).
+2. **Done (stage B, 0006):** the snapshot carries each group's support, what is queued to land, and each
+   group's share of the voters. Still to do: the two lobbies' balances.
+3. **Done (stage B, 0006):** an election rule and result in the snapshot, counting the last quarter's work.
+   The bars are constants in `reducer.rs`, deliberately not in the hashed scenario file, so re-tuning them
+   does not invalidate saved games (0004, 0006).
 4. **Done** (`1c2dbee`): CI pins the sensitivity results, so the report and CSV were regenerated in the
    same change (`cargo run -p myth-domain --example p3_report`), and the replica tool holds both
    calibrations so `--check` passes.
@@ -142,8 +144,7 @@ Asked on 2026-11-01 and answered by the owner (full records in [`decisions/`](de
 1. **Power as the headline, Legacy as the second line:** yes. ([0001](decisions/0001-goal-stay-in-power.md))
 2. **One election at the end; a win continues, a loss ends the game.** No mid-term gate. "Continues" means
    **a second term of six quarters** carrying over support, lobbies, minister beliefs and unfinished
-   promises. **Still open:** whether the budget refills for term 2 (recommended: a new allocation added to
-   anything unspent). ([0002](decisions/0002-single-election-win-continues-loss-ends.md),
+   promises, with **a new allocation each term added to anything unspent** (R3). ([0002](decisions/0002-single-election-win-continues-loss-ends.md),
    [0005](decisions/0005-a-win-starts-a-second-term.md))
 3. **Change the frozen engine numbers and regenerate the pinned report in the same change:** yes, and done.
    ([0003](decisions/0003-recalibrate-the-support-model.md))
@@ -152,8 +153,7 @@ Asked on 2026-11-01 and answered by the owner (full records in [`decisions/`](de
 
 ## Suggested order of work
 
-1. **Recalibrate** (done, 0003) **and expose** (items 2 and 3 above, next). Smallest change that makes
-   support meaningful and visible.
+1. **Recalibrate** (done, 0003) **and expose** (done, 0006). Support is meaningful and available to the screen.
 2. **Election night and the bloc map** (UI, plus the Legacy line). The player now has a goal.
 3. **Events and ministers that slow down or misreport** (content). This is what makes it a game
    rather than a solved puzzle.

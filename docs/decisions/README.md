@@ -10,7 +10,8 @@ old one is marked **Superseded by NNNN**.
 | [0002](0002-single-election-win-continues-loss-ends.md) | One election at the end; a win continues, a loss ends the game | Accepted |
 | [0003](0003-recalibrate-the-support-model.md) | Recalibrate the public-support model (engine rules v2) | **Implemented** |
 | [0004](0004-election-win-bar.md) | The election win bar (55% overall, 60% of voters) | **Provisional**, not implemented |
-| [0005](0005-a-win-starts-a-second-term.md) | A win starts a second term of six quarters (option A) | Accepted; **term-2 budget open** |
+| [0005](0005-a-win-starts-a-second-term.md) | A win starts a second term of six quarters (option A); **R3**: a new allocation each term, added to anything unspent | Accepted; not built |
+| [0006](0006-what-the-snapshot-exposes.md) | The snapshot exposes true per-group support and an election result; the bars live in code, not the hashed scenario | **Implemented** |
 
 Each record has: the decision and who made it, the evidence, the consequences, and how to revert or change it.
 Statuses: *Accepted*, *Provisional*, *Implemented*, *Superseded*, *Reverted*.
