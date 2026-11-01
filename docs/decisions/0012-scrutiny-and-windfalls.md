@@ -109,7 +109,7 @@ without stage 3, the part to take is the `quoteOk` bound in `apps/web/src/commit
 
 ## Not built yet
 
-- **Real-world news**, and **groups with opposed interests**: as in 0010.
+- **Real-world news**: built in stage 4, see [0013](0013-real-world-news.md). **Groups with opposed interests**: as in 0010.
 - **Polls and a scrutiny of what ministers report** (the audit result shown on screen): unchanged.
 
 ## To change or revert

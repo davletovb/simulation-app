@@ -311,7 +311,107 @@
             "kind",
             "headline_quarter"
           ]
+        },
+        {
+          "description": "Freeze the real headlines fetched for this term into the record (decision 0013). Issued by the server, never the browser.",
+          "type": "object",
+          "properties": {
+            "items": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/RealItemWire"
+              },
+              "maxItems": 4,
+              "minItems": 1
+            },
+            "kind": {
+              "type": "string",
+              "const": "import_news"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "items"
+          ]
         }
+      ]
+    },
+    "RealItemWire": {
+      "description": "A real headline: its words and link, and the rule that matched it, if any.",
+      "type": "object",
+      "properties": {
+        "published": {
+          "description": "`YYYY-MM-DD`.",
+          "type": "string"
+        },
+        "rule": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RealRuleWire"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "summary": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "url": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "title",
+        "summary",
+        "url",
+        "published"
+      ]
+    },
+    "RealRuleWire": {
+      "description": "The rule that turned a real headline into numbers (decision 0013).",
+      "type": "object",
+      "properties": {
+        "effect": {
+          "description": "Bad news: each group's exposure in percent of the worst case. Good news: each group's gain in ppm.",
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "format": "uint32",
+            "minimum": 0
+          },
+          "maxItems": 6,
+          "minItems": 6
+        },
+        "id": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "tone": {
+          "$ref": "#/$defs/RealToneWire"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "label",
+        "tone",
+        "effect"
+      ]
+    },
+    "RealToneWire": {
+      "description": "Whether a real headline is good or bad news.",
+      "type": "string",
+      "enum": [
+        "bad",
+        "good"
       ]
     }
   }

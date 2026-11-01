@@ -61,7 +61,7 @@ npm --prefix apps/web run build
 cargo +1.99.1 run --locked -p myth-local-api
 ```
 
-Open `http://127.0.0.1:8787`. The default is `MYTH_MODE=scripted`, and **live model inference remains disabled**. No hosted or paid services are needed for the offline pilot. The private Hiyal campaign directory defaults to `local-data/saves/hiyal-campaigns`; do not expose it as a public asset path.
+Open `http://127.0.0.1:8787`. The default is `MYTH_MODE=scripted`, and **live model inference remains disabled**. No hosted or paid services are needed for the offline pilot. The one thing the server fetches is the news: at the start of a campaign and of each term it reads GOV.UK's Department for Education news and freezes a couple of matching stories into the game ([decision 0013](docs/decisions/0013-real-world-news.md)); it sends nothing about your game. `MYTH_REAL_NEWS=off` plays fully offline, and `cargo run -p myth-local-api --bin myth-news` shows what would be fetched. The private Hiyal campaign directory defaults to `local-data/saves/hiyal-campaigns`; do not expose it as a public asset path.
 
 Read the [P6 implementation and verification record](docs/p6-connected-evidence.md) before interpreting a preview or an outcome. The connected Cabinet/Campaign/Intel tabs now show public-only evidence and recorded decisions, with a tested independent-process restart. The local interface uses Base UI focus-managed controls/dialogs, exact whole-credit entry, explicit en-GB locale, and the saved treasury. The offline P6-01–05 engineering checks are complete, including a file-locked single OS writer and interrupted-command/SSE recovery tests. The **full P6 gate remains open** for independent review and the separately authorized, measured paid Experiment C′.
 

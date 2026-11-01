@@ -73,9 +73,7 @@ and doing nothing lost the second term at 54.4%.
 
 - **Disruption headlines** (one kind of work delivers less for a quarter): **built in stage 2, see [0011](0011-disruption-headlines.md).**
   **Scrutiny** (unfinished promises cost support) and **windfalls** (extra credits): **built in stage 3, see [0012](0012-scrutiny-and-windfalls.md).**
-- **Real-world news.** The data and screens carry a `source` field (`invented` today; `real` is accepted and must be labelled), so a
-  real lane can be added without reshaping anything. It needs its own decision: whether such items only inform or also move support,
-  and how that stays reproducible for a saved game.
+- **Real-world news:** **built in stage 4, see [0013](0013-real-world-news.md).** (The data and screens already carried a `source` field.)
 - **Groups with opposed interests.** Headlines hit groups in different amounts, but everything still moves everyone the same way.
 
 ## To change or revert

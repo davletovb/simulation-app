@@ -80,6 +80,12 @@ brings good news only.
   mostly unfinished, so an inspection hurts most early in a term and not at all after a plan has been delivered; a player who has
   promised nothing owes nothing. The card says how many units would still be owed by then. A smaller plan has less to count, though
   re-planning restarts the delivery delays of work not yet delivered.
+- **Some are real.** When a campaign starts, and again when each term begins, the game (if this computer is online) takes the newest
+  stories from GOV.UK's Department for Education news and a published list of keyword rules decides whether each helps, hurts or does
+  nothing. A real headline is marked **Real news**, says who published it and when, names the rule that moved support, and links to the
+  story. It is announced a quarter ahead like the others and can be answered. At most two a term; term 1 still has no bad news. The
+  Progress screen lists every real story used, including those that matched nothing and so change nothing. The stories are frozen
+  into your game when they arrive, so a saved game never changes. Set `MYTH_REAL_NEWS=off` to play with invented headlines only.
 - **A few bring credits.** A grant or a donation adds 10 or 15 credits. They arrive when the news lands, on top of anything you have
   left, and count in every budget figure. Planning them into a running programme means a new plan (with the same restart), so they are
   most useful as a **reserve** to answer a headline with, or carried into the next term.
