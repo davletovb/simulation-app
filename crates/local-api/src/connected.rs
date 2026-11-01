@@ -309,6 +309,11 @@ pub struct PublicTreasury {
 /// Only public, explicitly recorded player decisions are projected. The
 /// complete private P3 world, latent support, actor beliefs and efforts are
 /// not serialized into this browser-facing report.
+///
+/// `quarter` is the quarter in which the decision was made. `outcome` is
+/// `ratified` or `deferred` for a board meeting, or `continued` when the player
+/// kept the existing programme without a meeting; a continuation reports no
+/// votes (`final_votes == 0`) and the allocation it carries forward.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct PublicDecision {
     pub quarter: u8,
@@ -589,50 +594,75 @@ fn capture(trial: &GameTrial) -> Result<PublicView, String> {
     let mut outcome = None;
     let mut votes: Vec<PublicVote> = Vec::new();
     let mut decisions = Vec::new();
-    let mut last_quarter = 1u8;
+    // Each journaled action belongs to the quarter counted from the explicit
+    // PERIOD `advance_quarter` commands. It is never inferred from the most
+    // recent proposal: a quarter without a meeting has no proposal.
+    let mut quarter = 1u8;
+    // A funded meeting was opened in `quarter`. The journal records two kinds
+    // of `defer`: one after a vote (a real deferral) and, from Q2, one at
+    // QuarterOpen before any proposal, which is the explicit "keep the existing
+    // programme" choice (see `GameWorld::continuation_pending`).
+    let mut meeting_opened = false;
+    // The most recently ratified allocation: what a continuation carries forward.
+    let mut programme: Option<Value> = None;
     for action in &world.actions {
         if action.kind == ActionKind::PlayerCommand {
             let body = &action.payload["command"];
             match body["kind"].as_str() {
                 Some("propose") => {
-                    if let Some(q) = body["meeting_id"]
-                        .as_str()
-                        .and_then(|s| s.strip_prefix('q'))
-                        .and_then(|s| s.parse::<u8>().ok())
-                    {
-                        last_quarter = q;
-                    }
+                    meeting_opened = true;
                     proposal = Some(body["allocation"].clone());
                     outcome = None;
                     votes.clear();
                 }
                 Some("amend") => proposal = Some(body["allocation"].clone()),
-                Some("ratify" | "defer") => {
-                    let kind = body["kind"].as_str().unwrap_or("defer");
-                    outcome = Some(
-                        if kind == "ratify" {
-                            "ratified"
-                        } else {
-                            "deferred"
-                        }
-                        .into(),
-                    );
-                    let relevant: Vec<_> = votes.iter().filter(|v| v.stage == "final").collect();
+                Some(kind @ ("ratify" | "defer")) => {
+                    let ratified = kind == "ratify";
+                    let continued = !ratified && !meeting_opened;
+                    let label = if ratified {
+                        "ratified"
+                    } else if continued {
+                        "continued"
+                    } else {
+                        "deferred"
+                    };
+                    // A continuation holds no meeting: it has no votes of its
+                    // own, and the earlier meeting's votes must not be reported
+                    // as support for it.
+                    let (allocation, final_support, final_votes) = if continued {
+                        (programme.clone(), 0, 0)
+                    } else {
+                        let relevant: Vec<_> =
+                            votes.iter().filter(|v| v.stage == "final").collect();
+                        (
+                            proposal.clone(),
+                            relevant
+                                .iter()
+                                .filter(|v| v.position == "support")
+                                .count()
+                                .try_into()
+                                .map_err(|_| "too many public final votes")?,
+                            relevant
+                                .len()
+                                .try_into()
+                                .map_err(|_| "too many final votes")?,
+                        )
+                    };
+                    if ratified {
+                        programme = proposal.clone();
+                    }
+                    outcome = Some(label.to_owned());
                     decisions.push(PublicDecision {
-                        quarter: last_quarter,
-                        outcome: outcome.clone().unwrap_or_default(),
-                        allocation: proposal.clone(),
-                        final_support: relevant
-                            .iter()
-                            .filter(|v| v.position == "support")
-                            .count()
-                            .try_into()
-                            .map_err(|_| "too many public final votes")?,
-                        final_votes: relevant
-                            .len()
-                            .try_into()
-                            .map_err(|_| "too many final votes")?,
+                        quarter,
+                        outcome: label.to_owned(),
+                        allocation,
+                        final_support,
+                        final_votes,
                     });
+                }
+                Some("advance_quarter") => {
+                    quarter = quarter.saturating_add(1);
+                    meeting_opened = false;
                 }
                 _ => {}
             }
@@ -2425,6 +2455,104 @@ mod tests {
         );
         assert_eq!(CommandKind::FinishContinuation.body(&world).unwrap(), None);
     }
+    fn assert_decision(
+        decision: &PublicDecision,
+        quarter: u8,
+        outcome: &str,
+        final_votes: u8,
+        allocation: Option<Value>,
+    ) {
+        assert_eq!(decision.quarter, quarter);
+        assert_eq!(decision.outcome, outcome);
+        assert_eq!(decision.final_votes, final_votes);
+        if final_votes == 0 {
+            assert_eq!(decision.final_support, 0);
+        }
+        assert_eq!(decision.allocation, allocation);
+    }
+    /// The journal stores a continuation and a real deferral identically
+    /// (`{"kind":"defer"}`) and only a proposal names its meeting. The public
+    /// projection must still report the true quarter and the right label.
+    #[tokio::test]
+    async fn p7_public_decisions_distinguish_continuation_from_defer_with_the_true_quarter() {
+        let dir = root();
+        let service = Connected::new(dir.clone()).unwrap();
+        let id = "decision-labels";
+        let mut serial = 0usize;
+        let mut step = |kind| {
+            serial += 1;
+            (kind, serial)
+        };
+        let programme = Some(json!({"staff":50,"repairs":40,"access":10}));
+        let nothing = Some(json!({"staff":0,"repairs":0,"access":0}));
+
+        // Q1: a funded meeting, ratified.
+        let (kind, n) = step(CommandKind::Propose {
+            allocation: WireAllocation {
+                staff: 50,
+                repairs: 40,
+                access: 10,
+            },
+        });
+        accepted_step(&service, id, kind, n).await;
+        for _ in 0..3 {
+            let (kind, n) = step(CommandKind::AdvanceSlice);
+            accepted_step(&service, id, kind, n).await;
+        }
+        let (kind, n) = step(CommandKind::Decide { ratify: true });
+        let view = accepted_step(&service, id, kind, n).await;
+        assert_eq!((view.quarter, view.decisions.len()), (1, 1));
+        assert_decision(&view.decisions[0], 1, "ratified", 3, programme.clone());
+        let (kind, n) = step(CommandKind::AdvanceSlice);
+        assert_eq!(accepted_step(&service, id, kind, n).await.quarter, 2);
+
+        // Q2: keep the programme. It is not a deferral and held no vote.
+        let (kind, n) = step(CommandKind::ContinueQuarter);
+        let view = accepted_step(&service, id, kind, n).await;
+        assert!(view.continuation_pending);
+        assert_eq!((view.quarter, view.decisions.len()), (2, 2));
+        assert_decision(&view.decisions[1], 2, "continued", 0, programme.clone());
+        assert_eq!(
+            view.outcome, None,
+            "a continuation is not a meeting outcome"
+        );
+        let (kind, n) = step(CommandKind::FinishContinuation);
+        assert_eq!(accepted_step(&service, id, kind, n).await.quarter, 3);
+
+        // Q3: a real meeting, deferred after the board has voted.
+        let (kind, n) = step(CommandKind::Propose {
+            allocation: WireAllocation {
+                staff: 0,
+                repairs: 0,
+                access: 0,
+            },
+        });
+        accepted_step(&service, id, kind, n).await;
+        for _ in 0..3 {
+            let (kind, n) = step(CommandKind::AdvanceSlice);
+            accepted_step(&service, id, kind, n).await;
+        }
+        let (kind, n) = step(CommandKind::Decide { ratify: false });
+        let view = accepted_step(&service, id, kind, n).await;
+        assert_eq!((view.quarter, view.decisions.len()), (3, 3));
+        assert_decision(&view.decisions[2], 3, "deferred", 3, nothing);
+        let (kind, n) = step(CommandKind::AdvanceSlice);
+        assert_eq!(accepted_step(&service, id, kind, n).await.quarter, 4);
+
+        // Q4: continuing again carries forward the ratified programme, not the
+        // proposal that was just deferred.
+        let (kind, n) = step(CommandKind::ContinueQuarter);
+        let view = accepted_step(&service, id, kind, n).await;
+        assert_eq!((view.quarter, view.decisions.len()), (4, 4));
+        assert_decision(&view.decisions[3], 4, "continued", 0, programme);
+
+        // Every label's quarter matches the world's own quarter when it was made.
+        for (i, decision) in view.decisions.iter().enumerate() {
+            assert_eq!(usize::from(decision.quarter), i + 1);
+        }
+        drop(service);
+        fs::remove_dir_all(dir).unwrap();
+    }
     #[tokio::test]
     async fn p7_two_fundable_resolutions_remain_distinct_when_programmes_continue() {
         let dir = root();
@@ -2530,6 +2658,28 @@ mod tests {
             let snapshot = capture_for(&owner.engine.lock().await.trial, id).unwrap();
             assert!(snapshot.closed);
             assert_eq!(snapshot.delivery_history.len(), 6);
+            // Q1 was ratified; Q2-Q6 each kept the programme, which is not a deferral.
+            let labels: Vec<_> = snapshot
+                .decisions
+                .iter()
+                .map(|d| (d.quarter, d.outcome.as_str()))
+                .collect();
+            assert_eq!(
+                labels,
+                [
+                    (1, "ratified"),
+                    (2, "continued"),
+                    (3, "continued"),
+                    (4, "continued"),
+                    (5, "continued"),
+                    (6, "continued"),
+                ]
+            );
+            assert!(
+                snapshot.decisions[1..]
+                    .iter()
+                    .all(|d| d.final_votes == 0 && d.allocation == snapshot.decisions[0].allocation)
+            );
             outcomes.push(snapshot.delivery_history[5].reported_cumulative);
             drop(owner);
         }

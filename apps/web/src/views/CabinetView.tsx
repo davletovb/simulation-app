@@ -1,8 +1,12 @@
-import { ConnectedCabinetReport } from './ConnectedReports'
+import { CabinetMeetingStatus, SeatPositions, usePublicView } from './ConnectedReports'
+import { finalSupport } from '../positions.mjs'
 import { FAMILIES, MEETING_PHASES, SEATS, VOTES_NEEDED } from '../game'
 import { Icon } from '../components/Icon'
 
 export function CabinetView() {
+  const { data, isError } = usePublicView()
+  const snapshot = data?.snapshot
+  const support = snapshot ? finalSupport(snapshot.votes) : 0
   return (
     <>
       <header className="view-head">
@@ -12,7 +16,7 @@ export function CabinetView() {
           budget or a seat’s private choices.</p>
       </header>
 
-      <ConnectedCabinetReport />
+      <CabinetMeetingStatus snapshot={snapshot} unavailable={isError} />
       <section className="council" aria-label="Board seats">
         <div className="seats">
           {SEATS.map(seat => {
@@ -31,10 +35,7 @@ export function CabinetView() {
                     </li>
                   )}
                 </ul>
-                <div className="vote-slot">
-                  <span className="vote-token" aria-hidden="true">?</span>
-                  <span><strong>No vote yet</strong>Static seat illustration; actual votes appear in the connected report above.</span>
-                </div>
+                <SeatPositions ministry={seat.name.toLowerCase()} seat={seat.name} snapshot={snapshot} unavailable={isError} />
               </article>
             )
           })}
@@ -44,9 +45,9 @@ export function CabinetView() {
           <span className="table-label">Approval rule</span>
           <strong>{VOTES_NEEDED} of 3 seats must support the same frozen version</strong>
           <span>Conditions must also be funded, observable and due within the campaign.</span>
-          <div className="tally" aria-label={`0 of ${VOTES_NEEDED} support votes needed`}>
-            {SEATS.map(s => <span key={s.name} className="tally-pip" />)}
-            <em>0 / {VOTES_NEEDED} needed</em>
+          <div className="tally" role="img" aria-label={`${support} of 3 seats support; ${VOTES_NEEDED} needed`}>
+            {SEATS.map((s, i) => <span key={s.name} className={`tally-pip${i < support ? ' is-on' : ''}`} />)}
+            <em>{support} support · {VOTES_NEEDED} needed</em>
           </div>
         </div>
 
