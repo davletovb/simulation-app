@@ -1857,7 +1857,7 @@ const fn role_index(m: Ministry) -> usize {
 fn cohort_response(ix: usize, delivered: [u16; 3]) -> Result<i64, Rejection> {
     cohort_response_scaled(ix, delivered, 100)
 }
-fn cohort_response_scaled(
+pub(crate) fn cohort_response_scaled(
     ix: usize,
     delivered: [u16; 3],
     magnitude_percent: u16,

@@ -8,6 +8,7 @@
 pub mod audit;
 pub mod fixed;
 pub mod news;
+pub mod population;
 pub mod preview;
 pub mod reducer;
 pub mod scripted;
