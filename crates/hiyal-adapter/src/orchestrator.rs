@@ -887,7 +887,9 @@ pub async fn advance_slice(trial: &mut GameTrial) -> Result<bool, String> {
     }
     let phase = trial.store.world().phase;
     match phase {
-        Phase::QuarterOpen | Phase::AmendmentWindow => {
+        Phase::QuarterOpen | Phase::AmendmentWindow | Phase::ElectionNight => {
+            // The scripted player begins the next term the way it scripts a proposal or a vote. The HTTP
+            // API refuses a generic advance on election night, so a person always begins it explicitly.
             enable(trial, &[PLAYER])?;
             check_step(trial.step().await?)?;
         }
@@ -957,13 +959,29 @@ pub async fn benchmark_sequential_cabinet(trial: &mut GameTrial) -> Result<Vec<u
     Ok(times)
 }
 pub async fn run_until_closed(trial: &mut GameTrial) -> Result<(), String> {
-    for _ in 0..100 {
+    // A whole game is two terms of six quarters, so the bound is twice what one term needed.
+    for _ in 0..200 {
         if !advance_slice(trial).await? {
             trial.checkpoint()?;
             return Ok(());
         }
     }
     Err("bounded scripted run did not close".into())
+}
+/// Plays the scripted game up to the end of the current term: until its election has been held and the
+/// player would have to begin the next term, or until the game has closed. It never begins a term itself.
+pub async fn run_until_term_end(trial: &mut GameTrial) -> Result<(), String> {
+    for _ in 0..100 {
+        if trial.store.world().phase == Phase::ElectionNight {
+            trial.checkpoint()?;
+            return Ok(());
+        }
+        if !advance_slice(trial).await? {
+            trial.checkpoint()?;
+            return Ok(());
+        }
+    }
+    Err("bounded scripted term did not end".into())
 }
 /// Strict, read-only full Hiyal journal verification plus independent complete
 /// P3 action-fold validation. Does not call the backend or repair files.
@@ -1012,9 +1030,11 @@ mod tests {
         }
         {
             let mut resumed = resume(&path, false).unwrap();
-            run_until_closed(&mut resumed).await.unwrap();
+            run_until_term_end(&mut resumed).await.unwrap();
             assert_eq!(resumed.store.world().quarter, 6);
-            assert!(resumed.store.world().is_closed());
+            // The scripted plan wins the first election, so the game waits for the second term to begin.
+            assert_eq!(resumed.store.world().phase, Phase::ElectionNight);
+            assert!(!resumed.store.world().is_closed());
             assert_eq!(
                 resumed
                     .store
@@ -1033,6 +1053,58 @@ mod tests {
         let strict = resume(&path, true).unwrap();
         assert_eq!(strict.store.world().private_state_sha256, expected);
         drop(strict);
+        std::fs::remove_dir_all(path).unwrap();
+    }
+    #[tokio::test]
+    async fn a_whole_game_is_two_terms_and_replays_identically() {
+        let path = temp("two-terms");
+        let hash;
+        {
+            let mut trial = create(&path, "scripted-pilot", 44).unwrap();
+            run_until_term_end(&mut trial).await.unwrap();
+            assert_eq!(trial.store.world().phase, Phase::ElectionNight);
+            assert_eq!(trial.store.world().quarter, 6);
+            // A generic step is the scripted player; it is the HTTP API that refuses it on election night.
+            run_until_closed(&mut trial).await.unwrap();
+            let world = trial.store.world();
+            assert!(world.is_closed());
+            assert_eq!(world.quarter, 12);
+            let count = |kind: &str| {
+                world
+                    .actions
+                    .iter()
+                    .filter(|a| a.payload["command"]["kind"] == kind)
+                    .count()
+            };
+            assert_eq!(count("begin_term"), 1);
+            assert_eq!(
+                world
+                    .actions
+                    .iter()
+                    .filter(|a| a.kind == ActionKind::MinisterAction)
+                    .count(),
+                72
+            );
+            let campaign = world.fold().unwrap();
+            let elections = campaign.elections();
+            assert_eq!(elections.len(), 2);
+            assert!(
+                elections[0].won,
+                "the first term is won by the scripted plan"
+            );
+            assert_eq!(elections[1].quarter.value(), 12);
+            hash = world.private_state_sha256.clone();
+        }
+        // The whole 12-quarter journal replays to the same private state.
+        assert_eq!(inspect(&path).unwrap().0, hash);
+        assert_eq!(
+            resume(&path, true)
+                .unwrap()
+                .store
+                .world()
+                .private_state_sha256,
+            hash
+        );
         std::fs::remove_dir_all(path).unwrap();
     }
     #[tokio::test]
@@ -1093,7 +1165,7 @@ mod tests {
         advance_slice(&mut resumed).await.unwrap();
         assert!(!path.join("pending-round.json").exists());
         assert_eq!(resumed.store.world().phase, Phase::AmendmentWindow);
-        run_until_closed(&mut resumed).await.unwrap();
+        run_until_term_end(&mut resumed).await.unwrap();
         assert_eq!(
             resumed
                 .store
@@ -1178,12 +1250,14 @@ mod tests {
         let frozen_dir = temp("frozen-baseline");
         let sequential_dir = temp("sequential-measure");
         let mut frozen = create(&frozen_dir, "same-model", 77).unwrap();
-        run_until_closed(&mut frozen).await.unwrap();
+        run_until_term_end(&mut frozen).await.unwrap();
         let baseline = frozen.store.world().private_state_sha256.clone();
         drop(frozen);
         let mut measured = create(&sequential_dir, "same-model", 77).unwrap();
         for _ in 0..60 {
-            if measured.store.world().is_closed() {
+            if measured.store.world().is_closed()
+                || measured.store.world().phase == Phase::ElectionNight
+            {
                 break;
             }
             let phase = measured.store.world().phase;
@@ -1202,7 +1276,7 @@ mod tests {
                 advance_slice(&mut measured).await.unwrap();
             }
         }
-        assert!(measured.store.world().is_closed());
+        assert_eq!(measured.store.world().phase, Phase::ElectionNight);
         assert_eq!(measured.store.world().private_state_sha256, baseline);
         drop(measured);
         std::fs::remove_dir_all(frozen_dir).unwrap();
@@ -1307,7 +1381,7 @@ mod tests {
     async fn stress_runs_all_36_minister_actions_and_96_fake_model_receipts() {
         let path = temp("stress");
         let mut trial = create_stress(&path, "stress-pilot", 46).unwrap();
-        run_until_closed(&mut trial).await.unwrap();
+        run_until_term_end(&mut trial).await.unwrap();
         assert_eq!(trial.store.world().stress_cohorts.len(), 1024);
         assert_eq!(
             trial

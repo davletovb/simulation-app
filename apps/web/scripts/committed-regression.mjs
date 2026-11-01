@@ -72,7 +72,8 @@ const completeSseFrame = (cursor='17') => ({
       group_ppm:[500000,500000,500000,500000,500000,500000],
       pending_delta_ppm:[0,0,0,0,0,0],
       weight_ppm:[260000,320000,220000,70000,80000,50000]},
-    election:{status:'projected',settled_group_ppm:[500000,500000,500000,500000,500000,500000],
+    term:1,terms:2,term_quarters:6,past_elections:[],
+    election:{status:'projected',term:1,terms:2,settled_group_ppm:[500000,500000,500000,500000,500000,500000],
       weighted_support_ppm:500000,blocs_held_ppm:0,
       min_support_ppm:550000,min_blocs_ppm:600000,held_above_ppm:500000},
     comparison:{mode:'primary_campaign',source_campaign_id:null,source_cursor:null,
@@ -121,6 +122,7 @@ test('per-group support and the election are validated, so a malformed result ne
   bad('unknown election status', s => { s.election.status = 'draw' })
   bad('a verdict while the campaign is still running', s => { s.election.status = 'won' })
   bad('still a projection after the campaign closed', s => { s.closed = true })
+  bad('a finished game with no election on record', s => { s.closed = true; s.election.status = 'lost' })
   bad('queued change that is not settled minus current', s => {
     s.election.settled_group_ppm[1] = 510000
     s.support.pending_delta_ppm[1] = 9999
@@ -129,17 +131,85 @@ test('per-group support and the election are validated, so a malformed result ne
   bad('missing support', s => { delete s.support })
 })
 
-test('a closed campaign carries a verdict, and a queued mood change is accepted when it adds up',()=>{
-  const closed = completeSseFrame()
-  Object.assign(closed.snapshot, { closed: true })
-  closed.snapshot.election.status = 'lost'
-  assert.equal(validSnapshot(closed,'demo-england'),true)
-  closed.snapshot.election.status = 'won'
-  assert.equal(validSnapshot(closed,'demo-england'),true)
+/** A snapshot at the end of a term: the verdict is on record. */
+const heldFrame = ({ term, won, closed, phase }) => {
+  const frame = completeSseFrame()
+  const quarter = term * 6
+  Object.assign(frame.snapshot, {
+    quarter, term, closed, phase,
+    past_elections: [
+      ...(term === 2 ? [{ term: 1, quarter: 6, won: true, weighted_support_ppm: 559584, blocs_held_ppm: 730000 }] : []),
+      { term, quarter, won, weighted_support_ppm: 500000, blocs_held_ppm: 0 },
+    ],
+  })
+  frame.snapshot.election.status = won ? 'won' : 'lost'
+  frame.snapshot.election.term = term
+  return frame
+}
+test('a finished game carries a verdict, and a queued mood change is accepted when it adds up',()=>{
+  assert.equal(validSnapshot(heldFrame({ term: 1, won: false, closed: true, phase: 'QuarterClosed' }),'demo-england'),true)
+  assert.equal(validSnapshot(heldFrame({ term: 2, won: false, closed: true, phase: 'QuarterClosed' }),'demo-england'),true)
+  assert.equal(validSnapshot(heldFrame({ term: 2, won: true, closed: true, phase: 'QuarterClosed' }),'demo-england'),true)
   const queued = completeSseFrame()
   queued.snapshot.election.settled_group_ppm = [520000,500000,480000,500000,500000,500000]
   queued.snapshot.support.pending_delta_ppm = [20000,0,-20000,0,0,0]
   assert.equal(validSnapshot(queued,'demo-england'),true)
+})
+
+test('election night: a won first term waits for the next to begin, and nothing else may wait there',()=>{
+  const night = heldFrame({ term: 1, won: true, closed: false, phase: 'ElectionNight' })
+  assert.equal(validSnapshot(night,'demo-england'),true)
+  const bad = (name, change, base = night) => {
+    const frame = structuredClone(base); change(frame.snapshot)
+    assert.equal(validSnapshot(frame,'demo-england'),false,name)
+  }
+  bad('a lost election cannot wait for a second term', s => { s.election.status = 'lost'; s.past_elections[0].won = false })
+  bad('a win in the first term cannot end the game', s => { s.closed = true })
+  bad('the verdict must be the last one on record', s => { s.past_elections[0].won = false })
+  bad('the record must match the election shown', s => { s.past_elections[0].weighted_support_ppm = 1 })
+  bad('election night is at the end of a term', s => { s.quarter = 5 })
+  bad('a projection cannot sit on election night', s => { s.election.status = 'projected' })
+})
+
+test('the second term: the first win is on record while it runs, the second verdict ends the game',()=>{
+  const running = completeSseFrame()
+  Object.assign(running.snapshot, { quarter: 9, term: 2, phase: 'QuarterOpen',
+    past_elections: [{ term: 1, quarter: 6, won: true, weighted_support_ppm: 559584, blocs_held_ppm: 730000 }] })
+  running.snapshot.election.term = 2
+  assert.equal(validSnapshot(running,'demo-england'),true)
+  const bad = (name, change) => {
+    const frame = structuredClone(running); change(frame.snapshot)
+    assert.equal(validSnapshot(frame,'demo-england'),false,name)
+  }
+  bad('term 2 without the first win on record', s => { s.past_elections = [] })
+  bad('term 2 after a first-term loss', s => { s.past_elections[0].won = false })
+  bad('quarter and term disagree', s => { s.term = 1; s.election.term = 1 })
+  bad('a third term does not exist', s => { s.term = 3; s.election.term = 3; s.quarter = 13 })
+  bad('quarter 13', s => { s.quarter = 13 })
+  bad('wrong number of terms', s => { s.terms = 3 })
+  bad('the election must name the same term', s => { s.election.term = 1 })
+  bad('a won final election that did not close the game', s => {
+    Object.assign(s, { quarter: 12, closed: false, phase: 'Resolved' }); s.election.status = 'won'
+    s.past_elections.push({ term: 2, quarter: 12, won: true, weighted_support_ppm: 500000, blocs_held_ppm: 0 })
+  })
+  const lastQuarter = structuredClone(running)
+  lastQuarter.snapshot.quarter = 12
+  assert.equal(validSnapshot(lastQuarter,'demo-england'),true)
+})
+
+test('a second term carries up to two allocations and twelve quarters of history',()=>{
+  const frame = heldFrame({ term: 2, won: true, closed: true, phase: 'QuarterClosed' })
+  frame.snapshot.treasury.available_credits = 200
+  frame.snapshot.decisions = Array.from({ length: 12 }, (_, i) => ({ quarter: i + 1, outcome: 'continued', allocation: null, final_support: 0, final_votes: 0 }))
+  frame.snapshot.delivery_history = Array.from({ length: 12 }, (_, i) => ({
+    quarter: i + 1, reported_cumulative: [i, i, i], due_cumulative: [i, i, i], weighted_support_ppm: 500000,
+    staff_slowdown_next: false, access_bonus_next: false }))
+  assert.equal(validSnapshot(frame,'demo-england'),true)
+  frame.snapshot.treasury.available_credits = 201
+  assert.equal(validSnapshot(frame,'demo-england'),false)
+  frame.snapshot.treasury.available_credits = 200
+  frame.snapshot.delivery_history.push({ ...frame.snapshot.delivery_history[0], quarter: 13 })
+  assert.equal(validSnapshot(frame,'demo-england'),false)
 })
 
 test('the zeroed integrity-failure frame is still accepted, but only that frame may carry zero voter shares',()=>{

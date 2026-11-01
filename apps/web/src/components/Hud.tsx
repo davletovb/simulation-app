@@ -1,5 +1,5 @@
 import { OFFLINE_PILOT } from '../contracts'
-import { PLACE_LABEL, QUARTERS, committed, type Allocation } from '../game'
+import { PLACE_LABEL, QUARTERS, committed, quarterInTerm, type Allocation } from '../game'
 import { useCampaign } from '../campaign'
 import { STEPS, turnState, undeliveredCredits } from '../turn.mjs'
 import { Icon } from './Icon'
@@ -12,11 +12,16 @@ export function Hud({ allocation, onHelp }: { allocation: Allocation; onHelp: ()
   // Only new spending counts: re-planning undelivered work re-uses credits that are already promised.
   const draft = drafting && snapshot ? Math.max(0, committed(allocation) - undeliveredCredits(snapshot.treasury)) : 0
   const quarter = snapshot?.quarter ?? 1
+  const term = snapshot?.term ?? 1
+  const night = turn?.step === 'night'
+  // One allocation is granted per term begun, so what the player has been given is a whole number of them.
+  const granted = OFFLINE_PILOT.credits * term
   const quarterNote = !snapshot ? '—'
-    : snapshot.closed ? 'Complete'
+    : snapshot.closed ? 'Finished'
+    : night ? `Term ${term} won`
     : QUARTERS[snapshot.quarter - 1]?.label ?? ''
   const stepNote = !turn ? '—'
-    : turn.step === 'done' ? 'Election night'
+    : turn.step === 'done' || night ? 'Election night'
     : turn.keeping ? 'Keeping programme'
     : `Step ${turn.index + 1} of ${STEPS.length} · ${STEPS[turn.index]?.label}`
   const trouble = loadState === 'down' || transport === 'reconnecting' || transport === 'unavailable'
@@ -36,7 +41,7 @@ export function Hud({ allocation, onHelp }: { allocation: Allocation; onHelp: ()
           <dt><Icon name="token" size={16} />Budget</dt>
           <dd>
             <strong>{snapshot?.treasury.available_credits ?? '—'}</strong>
-            <span className="hud-sub">left of {OFFLINE_PILOT.credits}</span>
+            <span className="hud-sub">left of {granted}</span>
             {draft > 0 && <span className="hud-delta" title="New credits your unsent plan would commit">plan −{draft}</span>}
           </dd>
         </div>
@@ -45,10 +50,12 @@ export function Hud({ allocation, onHelp }: { allocation: Allocation; onHelp: ()
           <dd>
             <span className="qpips" aria-hidden="true">
               {QUARTERS.map((q, i) => (
-                <span key={q.label} className={`qpip${snapshot && (snapshot.closed || i < quarter - 1) ? ' is-done' : snapshot && i === quarter - 1 ? ' is-now' : ''}`} />
+                <span key={q.label} className={`qpip${i === OFFLINE_PILOT.quarters_per_term ? ' is-term-start' : ''}${snapshot && (snapshot.closed || i < quarter - 1 || (night && i === quarter - 1)) ? ' is-done' : snapshot && i === quarter - 1 ? ' is-now' : ''}`} />
               ))}
             </span>
-            <span className="hud-sub">{snapshot ? `${snapshot.closed ? OFFLINE_PILOT.total_quarters : quarter} of ${OFFLINE_PILOT.total_quarters} · ${quarterNote}` : quarterNote}</span>
+            <span className="hud-sub">{snapshot
+              ? `Term ${term} of ${OFFLINE_PILOT.terms} · ${snapshot.closed || night ? quarterNote : `quarter ${quarterInTerm(quarter)} of ${OFFLINE_PILOT.quarters_per_term} · ${quarterNote}`}`
+              : quarterNote}</span>
           </dd>
         </div>
         <div className="hud-stat hud-step">

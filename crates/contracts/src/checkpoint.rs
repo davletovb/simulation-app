@@ -127,6 +127,7 @@ pub enum Phase {
     AmendmentWindow,
     FinalPositionsFrozen,
     Resolved,
+    ElectionNight,
     QuarterClosed,
 }
 impl From<world::MeetingPhase> for Phase {
@@ -137,6 +138,7 @@ impl From<world::MeetingPhase> for Phase {
             world::MeetingPhase::AmendmentWindow => Self::AmendmentWindow,
             world::MeetingPhase::FinalPositionsFrozen => Self::FinalPositionsFrozen,
             world::MeetingPhase::Resolved => Self::Resolved,
+            world::MeetingPhase::ElectionNight => Self::ElectionNight,
             world::MeetingPhase::QuarterClosed => Self::QuarterClosed,
         }
     }
@@ -149,6 +151,7 @@ impl From<Phase> for world::MeetingPhase {
             Phase::AmendmentWindow => Self::AmendmentWindow,
             Phase::FinalPositionsFrozen => Self::FinalPositionsFrozen,
             Phase::Resolved => Self::Resolved,
+            Phase::ElectionNight => Self::ElectionNight,
             Phase::QuarterClosed => Self::QuarterClosed,
         }
     }
@@ -162,6 +165,13 @@ pub struct Treasury {
     pub encumbered_access: u16,
     pub service_spent: u16,
     pub audit_spent: u16,
+    /// Every credit granted so far (100 per term begun). Absent in data written before a second term
+    /// existed, which always had exactly the opening 100.
+    #[serde(default = "opening_grant")]
+    pub granted: u16,
+}
+fn opening_grant() -> u16 {
+    d::PILOT_CREDITS
 }
 impl From<d::Treasury> for Treasury {
     fn from(t: d::Treasury) -> Self {
@@ -172,13 +182,15 @@ impl From<d::Treasury> for Treasury {
             encumbered_access: t.encumbered(d::PolicyFamily::Access),
             service_spent: t.service_spent(),
             audit_spent: t.audit_spent(),
+            granted: t.granted(),
         }
     }
 }
 impl TryFrom<Treasury> for d::Treasury {
     type Error = WireError;
     fn try_from(t: Treasury) -> Result<Self, WireError> {
-        Ok(Self::from_parts(
+        Ok(Self::from_parts_granted(
+            t.granted,
             t.available,
             t.encumbered_staff,
             t.encumbered_repairs,
@@ -528,6 +540,7 @@ pub enum Move {
     Release { family: Family, credits: u16 },
     SpendService { family: Family, credits: u16 },
     SpendAudit { credits: u16 },
+    Grant { credits: u16 },
 }
 impl From<d::LedgerMove> for Move {
     fn from(x: d::LedgerMove) -> Self {
@@ -545,6 +558,7 @@ impl From<d::LedgerMove> for Move {
                 credits,
             },
             d::LedgerMove::SpendAudit { credits } => Self::SpendAudit { credits },
+            d::LedgerMove::Grant { credits } => Self::Grant { credits },
         }
     }
 }
@@ -564,6 +578,7 @@ impl From<Move> for d::LedgerMove {
                 credits,
             },
             Move::SpendAudit { credits } => Self::SpendAudit { credits },
+            Move::Grant { credits } => Self::Grant { credits },
         }
     }
 }
@@ -880,7 +895,44 @@ mod p2_frozen_pack_tests {
         );
         assert_eq!(
             authored["quarters"].as_u64(),
-            Some(u64::from(myth_domain::SIX_QUARTERS))
+            Some(u64::from(myth_domain::TERM_QUARTERS))
+        );
+        // Two terms, and the election that ends each. The bars decide whether the game continues, so
+        // they live in this hashed file and the engine's constants must say the same.
+        assert_eq!(
+            authored["terms"].as_u64(),
+            Some(u64::from(myth_domain::TERMS))
+        );
+        let election = &authored["election"];
+        let ends: Vec<u64> = (1..=myth_domain::TERMS)
+            .map(|term| u64::from(term) * u64::from(myth_domain::TERM_QUARTERS))
+            .collect();
+        let held: Vec<u64> = election["held_after_quarters"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_u64().unwrap())
+            .collect();
+        assert_eq!(held, ends, "election timing drift");
+        assert_eq!(
+            election["min_weighted_support_ppm"].as_u64(),
+            Some(u64::from(myth_domain::reducer::ELECTION_MIN_SUPPORT_PPM)),
+            "support bar drift"
+        );
+        assert_eq!(
+            election["min_blocs_ppm"].as_u64(),
+            Some(u64::from(myth_domain::reducer::ELECTION_MIN_BLOCS_PPM)),
+            "blocs bar drift"
+        );
+        assert_eq!(
+            election["bloc_held_above_ppm"].as_u64(),
+            Some(u64::from(myth_domain::reducer::ELECTION_HELD_ABOVE_PPM)),
+            "held-bloc threshold drift"
+        );
+        assert_eq!(pilot["audit"]["free_audits_per_term"].as_u64(), Some(1));
+        assert_eq!(
+            pilot["audit"]["first_eligible_quarter_in_term"].as_u64(),
+            Some(3)
         );
         for (family, key) in [
             (myth_domain::PolicyFamily::Staffing, "staffing"),

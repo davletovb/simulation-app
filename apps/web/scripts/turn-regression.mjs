@@ -75,6 +75,24 @@ test('a finished campaign is "done" whatever phase it stopped in', () => {
   assert.equal(turnState(snap('QuarterClosed', { closed: true })).step, 'done')
 })
 
+test('election night after a won term is its own step: nothing but beginning the next term is possible', () => {
+  const night = turnState(snap('ElectionNight', { quarter: 6 }))
+  assert.equal(night.step, 'night')
+  assert.equal(night.index, STEPS.length)
+  assert.equal(night.canKeepProgramme, false)
+  assert.equal(night.keeping, false)
+  // A generic advance there would let the scripted player begin the term for the person.
+  assert.equal(advanceKind('night'), null)
+  // The game itself being over wins over the phase name.
+  assert.equal(turnState(snap('ElectionNight', { closed: true })).step, 'done')
+})
+
+test('the first quarter of the second term is an ordinary plan step that may keep the programme', () => {
+  const q7 = turnState(snap('QuarterOpen', { quarter: 7 }))
+  assert.equal(q7.step, 'plan')
+  assert.equal(q7.canKeepProgramme, true)
+})
+
 test('an unknown phase from a newer server fails safe (read-only), not into a mutating step', () => {
   assert.equal(turnState(snap('SomethingNew')).step, 'done')
 })

@@ -39,7 +39,7 @@ impl ScriptedRecord {
         if self.schema_version != d::SCHEMA_VERSION || !valid_filename(&self.record_id) {
             return Err(StoreError::InvalidRecord);
         }
-        if self.choices.len() > usize::from(d::SIX_QUARTERS) {
+        if self.choices.len() > usize::from(d::MAX_QUARTERS) {
             return Err(StoreError::InvalidRecord);
         }
         let mut previous = 0_u8;
@@ -52,7 +52,7 @@ impl ScriptedRecord {
             previous = choice.quarter;
             let allocation = d::Allocation::try_from(choice.allocation.clone())
                 .map_err(|_| StoreError::InvalidRecord)?;
-            if allocation.total() > u32::from(d::PILOT_CREDITS) {
+            if allocation.total() > u32::from(d::MAX_CREDITS) {
                 return Err(StoreError::InvalidRecord);
             }
         }
@@ -272,7 +272,9 @@ mod tests {
             Err(StoreError::InvalidRecord)
         ));
         let mut bad = record("safe");
-        bad.choices[0].allocation.staff = 99;
+        // Two full lines plus the access line: more than both terms' allocations together.
+        bad.choices[0].allocation.staff = 100;
+        bad.choices[0].allocation.repairs = 100;
         assert!(matches!(store.put(bad), Err(StoreError::InvalidRecord)));
         let mut dup = record("safe");
         dup.choices.push(dup.choices[0].clone());

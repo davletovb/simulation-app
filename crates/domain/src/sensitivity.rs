@@ -116,7 +116,7 @@ pub fn run_one(
             magnitude_percent: magnitude,
             delivery_extra_lag: extra_lag,
             response_lag,
-            shocks: [[0; 6]; 6],
+            shocks: [[0; 6]; crate::MAX_QUARTERS as usize],
             q2_repair_cap: Some(8),
         },
     )?;
@@ -172,7 +172,13 @@ pub fn run_one(
             }
         }
     }
-    if c.phase() != MeetingPhase::QuarterClosed {
+    // Six advances end the first term: lost means the game is over, won means it waits on election night.
+    // Either way exactly one election has been held, and the state read below is the term's final state.
+    if !matches!(
+        c.phase(),
+        MeetingPhase::QuarterClosed | MeetingPhase::ElectionNight
+    ) || c.elections().len() != 1
+    {
         return Err(Rejection::InvalidPhase);
     }
     let world = c.world();

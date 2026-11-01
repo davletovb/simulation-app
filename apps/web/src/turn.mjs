@@ -13,6 +13,10 @@
  *   5 decide     Approve or postpone             -> decide
  *   6 end        End the quarter                 -> advance_slice
  *
+ * After the last quarter of a term the election is held. A win leaves the player on election night
+ * (`night`), where the only move is to begin the next term; a loss, or a win at the end of the last term,
+ * closes the game (`done`).
+ *
  * Pure and dependency-free so `node --test` can check it without a browser.
  */
 
@@ -43,8 +47,8 @@ export function finalSupportCount(votes) {
  * Where the player is in the quarter.
  *
  * @returns {{
- *   step: 'plan'|'reactions'|'revise'|'vote'|'decide'|'end'|'done',
- *   index: number,            // 0-based position in STEPS; STEPS.length when done
+ *   step: 'plan'|'reactions'|'revise'|'vote'|'decide'|'end'|'night'|'done',
+ *   index: number,            // 0-based position in STEPS; STEPS.length on election night or when done
  *   keeping: boolean,         // "keep the current programme" was chosen; only ending remains
  *   canKeepProgramme: boolean // plan step only: skip the vote and carry on (Q2 onwards)
  *   canApprove: boolean,      // decide step only: enough ministers support the plan
@@ -59,6 +63,8 @@ export function turnState(snapshot) {
   const at = step => ({ ...base, step, index: STEPS.findIndex(s => s.id === step) })
 
   if (snapshot.closed) return { ...base, step: 'done', index: STEPS.length }
+  // The term is over and was won: nothing else can happen until the player begins the next one.
+  if (snapshot.phase === 'ElectionNight') return { ...base, step: 'night', index: STEPS.length }
 
   switch (snapshot.phase) {
     case 'QuarterOpen':
@@ -87,7 +93,8 @@ export function turnState(snapshot) {
  * phase-dependent in the engine: at `plan` it would *propose a default plan for
  * the player*, and at `decide` it would *approve or postpone for them*. Those two
  * moves must always be an explicit player choice (propose / decide), never a
- * "continue" button. At `revise`, carrying on means "keep my plan as it is".
+ * "continue" button. At `revise`, carrying on means "keep my plan as it is". Election night is the same:
+ * beginning the next term is its own command (`begin_term`), and the server refuses a generic advance there.
  */
 export function advanceKind(step) {
   switch (step) {

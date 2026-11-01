@@ -60,13 +60,46 @@ function validSupport(support, integrityFailure) {
     (shares === 1000000 || (integrityFailure && shares === 0))
 }
 
-/** The election result: a projection while the campaign runs, a verdict once it has closed. */
-function validElection(election, closed) {
+const TERMS = 2
+const TERM_QUARTERS = 6
+const MAX_QUARTERS = TERMS * TERM_QUARTERS
+/** A fresh allocation is granted each term, so the whole game never handles more than this. */
+const MAX_CREDITS = 100 * TERMS
+
+/**
+ * The election. It is a projection while a term runs and a verdict once the term has ended: either the
+ * game is over (`closed`) or a win is waiting on election night for the next term to begin.
+ */
+function validElection(election, held) {
   return !!election && ['projected', 'won', 'lost'].includes(election.status) &&
-    (election.status === 'projected') === !closed &&
+    (election.status === 'projected') === !held &&
+    Number.isInteger(election.term) && election.term >= 1 && election.term <= TERMS && election.terms === TERMS &&
     sixOf(election.settled_group_ppm, ppm) &&
     ppm(election.weighted_support_ppm) && ppm(election.blocs_held_ppm) &&
     ppm(election.min_support_ppm) && ppm(election.min_blocs_ppm) && ppm(election.held_above_ppm)
+}
+
+/**
+ * Terms and the elections already held. A game only goes on after a win, so every earlier election was won,
+ * and the verdict on screen is the last one on record.
+ */
+function validTerms(s, held) {
+  const e = s.election
+  const past = s.past_elections
+  if (!(Number.isInteger(s.term) && s.term >= 1 && s.term <= TERMS && s.terms === TERMS && s.term_quarters === TERM_QUARTERS &&
+    // Quarter 0 only appears in the zeroed integrity-failure frame.
+    (s.quarter === 0 || Math.ceil(s.quarter / TERM_QUARTERS) === s.term) &&
+    e.term === s.term && Array.isArray(past) && past.length <= TERMS)) return false
+  const wellFormed = past.every((r, i) => !!r && r.term === i + 1 && r.quarter === (i + 1) * TERM_QUARTERS &&
+    typeof r.won === 'boolean' && ppm(r.weighted_support_ppm) && ppm(r.blocs_held_ppm))
+  if (!wellFormed) return false
+  if (!held) return past.length === s.term - 1 && past.every(r => r.won)
+  const last = past.at(-1)
+  return past.length === s.term && !!last && last.quarter === s.quarter && last.won === (e.status === 'won') &&
+    last.weighted_support_ppm === e.weighted_support_ppm && last.blocs_held_ppm === e.blocs_held_ppm &&
+    past.slice(0, -1).every(r => r.won) &&
+    // A win ends the game only at the end of the last term; otherwise it waits on election night.
+    (s.closed ? (e.status === 'lost' || s.term === TERMS) : (s.phase === 'ElectionNight' && e.status === 'won'))
 }
 
 /** Validate the real SSE/snapshot envelope before admitting it to the cache. */
@@ -86,20 +119,20 @@ export function validSnapshot(raw, campaignId) {
   return !!s && s.schema_version === 1 && s.campaign_id === campaignId &&
     validCommittedCursor(s.cursor) &&
     typeof s.view_version === 'string' && s.view_version.length > 0 &&
-    Number.isInteger(s.quarter) && typeof s.phase === 'string' &&
+    Number.isInteger(s.quarter) && s.quarter >= 0 && s.quarter <= MAX_QUARTERS && typeof s.phase === 'string' &&
     typeof s.closed === 'boolean' && typeof s.continuation_pending === 'boolean' &&
     s.mode === 'offline_scripted' &&
     Array.isArray(s.votes) && s.votes.length <= 36 &&
-    Array.isArray(s.decisions) && s.decisions.length<=6 &&
+    Array.isArray(s.decisions) && s.decisions.length<=MAX_QUARTERS &&
     Array.isArray(s.news) && s.news.length<=12 &&
     s.news.every(n=>n && typeof n.title==='string' && typeof n.summary==='string' &&
       (n.kind==='real_source_update' || n.kind==='fictional_simulation_news') &&
       (n.url===null || typeof n.url==='string')) &&
-    Array.isArray(s.delivery_history) && s.delivery_history.length<=6 &&
+    Array.isArray(s.delivery_history) && s.delivery_history.length<=MAX_QUARTERS &&
     s.delivery_history.every((r,i)=>r.quarter===i+1 &&
       Array.isArray(r.reported_cumulative) && r.reported_cumulative.length===3 &&
       Array.isArray(r.due_cumulative) && r.due_cumulative.length===3 &&
-      [...r.reported_cumulative,...r.due_cumulative].every(n=>Number.isSafeInteger(n) && n>=0 && n<=100) &&
+      [...r.reported_cumulative,...r.due_cumulative].every(n=>Number.isSafeInteger(n) && n>=0 && n<=MAX_CREDITS) &&
       Number.isInteger(r.weighted_support_ppm) && r.weighted_support_ppm>=0 && r.weighted_support_ppm<=1000000) &&
     !!s.comparison && ['primary_campaign','exact_recorded_actions','fresh_scripted_branch','verification_failed'].includes(s.comparison.mode) &&
     typeof s.comparison.inherited_shock_stream==='boolean' &&
@@ -115,8 +148,9 @@ export function validSnapshot(raw, campaignId) {
       typeof item.display_value==='string' && typeof item.source_url==='string' &&
       item.source_url.startsWith('https://') && Array.isArray(item.quality_flags)) &&
     validSupport(s.support, s.comparison.mode==='verification_failed') &&
-    validElection(s.election, s.closed) &&
+    validElection(s.election, s.closed || s.phase==='ElectionNight') &&
+    validTerms(s, s.closed || s.phase==='ElectionNight') &&
     // What is queued to land is exactly settled support minus current support.
     s.support.pending_delta_ppm.every((d,i)=>d===s.election.settled_group_ppm[i]-s.support.group_ppm[i]) &&
-    !!s.treasury && Object.values(s.treasury).every(n=>Number.isInteger(n) && n>=0 && n<=100)
+    !!s.treasury && Object.values(s.treasury).every(n=>Number.isInteger(n) && n>=0 && n<=MAX_CREDITS)
 }

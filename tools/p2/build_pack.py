@@ -190,7 +190,11 @@ def source_bytes():
 def authoring_checks(authored):
     need(authored["schema_version"] == 1, "scenario version")
     need(authored["pilot"]["credits"] == 100 and authored["pilot"]["GBP_conversion"] is None, "fake GBP conversion")
-    need(authored["quarters"] == 6 and authored["start"] == "2027-Q1", "time frame")
+    need(authored["quarters"] == 6 and authored["terms"] == 2 and authored["start"] == "2027-Q1", "time frame")
+    election = authored["election"]
+    need(election["held_after_quarters"] == [authored["quarters"] * n for n in (1, 2)], "election timing")
+    need(0 < election["bloc_held_above_ppm"] < election["min_weighted_support_ppm"] <= 1_000_000, "election bars")
+    need(0 < election["min_blocs_ppm"] <= 1_000_000, "election blocs bar")
     need(authored["board"]["support_votes_required"] == 2, "two-thirds vote")
     need(len(authored["board"]["ministers"]) == 3, "not three ministers")
     board = authored["board"]

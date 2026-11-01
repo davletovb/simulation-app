@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
-import { FAMILIES, QUARTERS, draftStatus, type Allocation, type FamilyForecast } from './game'
+import { OFFLINE_PILOT } from './contracts'
+import { FAMILIES, draftStatus, type Allocation, type FamilyForecast } from './game'
 
 import type { ForecastLine, ForecastResponse } from './generated/transport'
 type ServiceFamily = ForecastLine['family']
@@ -25,7 +26,7 @@ function parsePreview(raw: unknown): FamilyForecast[] {
   }
   return FAMILIES.map(family => {
     const row = source.get(family.id)
-    if (!row || !Array.isArray(row.per_quarter) || row.per_quarter.length !== QUARTERS.length ||
+    if (!row || !Array.isArray(row.per_quarter) || row.per_quarter.length !== OFFLINE_PILOT.quarters_per_term ||
       row.per_quarter.some(n => !Number.isInteger(n) || n < 0 || n > 100) ||
       !Number.isInteger(row.outstanding) || row.outstanding < 0 || row.outstanding > 100) {
       throw new Error('Invalid preview units')
@@ -40,9 +41,10 @@ export interface PreviewResult {
   status: 'invalid' | 'loading' | 'updating' | 'unavailable' | 'ready'
   retry: () => void
 }
-export function usePreview(allocation: Allocation): PreviewResult {
+/** `budget` is what the player can fund now; a plan above it is not worth asking the service about. */
+export function usePreview(allocation: Allocation, budget?: number): PreviewResult {
   const key = [allocation.staff, allocation.repairs, allocation.access].join(':')
-  const valid = draftStatus(allocation) === 'valid'
+  const valid = draftStatus(allocation, budget) === 'valid'
   const [state, setState] = useState<PreviewState | null>(null)
   const [retryEpoch, setRetryEpoch] = useState(0)
   const retry = useCallback(() => {

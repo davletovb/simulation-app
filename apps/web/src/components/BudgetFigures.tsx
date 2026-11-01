@@ -11,8 +11,8 @@ interface Treasury {
 }
 
 /**
- * The campaign budget in everyday terms. The 100 credits are for the whole
- * campaign and never refill, so the four figures always add up to the start.
+ * The budget in everyday terms. Credits are granted 100 at a time, once per term, and never refill
+ * within a term, so these four figures plus what is promised always add up to everything granted so far.
  */
 export function BudgetFigures({ treasury, breakdown = false, compact = false }: {
   treasury: Treasury

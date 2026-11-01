@@ -50,9 +50,21 @@ export interface Snapshot {
     /** Each group's share of the voters; sums to 1,000,000. */
     weight_ppm: number[]
   }
-  /** Projected while the campaign runs (every queued response lands), won or lost once it has closed. */
+  /** 1 or 2, and how many terms there are in all. Each term is six quarters and ends with an election. */
+  term: number
+  terms: number
+  term_quarters: number
+  /** Elections already held, oldest first. Empty during the first term. */
+  past_elections: { term: number; quarter: number; won: boolean; weighted_support_ppm: number; blocs_held_ppm: number }[]
+  /**
+   * Projected while a term runs (every queued response lands), won or lost once the term has ended: on
+   * election night after a win, or when the game is over.
+   */
   election: {
     status: 'projected' | 'won' | 'lost'
+    /** The term this election ends. */
+    term: number
+    terms: number
     settled_group_ppm: number[]
     weighted_support_ppm: number
     blocs_held_ppm: number
@@ -106,7 +118,7 @@ export type LoadState = 'loading' | 'ready' | 'missing' | 'down'
 
 export type AuditFamily = 'staffing' | 'repairs' | 'access'
 export type PlayerCommand =
-  | { kind: 'advance_slice' | 'continue_quarter' | 'finish_continuation' }
+  | { kind: 'advance_slice' | 'continue_quarter' | 'finish_continuation' | 'begin_term' }
   | { kind: 'propose' | 'amend'; allocation: Allocation }
   | { kind: 'decide'; ratify: boolean }
   | { kind: 'order_audit'; family: AuditFamily; inspected_quarter: number }
@@ -142,7 +154,10 @@ function failureFor(action: PlayerCommand | undefined): string {
     return 'That plan couldn’t be funded. It may be more than you can plan with, or it may cut work that a minister’s condition protects. Try a smaller plan.'
   }
   if (action?.kind === 'order_audit') {
-    return 'The audit couldn’t be ordered. Only the first audit is free; each later one costs 2 credits from “Left to spend”, which must be at least 2.'
+    return 'The audit couldn’t be ordered. Only the first audit of each term is free; each later one costs 2 credits from “Left to spend”, which must be at least 2.'
+  }
+  if (action?.kind === 'begin_term') {
+    return 'The second term couldn’t begin. It can only start from election night after a win, and only once.'
   }
   if (action?.kind === 'decide' && action.ratify) {
     return 'The ministers’ votes don’t allow approving this plan. Postpone it instead.'

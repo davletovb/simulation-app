@@ -124,6 +124,8 @@ kbd {
 }
 .qpips { display: flex; gap: 4px; }
 .qpip { width: 14px; height: 6px; border-radius: 3px; background: var(--line-2); }
+/* A little air between the two terms, so twelve pips still read as 6 + 6. */
+.qpip.is-term-start { margin-left: 8px; }
 .seat-pips { display: flex; gap: 4px; }
 .seat-pip {
   width: 22px; height: 22px; display: grid; place-items: center; border-radius: 50%;
@@ -1110,7 +1112,7 @@ code { font-family: var(--font-mono); font-size: .92em; color: var(--text); }
 
 .outlook-verdict { font-size: 14px; color: var(--text-2); }
 .outlook-verdict strong { font-size: 17px; }
-.outlook-verdict.is-on-course strong, .outlook-verdict.is-reelected strong { color: var(--ok); }
+.outlook-verdict.is-on-course strong, .outlook-verdict.is-reelected strong, .outlook-verdict.is-victory strong { color: var(--ok); }
 .outlook-verdict.is-behind strong { color: var(--access); }
 
 @media (max-width: 760px) {
@@ -1122,3 +1124,13 @@ code { font-family: var(--font-mono); font-size: .92em; color: var(--text); }
 .briefing-goal { border-color: #8fe09a55; background: #8fe09a10; }
 .briefing-goal .icon { color: var(--ok); }
 .briefing-goal em { font-style: normal; font-weight: 700; color: var(--text); }
+
+/* ---------- Second term ---------- */
+.term-block + .term-block { margin-top: 26px; }
+.term-block > .section-label { margin-bottom: 12px; }
+.carry-list { display: flex; flex-direction: column; gap: 10px; margin: 6px 0 12px; padding: 0; list-style: none; }
+.carry-list li { font-size: 14px; line-height: 1.45; color: var(--text-2); padding-left: 14px; position: relative; }
+.carry-list li::before {
+  content: ""; position: absolute; left: 0; top: .62em; width: 6px; height: 6px; border-radius: 50%; background: var(--gold);
+}
+.carry-list li strong { color: var(--text); }

@@ -9,6 +9,9 @@ export function shortByText(shortfallPpm: number): string
 
 export interface ElectionLike {
   status: 'projected' | 'won' | 'lost'
+  /** The term this election ends (1-based) and how many terms there are. */
+  term: number
+  terms: number
   settled_group_ppm: readonly number[]
   weighted_support_ppm: number
   blocs_held_ppm: number
@@ -19,8 +22,13 @@ export interface ElectionLike {
 export interface Bar { key: 'support' | 'blocs'; label: string; value: number; need: number; met: boolean }
 export function bars(election: ElectionLike): [Bar, Bar]
 
-export type VerdictKey = 'reelected' | 'narrow' | 'heavy' | 'on-course' | 'behind'
-export interface Verdict { key: VerdictKey; label: string; final: boolean; won: boolean }
+/** The election that ends the last term: winning it ends the game in victory. */
+export function isLastTerm(election: ElectionLike): boolean
+/** "first", "second": how a term is named on screen. */
+export function termName(term: number): string
+
+export type VerdictKey = 'reelected' | 'victory' | 'narrow' | 'heavy' | 'on-course' | 'behind'
+export interface Verdict { key: VerdictKey; label: string; final: boolean; won: boolean; lastTerm: boolean }
 export function verdict(election: ElectionLike): Verdict
 export function headline(election: ElectionLike): { title: string; lede: string }
 

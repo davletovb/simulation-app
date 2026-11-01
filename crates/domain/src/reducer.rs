@@ -10,8 +10,9 @@ use crate::world::{
 use crate::{
     Allocation, CapacityCaps, CohortWeights, CommandEnvelope, Commitment, CommitmentKind,
     CommitmentStatus, ContractError, DueQuarter, EffortPermille, FinalPosition, FirstPosition,
-    FundedScope, LedgerMove, Ministry, PolicyFamily, Position, PrivateEffortDeclaration, Quarter,
-    SIX_QUARTERS, WireU64, deliver_family_quarter_with_lag, validate_identifier,
+    FundedScope, LedgerMove, MAX_QUARTERS, Ministry, PolicyFamily, Position,
+    PrivateEffortDeclaration, Quarter, TERM_ALLOCATION_CREDITS, WireU64,
+    deliver_family_quarter_with_lag, validate_identifier,
 };
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -35,16 +36,16 @@ pub const RESPONSE_CLIP_PPM: i64 = 40_000;
 /// The most one scripted exogenous event can move one group's support, either way (was 8_000).
 pub const SHOCK_CAP_PPM: u32 = 40_000;
 
-/// Election bars (decision 0004, provisional): win with at least this overall support...
+/// Election bars (decision 0004, accepted 2026-11-01): win with at least this overall support...
 pub const ELECTION_MIN_SUPPORT_PPM: u32 = 550_000;
 /// ...and with groups worth at least this share of the voters above [`ELECTION_HELD_ABOVE_PPM`].
 pub const ELECTION_MIN_BLOCS_PPM: u32 = 600_000;
 /// A group is "held" only if its support is strictly above this.
 pub const ELECTION_HELD_ABOVE_PPM: u32 = 500_000;
 
-/// What an election would return. The bars only read a final state and never change how the game
-/// evolves, so they are deliberately **not** part of the hashed scenario file: re-tuning them does not
-/// invalidate saved games (decision 0006).
+/// What an election would return. The bars only read a state, but the verdict decides whether the game
+/// goes on, so they are part of the hashed scenario (`authored.json`, kept equal by a drift test) and
+/// changing them invalidates saved games (decision 0007, which reverses 0006 on this point).
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ElectionProjection {
     /// Support per group once every queued response has landed (urban low, middle, high, then rural).
@@ -88,13 +89,25 @@ pub fn evaluate_election(
     })
 }
 
+/// The verdict of one election, kept for the rest of the game. It is derived while the journal is replayed,
+/// so it is as reproducible as everything else, and it is what decides whether the game goes on.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ElectionRecord {
+    /// Which term this election ended (1-based).
+    pub term: u8,
+    /// The last quarter of that term.
+    pub quarter: Quarter,
+    pub projection: ElectionProjection,
+    pub won: bool,
+}
+
 /// Authored, immutable per-run offline mechanism assumptions.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Rules {
     pub magnitude_percent: u16,
     pub delivery_extra_lag: u16,
     pub response_lag: u16,
-    pub shocks: [[i32; 6]; 6],
+    pub shocks: [[i32; 6]; MAX_QUARTERS as usize],
     pub q2_repair_cap: Option<u16>,
 }
 impl Default for Rules {
@@ -103,7 +116,7 @@ impl Default for Rules {
             magnitude_percent: 100,
             delivery_extra_lag: 0,
             response_lag: 1,
-            shocks: [[0; 6]; 6],
+            shocks: [[0; 6]; MAX_QUARTERS as usize],
             q2_repair_cap: None,
         }
     }
@@ -247,6 +260,10 @@ pub struct Campaign {
     beliefs: BeliefLedger,
     disclosed: BTreeMap<Ministry, BTreeSet<String>>,
     vote_history: Vec<PublicVote>,
+    /// One record per election held so far, in order.
+    elections: Vec<ElectionRecord>,
+    /// Audits ordered in the current term; the first of each term is free (decision 0005).
+    term_audits: u16,
 }
 
 pub enum Action {
@@ -298,7 +315,14 @@ impl Campaign {
             beliefs: BeliefLedger::default(),
             disclosed: BTreeMap::new(),
             vote_history: vec![],
+            elections: vec![],
+            term_audits: 0,
         })
+    }
+    /// The elections held so far. After the last quarter of a term there is a new entry, and its `won`
+    /// decides whether the game goes on.
+    pub fn elections(&self) -> &[ElectionRecord] {
+        &self.elections
     }
     pub fn world(&self) -> &WorldSnapshot {
         &self.world
@@ -571,7 +595,10 @@ impl Campaign {
                         self.change_phase(MeetingPhase::Resolved)?;
                     }
                     crate::PlayerCommand::Defer => {
-                        if self.world.phase() == MeetingPhase::QuarterClosed {
+                        if matches!(
+                            self.world.phase(),
+                            MeetingPhase::QuarterClosed | MeetingPhase::ElectionNight
+                        ) {
                             return Err(Rejection::InvalidPhase);
                         }
                         if self.meeting.is_some() {
@@ -579,6 +606,7 @@ impl Campaign {
                         }
                     }
                     crate::PlayerCommand::AdvanceQuarter => self.advance(receipt)?,
+                    crate::PlayerCommand::BeginTerm => self.begin_term(receipt)?,
                     crate::PlayerCommand::OrderAudit {
                         family,
                         inspected_quarter,
@@ -860,7 +888,7 @@ impl Campaign {
                     return Err(Rejection::WrongAuthority);
                 }
                 if condition.due().value() < u16::from(self.world.quarter().value())
-                    || condition.due().value() > u16::from(SIX_QUARTERS)
+                    || condition.due().value() > u16::from(MAX_QUARTERS)
                     || !condition_ids.insert(condition.kind_id().to_string())
                 {
                     return Err(Rejection::InvalidCondition);
@@ -936,9 +964,12 @@ impl Campaign {
     ) -> Result<(), Rejection> {
         // Audit only a committed historical quarter starting in Q3. A minister
         // cannot request it, and nothing here reveals another minister's effort.
-        if self.world.quarter().value() < 3
+        if self.world.quarter().in_term() < 3
             || inspected > self.world.quarter()
-            || self.world.phase() == MeetingPhase::QuarterClosed
+            || matches!(
+                self.world.phase(),
+                MeetingPhase::QuarterClosed | MeetingPhase::ElectionNight
+            )
         {
             return Err(Rejection::InvalidPhase);
         }
@@ -951,7 +982,7 @@ impl Campaign {
         if report.due_schedule[ix] == 0 {
             return Err(Rejection::InvalidCondition);
         }
-        let cost = if self.audits.is_empty() { 0 } else { 2 };
+        let cost = if self.term_audits == 0 { 0 } else { 2 };
         if cost > 0 {
             let mut parts = self.world.private_checkpoint_parts();
             let movement = LedgerMove::SpendAudit { credits: cost };
@@ -986,6 +1017,36 @@ impl Campaign {
         };
         evidence.validate()?;
         self.audits.push(evidence);
+        self.term_audits = self.term_audits.saturating_add(1);
+        Ok(())
+    }
+    /// Start the next term. Only possible on election night after a win. A fresh allocation is added to
+    /// anything unspent (R3); the support, lobbies, ministers' trust and unfinished promises all carry on,
+    /// because this is the same campaign rather than a new one (decision 0007).
+    fn begin_term(&mut self, receipt: &mut ReducerReceipt) -> Result<(), Rejection> {
+        let q = self.world.quarter();
+        let won = self
+            .elections
+            .last()
+            .is_some_and(|e| e.won && e.quarter == q);
+        if self.world.phase() != MeetingPhase::ElectionNight || !won {
+            return Err(Rejection::InvalidPhase);
+        }
+        let mut parts = self.world.private_checkpoint_parts();
+        let movement = LedgerMove::Grant {
+            credits: TERM_ALLOCATION_CREDITS,
+        };
+        let before = parts.treasury;
+        parts.treasury = before.apply(movement)?;
+        receipt
+            .ledger
+            .push(LedgerReceipt::new(before, movement, parts.treasury)?);
+        parts.quarter = Quarter::new(q.value() + 1)?;
+        parts.phase = MeetingPhase::QuarterOpen;
+        self.meeting = None;
+        self.meeting_used = false;
+        self.term_audits = 0;
+        self.world = WorldSnapshot::from_parts(parts)?;
         Ok(())
     }
     fn advance(&mut self, receipt: &mut ReducerReceipt) -> Result<(), Rejection> {
@@ -993,7 +1054,10 @@ impl Campaign {
             return Err(Rejection::InvalidPhase);
         }
         let q = self.world.quarter();
-        if self.world.phase() == MeetingPhase::QuarterClosed {
+        if matches!(
+            self.world.phase(),
+            MeetingPhase::QuarterClosed | MeetingPhase::ElectionNight
+        ) {
             return Err(Rejection::InvalidPhase);
         }
         let mut parts = self.world.private_checkpoint_parts();
@@ -1193,13 +1257,13 @@ impl Campaign {
         let funded_staffing = self.active_package.staff();
         let staff_resources = parts.organisations[0].resources().saturating_add(2).min(20);
         let next_slowdown =
-            q.value() < SIX_QUARTERS && funded_staffing < 50 && staff_resources >= 4;
+            q.value() < MAX_QUARTERS && funded_staffing < 50 && staff_resources >= 4;
         parts.organisations[0] = OrganisationAccount::new(
             Organisation::SchoolWorkforceAssociation,
             staff_resources - if next_slowdown { 4 } else { 0 },
         )?;
         let access_resources = parts.organisations[1].resources().saturating_add(1).min(12);
-        let next_bonus = q.value() < SIX_QUARTERS
+        let next_bonus = q.value() < MAX_QUARTERS
             && parts.treasury.encumbered(PolicyFamily::Access) > 0
             && self.active_package.access() >= 10
             && access_resources > 0;
@@ -1248,11 +1312,12 @@ impl Campaign {
         self.reports.push(report.clone());
         receipt.delivered = delivered;
         receipt.report = Some(report);
-        if q.value() < SIX_QUARTERS {
+        if q.ends_term() {
+            // Provisionally closed: the election below decides whether the game goes on.
+            parts.phase = MeetingPhase::QuarterClosed;
+        } else {
             parts.quarter = Quarter::new(q.value() + 1)?;
             parts.phase = MeetingPhase::QuarterOpen;
-        } else {
-            parts.phase = MeetingPhase::QuarterClosed;
         }
         if let Some(meeting) = self.meeting.as_ref() {
             for action in meeting.final_votes.values() {
@@ -1267,6 +1332,21 @@ impl Campaign {
         self.meeting = None;
         self.meeting_used = false;
         self.world = WorldSnapshot::from_parts(parts)?;
+        if q.ends_term() {
+            // Election night: the verdict is derived from the settled state and recorded. A loss ends the
+            // game; so does a win at the end of the last term. Any other win waits for BeginTerm.
+            let projection = self.election_projection()?;
+            let won = projection.is_win();
+            self.elections.push(ElectionRecord {
+                term: q.term(),
+                quarter: q,
+                projection,
+                won,
+            });
+            if won && q.value() < MAX_QUARTERS {
+                self.change_phase(MeetingPhase::ElectionNight)?;
+            }
+        }
         Ok(())
     }
 }
@@ -2344,6 +2424,185 @@ mod tests {
         assert!(election.is_win());
         // High-income urban and rural groups are left behind even in a win: the intended tension.
         assert!(election.group_support_ppm[2] < 500_000 && election.group_support_ppm[5] < 500_000);
+    }
+    fn ratify_balanced_q1(c: &mut Campaign) {
+        open(c, Allocation::draft(50, 40, 10).unwrap());
+        votes(c, [true, true, true]);
+        c.apply(player(
+            c,
+            "ratify",
+            PlayerCommand::Ratify {
+                meeting_id: "q1".into(),
+                proposal_version: c.proposal_version().unwrap(),
+            },
+        ))
+        .unwrap();
+    }
+    fn advance(c: &mut Campaign, id: &str) -> Result<ReducerReceipt, Rejection> {
+        c.apply(player(c, id, PlayerCommand::AdvanceQuarter))
+    }
+    /// Keep the programme and let time pass: no meetings, just the quarters turning over.
+    fn coast(c: &mut Campaign, quarters: usize, tag: &str) {
+        for i in 0..quarters {
+            advance(c, &format!("{tag}{i}")).unwrap();
+        }
+    }
+    #[test]
+    fn a_won_election_waits_for_the_player_and_then_grants_a_fresh_allocation() {
+        let mut c = campaign();
+        ratify_balanced_q1(&mut c);
+        coast(&mut c, 6, "t1-");
+        // Term one is over and was won: one election on record, and the game is waiting for the player.
+        assert_eq!(c.phase(), MeetingPhase::ElectionNight);
+        assert_eq!(c.world().quarter().value(), 6);
+        assert_eq!(c.elections().len(), 1);
+        assert!(c.elections()[0].won && c.elections()[0].term == 1);
+        assert_eq!(c.world().treasury().granted(), 100);
+        // Nothing but BeginTerm moves it on: time, deferral and audits are all refused.
+        assert_eq!(advance(&mut c, "late").err(), Some(Rejection::InvalidPhase));
+        assert_eq!(
+            c.apply(player(&c, "defer", PlayerCommand::Defer)).err(),
+            Some(Rejection::InvalidPhase)
+        );
+        assert_eq!(
+            c.apply(player(
+                &c,
+                "audit",
+                PlayerCommand::OrderAudit {
+                    family: PolicyFamily::Staffing,
+                    inspected_quarter: Quarter::new(3).unwrap(),
+                }
+            ))
+            .err(),
+            Some(Rejection::InvalidPhase)
+        );
+        let before_service = c.world().treasury().service_spent();
+        let support_before = *c.world().support();
+        let receipt = c
+            .apply(player(&c, "begin", PlayerCommand::BeginTerm))
+            .unwrap();
+        // The second term has begun: new quarter, new allocation, and one ledger entry that says so.
+        assert_eq!(c.world().quarter().value(), 7);
+        assert_eq!(c.world().quarter().term(), 2);
+        assert_eq!(c.world().quarter().in_term(), 1);
+        assert_eq!(c.phase(), MeetingPhase::QuarterOpen);
+        assert_eq!(receipt.ledger.len(), 1);
+        let t = c.world().treasury();
+        assert_eq!(
+            t.available(),
+            100,
+            "everything was delivered, so the allocation is all there is"
+        );
+        assert_eq!(t.granted(), 200);
+        // What was delivered stays delivered, and the groups' mood carries over untouched.
+        assert_eq!(t.service_spent(), before_service);
+        assert_eq!(*c.world().support(), support_before);
+        c.world().validate().unwrap();
+        // BeginTerm is not a loophole: it works once per election.
+        assert_eq!(
+            c.apply(player(&c, "again", PlayerCommand::BeginTerm)).err(),
+            Some(Rejection::InvalidPhase)
+        );
+    }
+    #[test]
+    fn unspent_credits_carry_into_the_next_term_and_are_added_to() {
+        let mut c = campaign();
+        // A failed vote spends nothing; coasting six quarters then leaves all 100 unspent.
+        open(&mut c, Allocation::draft(50, 40, 10).unwrap());
+        votes(&mut c, [false, true, false]);
+        c.apply(player(&c, "defer", PlayerCommand::Defer)).unwrap();
+        coast(&mut c, 6, "t1-");
+        // Nothing delivered, so support never moved: that election is lost and the game is over.
+        assert_eq!(c.phase(), MeetingPhase::QuarterClosed);
+        assert!(!c.elections()[0].won);
+        assert_eq!(c.world().treasury().available(), 100);
+        assert_eq!(
+            c.apply(player(&c, "begin", PlayerCommand::BeginTerm)).err(),
+            Some(Rejection::InvalidPhase),
+            "a loss cannot be undone by starting a term"
+        );
+    }
+    #[test]
+    fn the_second_election_ends_the_game_and_there_is_no_third_term() {
+        let mut c = campaign();
+        ratify_balanced_q1(&mut c);
+        coast(&mut c, 6, "t1-");
+        c.apply(player(&c, "begin", PlayerCommand::BeginTerm))
+            .unwrap();
+        coast(&mut c, 6, "t2-");
+        // Six more quarters with the same programme: the second term ends with its own election.
+        assert_eq!(c.world().quarter().value(), 12);
+        assert_eq!(c.elections().len(), 2);
+        assert_eq!(c.elections()[1].term, 2);
+        assert!(c.elections()[1].won);
+        // A win at the end of the last term still ends the game: there is nowhere further to go.
+        assert_eq!(c.phase(), MeetingPhase::QuarterClosed);
+        assert_eq!(
+            advance(&mut c, "past-the-end").err(),
+            Some(Rejection::InvalidPhase)
+        );
+        assert_eq!(
+            c.apply(player(&c, "third", PlayerCommand::BeginTerm)).err(),
+            Some(Rejection::InvalidPhase)
+        );
+        // Credits are conserved over the whole game: 200 granted, every one in exactly one account.
+        c.world().validate().unwrap();
+        assert_eq!(c.world().treasury().granted(), 200);
+    }
+    #[test]
+    fn the_free_audit_comes_back_each_term() {
+        let mut c = campaign();
+        ratify_balanced_q1(&mut c);
+        let order = |c: &mut Campaign, id: &str| {
+            c.apply(player(
+                c,
+                id,
+                PlayerCommand::OrderAudit {
+                    family: PolicyFamily::Staffing,
+                    inspected_quarter: Quarter::new(2).unwrap(),
+                },
+            ))
+        };
+        let at = |c: &Campaign, quarter: u8| assert_eq!(c.world().quarter().value(), quarter);
+        // Term one. In its second quarter there is nothing to audit yet; from its third the first audit is free.
+        coast(&mut c, 1, "t1-a-");
+        at(&c, 2);
+        assert_eq!(
+            order(&mut c, "t1-early").err(),
+            Some(Rejection::InvalidPhase)
+        );
+        coast(&mut c, 1, "t1-b-");
+        at(&c, 3);
+        order(&mut c, "t1-audit").unwrap();
+        assert_eq!(c.audits.last().unwrap().cost, 0);
+        // Finish the term (Q3 to Q6, then the sixth advance ends it) and begin the next.
+        coast(&mut c, 4, "t1-rest-");
+        assert_eq!(c.phase(), MeetingPhase::ElectionNight);
+        c.apply(player(&c, "begin", PlayerCommand::BeginTerm))
+            .unwrap();
+        at(&c, 7);
+        // Term two. The allowance counts from the term's own third quarter (Q9), not the game's.
+        coast(&mut c, 1, "t2-a-");
+        at(&c, 8);
+        assert_eq!(
+            order(&mut c, "t2-early").err(),
+            Some(Rejection::InvalidPhase)
+        );
+        coast(&mut c, 1, "t2-b-");
+        at(&c, 9);
+        assert_eq!(c.world().quarter().in_term(), 3);
+        order(&mut c, "t2-audit").unwrap();
+        assert_eq!(
+            c.audits.last().unwrap().cost,
+            0,
+            "free again in the second term"
+        );
+        // A second audit in the same term costs 2, paid from the new allocation.
+        let before = c.world().treasury().available();
+        order(&mut c, "t2-audit-2").unwrap();
+        assert_eq!(c.audits.last().unwrap().cost, 2);
+        assert_eq!(c.world().treasury().available(), before - 2);
+        c.world().validate().unwrap();
     }
     #[test]
     fn projection_reads_state_without_changing_it() {

@@ -1,14 +1,14 @@
 //! Pre-authority one-scope optimistic schedule for P1 offline UI.
 //! Not a committed run; no minister vote, funded tranche or shock is inferred.
 use crate::{
-    Allocation, ContractError, DueQuarter, EffortPermille, FundedScope, PILOT_CREDITS,
-    PolicyFamily, Quarter, SIX_QUARTERS, deliver_family_quarter,
+    Allocation, ContractError, DueQuarter, EffortPermille, FundedScope, MAX_CREDITS, PolicyFamily,
+    Quarter, TERM_QUARTERS, deliver_family_quarter,
 };
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct FamilyPreview {
     pub family: PolicyFamily,
-    pub per_quarter: [u16; SIX_QUARTERS as usize],
+    pub per_quarter: [u16; TERM_QUARTERS as usize],
     pub outstanding: u16,
 }
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -22,7 +22,7 @@ pub struct Preview {
 /// The bonus is available from Q2 if >=10 access units were initially funded.
 /// No budget is committed; use P3 for an authoritative quarter transition.
 pub fn optimistic_preview(allocation: Allocation) -> Result<Preview, ContractError> {
-    if allocation.total() > u32::from(PILOT_CREDITS) {
+    if allocation.total() > u32::from(MAX_CREDITS) {
         return Err(ContractError::InsufficientAvailableFunds);
     }
     let access_bonus_possible = allocation.access() >= 10;
@@ -43,8 +43,8 @@ pub fn optimistic_preview(allocation: Allocation) -> Result<Preview, ContractErr
                 funded,
             )?]
         };
-        let mut per_quarter = [0; SIX_QUARTERS as usize];
-        for q in 1..=SIX_QUARTERS {
+        let mut per_quarter = [0; TERM_QUARTERS as usize];
+        for q in 1..=TERM_QUARTERS {
             let bonus = family == PolicyFamily::Access && access_bonus_possible && q >= 2;
             let receipt = deliver_family_quarter(
                 family,
@@ -97,11 +97,15 @@ mod tests {
 
     #[test]
     fn budget_overflow_rejected_before_any_projection() {
-        let over = Allocation::draft(60, 40, 10).unwrap();
+        // More than both terms' allocations together can never be funded.
+        let over = Allocation::draft(100, 100, 10).unwrap();
         assert_eq!(
             optimistic_preview(over),
             Err(ContractError::InsufficientAvailableFunds)
         );
+        // 110 is more than one term's allocation but can be funded in the second term, when the
+        // unspent first-term credits are still there, so it still gets a forecast.
+        assert!(optimistic_preview(Allocation::draft(60, 40, 10).unwrap()).is_ok());
     }
 
     #[test]

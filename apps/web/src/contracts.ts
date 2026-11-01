@@ -13,7 +13,11 @@ export interface PilotOverview {
   case_title: string
   locale: 'en-GB'
   start: '2027 Q1'
-  total_quarters: 6
+  /** Across both terms. */
+  total_quarters: 12
+  terms: 2
+  quarters_per_term: 6
+  /** Granted at the start of each term and added to anything unspent. */
   credits: 100
   status: Availability
 }
@@ -32,7 +36,9 @@ export const OFFLINE_PILOT: PilotOverview = {
   case_title: 'Education Delivery Pilot',
   locale: 'en-GB',
   start: '2027 Q1',
-  total_quarters: 6,
+  total_quarters: 12,
+  terms: 2,
+  quarters_per_term: 6,
   credits: 100,
   status: 'offline_preview',
 }

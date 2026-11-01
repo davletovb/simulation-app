@@ -92,7 +92,9 @@ if __name__ == '__main__':
         for quarter in quarters:
             quarter(game)
         state = game.snap()
-        assert state['closed'], f'{name}: campaign did not finish'
+        # The first term is what is captured: a win waits on election night for the second term (rules v3),
+        # a loss closes the game.
+        assert state['closed'] or state['phase'] == 'ElectionNight', f'{name}: the first term did not finish'
         runs[name] = [{'q': r['quarter'], 'cum': r['reported_cumulative'], 'support': r['weighted_support_ppm']}
                       for r in state['delivery_history']]
         print(f"{name:32} final support {runs[name][-1]['support'] / 1e4:.3f}%")

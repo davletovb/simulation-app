@@ -32,7 +32,7 @@ export function Briefing({ open, onClose }: { open: boolean; onClose: () => void
           <button type="submit" className="icon-btn" aria-label="Close how to play"><Icon name="close" size={18} /></button>
         </form>
         <p className="kicker">How to play · {OFFLINE_PILOT.case_title}</p>
-        <h2 id="briefing-title">You chair a cabinet with one budget and {OFFLINE_PILOT.total_quarters} quarters.</h2>
+        <h2 id="briefing-title">You chair a cabinet for up to {OFFLINE_PILOT.terms} terms of {OFFLINE_PILOT.quarters_per_term} quarters.</h2>
         <p className="briefing-lede">
           You run a fictional school-services pilot in {OFFLINE_PILOT.jurisdiction}. Each quarter is one turn:
           you make a spending plan, your three ministers vote on it, and then time moves on and work is delivered.
@@ -40,18 +40,26 @@ export function Briefing({ open, onClose }: { open: boolean; onClose: () => void
 
         <div className="briefing-rule briefing-goal">
           <Icon name="banner" size={20} />
-          <p><strong>Your goal: win the election.</strong>{' '}
-            After the last quarter the public votes. To stay in power you need{' '}
+          <p><strong>Your goal: stay in power.</strong>{' '}
+            After the sixth quarter the public votes. To win you need{' '}
             {election ? <>at least {pctText(election.min_support_ppm)} overall support <em>and</em> groups backing you that hold at
               least {pctText(election.min_blocs_ppm)} of the voters.</> : <>enough overall support <em>and</em> enough groups backing you.</>}
             {' '}A group backs you above 50%. Delivering work earns support, but it also costs some groups more than it gives them.</p>
         </div>
 
         <div className="briefing-rule">
+          <Icon name="people" size={20} />
+          <p><strong>Win and you get a second term; lose and the game is over.</strong>{' '}
+            The second term runs another six quarters with the same public, the same ministers and any work you left
+            unfinished, and it ends with its own election. Win that one for a final victory.</p>
+        </div>
+
+        <div className="briefing-rule">
           <Icon name="token" size={20} />
-          <p><strong>One budget for the whole game: {OFFLINE_PILOT.credits} credits.</strong>{' '}
-            It never refills. Credits turn into delivered work over time, and delivered work is spent for good. Work
-            not yet delivered can be re-planned: a new plan replaces it.</p>
+          <p><strong>{OFFLINE_PILOT.credits} credits a term.</strong>{' '}
+            They never refill within a term, but a second term adds a fresh {OFFLINE_PILOT.credits} to anything you did not
+            spend. Credits turn into delivered work over time, and delivered work is spent for good. Work not yet delivered
+            can be re-planned: a new plan replaces it.</p>
         </div>
 
         <h3 className="section-label">You spend it on three things</h3>
@@ -76,8 +84,8 @@ export function Briefing({ open, onClose }: { open: boolean; onClose: () => void
         </ol>
 
         <p className="briefing-note"><Icon name="eye" size={16} />
-          Ministers report their own progress, and reports can be optimistic. From Q3 you can order an audit to
-          check what was really delivered. Everything here is fictional and illustrative, and the ministers follow
+          Ministers report their own progress, and reports can be optimistic. From the third quarter of each term you can order an audit to
+          check what was really delivered; the first one each term is free. Everything here is fictional and illustrative, and the ministers follow
           fixed scripted rules; no AI is called.</p>
         <div className="briefing-foot">
           <span className="shortcuts"><kbd>1</kbd>–<kbd>4</kbd> screens · <kbd>?</kbd> this guide · <kbd>Esc</kbd> close</span>

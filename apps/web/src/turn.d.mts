@@ -9,8 +9,9 @@ export function finalVoteCount(votes: readonly VoteLike[]): number
 export function finalSupportCount(votes: readonly VoteLike[]): number
 
 export interface TurnState {
-  step: StepId | 'done'
-  /** Position in STEPS; STEPS.length once the campaign is complete. */
+  /** `night`: a term was won and the next has not begun. `done`: the game is over. */
+  step: StepId | 'night' | 'done'
+  /** Position in STEPS; STEPS.length on election night and once the game is over. */
   index: number
   /** "Keep the current programme" was chosen; only ending the quarter remains. */
   keeping: boolean
@@ -28,7 +29,7 @@ export function turnState(snapshot: {
   continuation_pending: boolean
   votes: readonly VoteLike[]
 }): TurnState
-export function advanceKind(step: StepId | 'done'): 'advance_slice' | null
+export function advanceKind(step: StepId | 'night' | 'done'): 'advance_slice' | null
 
 interface TreasuryLike {
   available_credits: number

@@ -1,9 +1,10 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { freshCampaignName, useCampaign, type AuditFamily, type Snapshot } from '../campaign'
-import { headline as electionHeadline, verdict } from '../election.mjs'
+import { headline as electionHeadline, termName, verdict } from '../election.mjs'
 import { OFFLINE_PILOT } from '../contracts'
 import {
-  FAMILIES, POLICY_CARDS, QUARTERS, STEP_HELP, VOTES_NEEDED, committed, draftStatus, sameAllocation,
+  FAMILIES, FIRST_FREE_AUDIT_QUARTER, POLICY_CARDS, QUARTERS, STEP_HELP, VOTES_NEEDED, committed, draftStatus,
+  quarterInTerm, sameAllocation, termEndLabel,
   type Allocation,
 } from '../game'
 import { outcomeLabel } from '../format'
@@ -54,8 +55,9 @@ function Gate() {
       <section className="panel gate">
         <Icon name="banner" size={26} />
         <h1>Start your campaign</h1>
-        <p>You will chair a cabinet for {OFFLINE_PILOT.total_quarters} quarters with {OFFLINE_PILOT.credits} credits to
-          spend. Your progress is saved on this computer.</p>
+        <p>You will chair a cabinet for up to {OFFLINE_PILOT.terms} terms of {OFFLINE_PILOT.quarters_per_term} quarters. Each term
+          starts with {OFFLINE_PILOT.credits} credits to spend and ends with an election: lose it and the game is over. Your
+          progress is saved on this computer.</p>
         {problem}
         <div className="room-buttons">
           <ActionButton tone={staleSave ? 'normal' : 'primary'} onClick={() => void createCampaign()}>Start new campaign</ActionButton>
@@ -79,18 +81,28 @@ function Gate() {
 
 function Headline({ snapshot, turn }: { snapshot: Snapshot; turn: TurnState }) {
   const q = snapshot.quarter
+  const { term } = snapshot
+  const qt = quarterInTerm(q)
+  const endsTerm = qt === OFFLINE_PILOT.quarters_per_term
   const available = snapshot.treasury.available_credits
   const undelivered = undeliveredCredits(snapshot.treasury)
   const fundable = fundableCredits(snapshot.treasury)
   const plan = snapshot.proposal ? committed(snapshot.proposal) : 0
+  const lastElection = term === snapshot.terms
+  const electionLine = endsTerm
+    ? lastElection ? ' This is the last quarter: ending it holds the final election.' : ' This is the last quarter of the term: ending it holds the election.'
+    : ''
   const copy: Record<string, { title: string; lede: string }> = {
     plan: {
-      title: q === 1 ? 'Make your first spending plan' : `Make the plan for quarter ${q}`,
+      title: q === 1 ? 'Make your first spending plan'
+        : qt === 1 ? 'Make your first plan of the second term' : `Make the plan for quarter ${q}`,
       lede: fundable === 0
-        ? 'Everything you funded has been delivered and nothing is left to spend, so there is nothing to plan. Carry on to the end of the campaign.'
+        ? 'Everything you funded has been delivered and nothing is left to spend, so there is nothing to plan. Carry on to the end of the term.'
         : q === 1
-          ? `You have ${available} credits for the whole campaign, and they never refill. Pick a ready-made plan or set your own split, then propose it to your cabinet.`
-          : `You can plan with up to ${fundable} credits: ${available} unspent, plus ${undelivered} for work that hasn’t been delivered yet. A new plan replaces that undelivered work; work already delivered stays. Or keep the current programme and skip the vote.`,
+          ? `You have ${available} credits for this term, and they never refill. Win the election at the end and you get a fresh ${OFFLINE_PILOT.credits} on top of anything you have left. Pick a ready-made plan or set your own split, then propose it to your cabinet.`
+          : qt === 1
+            ? `Your second term starts with ${available} credits to spend${available > OFFLINE_PILOT.credits ? `: ${OFFLINE_PILOT.credits} new ones plus ${available - OFFLINE_PILOT.credits} left over` : ''}. ${undelivered > 0 ? `You can plan with up to ${fundable}, which also lets you re-plan the ${undelivered} credits of work still undelivered. Or keep the current programme and skip the vote.` : 'Pick a plan, or keep the current programme and skip the vote.'}`
+            : `You can plan with up to ${fundable} credits: ${available} unspent, plus ${undelivered} for work that hasn’t been delivered yet. A new plan replaces that undelivered work; work already delivered stays. Or keep the current programme and skip the vote.`,
     },
     reactions: {
       title: 'Hear the cabinet’s first reactions',
@@ -110,28 +122,55 @@ function Headline({ snapshot, turn }: { snapshot: Snapshot; turn: TurnState }) {
       : { title: 'Not enough support to approve',
           lede: `Only ${turn.support} of 3 ministers support your plan, and ${VOTES_NEEDED} are needed. You can’t approve it. Postpone it and nothing is spent: you can try again next quarter.` },
     end: turn.keeping
-      ? { title: 'End the quarter', lede: 'You kept the current programme. End the quarter to let work carry on.' }
-      : { title: snapshot.outcome === 'ratified' ? 'Plan approved. End the quarter'
+      ? { title: endsTerm ? 'End the term' : 'End the quarter', lede: `You kept the current programme. End the quarter to let work carry on.${electionLine}` }
+      : { title: endsTerm ? 'End the term'
+          : snapshot.outcome === 'ratified' ? 'Plan approved. End the quarter'
           : snapshot.outcome === 'deferred' ? 'Plan postponed. End the quarter' : 'End the quarter',
-          lede: snapshot.outcome === 'deferred'
+          lede: (snapshot.outcome === 'deferred'
             ? 'Nothing was committed, so your budget is untouched. Ending the quarter moves time on.'
-            : STEP_HELP.end },
+            : STEP_HELP.end) + electionLine },
     done: {
-      title: 'Campaign complete',
-      lede: `You played all ${OFFLINE_PILOT.total_quarters} quarters. See Progress for what was decided and delivered.`,
+      title: 'The game is over',
+      lede: 'See Progress for what was decided and delivered.',
     },
   }
-  // A finished campaign is election night: the headline is the result.
-  const { title, lede } = snapshot.closed ? electionHeadline(snapshot.election) : (copy[turn.step] ?? copy.done!)
+  // A term that has ended is election night: the headline is the result.
+  const held = snapshot.closed || turn.step === 'night'
+  const { title, lede } = held ? electionHeadline(snapshot.election) : (copy[turn.step] ?? copy.done!)
   return (
     <header className="view-head" aria-live="polite">
       <p className="kicker">
-        {snapshot.closed ? 'Election night' : `Quarter ${q} of ${OFFLINE_PILOT.total_quarters} · ${QUARTERS[q - 1]?.label ?? ''}`}
-        {!snapshot.closed && turn.step !== 'done' && !turn.keeping && ` · Step ${turn.index + 1} of ${STEPS.length}`}
+        {held
+          ? `Election night · ${termName(snapshot.election.term)} term`
+          : `Term ${term} of ${snapshot.terms} · quarter ${qt} of ${snapshot.term_quarters} · ${QUARTERS[q - 1]?.label ?? ''}`}
+        {!held && turn.step !== 'done' && !turn.keeping && ` · Step ${turn.index + 1} of ${STEPS.length}`}
       </p>
       <h1>{title}</h1>
       <p>{lede}</p>
     </header>
+  )
+}
+
+/** What the second term inherits, said plainly, so beginning it is an informed choice. */
+function SecondTerm({ snapshot }: { snapshot: Snapshot }) {
+  const unfinished = undeliveredCredits(snapshot.treasury)
+  const left = snapshot.treasury.available_credits
+  return (
+    <section className="panel side-card second-term" aria-labelledby="second-term-title">
+      <h2 id="second-term-title" className="section-label">Your second term</h2>
+      <ul className="carry-list">
+        <li><strong>{left + OFFLINE_PILOT.credits} credits to spend:</strong>{' '}
+          {left > 0 ? `${OFFLINE_PILOT.credits} new ones, plus the ${left} you did not spend.` : `${OFFLINE_PILOT.credits} new ones. You spent everything in the first term.`}</li>
+        <li><strong>Public support carries over.</strong> The groups start where they finished, and the change still on its
+          way lands in the first quarter.</li>
+        <li><strong>Your ministers remember.</strong> So do the School Staff Association and the Community Access Network.</li>
+        <li><strong>{unfinished > 0 ? `${unfinished} credits of work is still unfinished.` : 'Nothing is left unfinished.'}</strong>{' '}
+          {unfinished > 0 ? 'It stays on the record until it is delivered or you re-plan it.' : 'Everything you promised arrived.'}</li>
+        <li><strong>The free audit comes back</strong>, from quarter {FIRST_FREE_AUDIT_QUARTER} of the term.</li>
+      </ul>
+      <p className="hint">Another election follows after quarter {OFFLINE_PILOT.total_quarters} ({termEndLabel(2)}). Win it for
+        a final victory; lose it and the game ends there.</p>
+    </section>
   )
 }
 
@@ -149,7 +188,7 @@ function Audit({ snapshot }: { snapshot: Snapshot }) {
         <span className="tag tag-calm">Optional · no vote needed</span>
       </div>
       <p className="panel-lede">Ministers report their own progress, and reports can be optimistic. An audit checks what
-        was really delivered in one area, for one finished quarter. The first audit is free; later ones cost 2 credits.</p>
+        was really delivered in one area, for one finished quarter. The first audit of each term is free; later ones cost 2 credits.</p>
       <div className="audit-fields">
         <label className="field"><span>Area</span>
           <select className="select" value={family} onChange={e => setFamily(e.target.value as AuditFamily)}>
@@ -211,12 +250,14 @@ export function PlayView({ allocation, onChange }: { allocation: Allocation; onC
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step, snapshot?.quarter, proposal?.staff, proposal?.repairs, proposal?.access])
 
-  // A re-plan starts from the programme already promised (change what you want to change);
-  // the first plan of the campaign starts from the first ready-made plan that fits.
+  // A re-plan starts from the programme already promised (change what you want to change). The first plan
+  // of a term starts from the first ready-made plan that fits: a term opens with a fresh allocation, and a
+  // leftover programme would leave most of it unspent.
   useEffect(() => {
     if (step !== 'plan' || !snapshot) return
-    if (snapshot.quarter > 1 && undelivered > 0) { onChange(programme); return }
-    if (committed(allocation) <= fundable) return
+    const opening = quarterInTerm(snapshot.quarter) === 1
+    if (!opening && undelivered > 0) { onChange(programme); return }
+    if (!opening && committed(allocation) <= fundable) return
     onChange(POLICY_CARDS.find(c => committed(c.allocation) <= fundable)?.allocation ?? NONE)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step, snapshot?.quarter, fundable])
@@ -229,7 +270,7 @@ export function PlayView({ allocation, onChange }: { allocation: Allocation; onC
   const fits = draftStatus(allocation) === 'valid' && committed(allocation) <= fundable
   const unchanged = proposal !== null && sameAllocation(allocation, proposal)
   const sameAsProgramme = undelivered > 0 && sameAllocation(allocation, programme)
-  const nextQuarter = QUARTERS[q]?.label
+  const endsTerm = quarterInTerm(q) === OFFLINE_PILOT.quarters_per_term
   const go = (label: string, run: () => void, tone: 'primary' | 'normal' = 'primary', enabled = true): ReactNode => (
     <ActionButton tone={tone} disabled={!idle || !enabled} onClick={run}>
       {saving && tone === 'primary' ? 'Saving…' : label}
@@ -257,7 +298,7 @@ export function PlayView({ allocation, onChange }: { allocation: Allocation; onC
       body = fundable > 0
         ? <PlanBuilder allocation={allocation} budget={fundable} quarter={q} replacing={q > 1 ? undelivered : 0} onChange={onChange} />
         : <p className="empty-note"><Icon name="token" size={18} />Everything you funded has been delivered and nothing is left to spend.
-            Carry on to the end of the campaign.</p>
+            Carry on to the end of the term.</p>
       actions = <>
         {fundable > 0 && go('Propose this plan to the cabinet', () => void send({ kind: 'propose', allocation }), 'primary', fits && !sameAsProgramme)}
         {turn.canKeepProgramme && go('Keep the current programme (no vote)', () => void send({ kind: 'continue_quarter' }),
@@ -298,18 +339,25 @@ export function PlayView({ allocation, onChange }: { allocation: Allocation; onC
           : snapshot.outcome === 'ratified' ? 'The approved work is now promised. It will start arriving after the delays shown when you made the plan.'
           : 'Time moves on: ministers keep reporting, and organisations react.'}</p>
       </>
-      actions = go(nextQuarter ? `End quarter ${q} and start quarter ${q + 1}` : `End the final quarter (Q${q})`,
+      actions = go(endsTerm
+          ? (snapshot.term === snapshot.terms ? `End quarter ${q} and hold the final election` : `End quarter ${q} and hold the election`)
+          : `End quarter ${q} and start quarter ${q + 1}`,
         turn.keeping ? () => void send({ kind: 'finish_continuation' }) : advance)
+      break
+    case 'night':
+      // A won term waits here. Beginning the next one is always the person's own move.
+      body = <ElectionNight snapshot={snapshot} />
+      actions = go(`Begin the ${termName(snapshot.term + 1)} term`, () => void send({ kind: 'begin_term' }))
       break
     default: {
       const result = verdict(snapshot.election)
       body = <>
         <ElectionNight snapshot={snapshot} />
         <p className="room-hint">{result.won
-          ? 'You were re-elected. A second term is coming, but it is not playable yet.'
+          ? 'You won both elections. Your time in office is complete.'
           : 'The public has voted you out, and the game ends here.'}</p>
       </>
-      actions = !result.won && <ActionButton tone="primary"
+      actions = <ActionButton tone="primary"
         onClick={() => { window.location.search = `?campaign=${freshCampaignName()}` }}>Start a new campaign</ActionButton>
     }
   }
@@ -318,7 +366,7 @@ export function PlayView({ allocation, onChange }: { allocation: Allocation; onC
   const cabinetFirst = turn.step === 'revise' || turn.step === 'vote' || turn.step === 'decide'
   const latest = snapshot.delivery_history.at(-1)
   const auditOpen = !snapshot.closed && snapshot.phase === 'QuarterOpen' && !snapshot.continuation_pending &&
-    q >= 3 && snapshot.delivery_history.length > 0 && idle
+    quarterInTerm(q) >= FIRST_FREE_AUDIT_QUARTER && snapshot.delivery_history.length > 0 && idle
   const canFork = snapshot.phase === 'Resolved' && !snapshot.closed && idle
 
   return (
@@ -351,14 +399,16 @@ export function PlayView({ allocation, onChange }: { allocation: Allocation; onC
           <section className="panel side-card side-budget" aria-labelledby="budget-title">
             <h2 id="budget-title" className="section-label">Budget</h2>
             <BudgetFigures treasury={snapshot.treasury} compact />
-            <p className="hint">{OFFLINE_PILOT.credits} credits for the whole campaign; they never refill.
+            <p className="hint">Each term starts with {OFFLINE_PILOT.credits} credits, added to anything you have left. Within a term they
+              never refill.
               {undelivered > 0 && ' A new plan replaces work that hasn’t been delivered yet; delivered work is spent for good.'}</p>
           </section>
           <section className="panel side-card side-cabinet" aria-labelledby="cabinet-title">
             <h2 id="cabinet-title" className="section-label">Your cabinet</h2>
             <CabinetStrip snapshot={snapshot} />
           </section>
-          {!snapshot.closed && <ElectionOutlook snapshot={snapshot} />}
+          {turn.step === 'night' && <SecondTerm snapshot={snapshot} />}
+          {!snapshot.closed && turn.step !== 'night' && <ElectionOutlook snapshot={snapshot} />}
           {latest && (
             <section className="panel side-card" aria-labelledby="report-title">
               <h2 id="report-title" className="section-label">Latest report · Q{latest.quarter}</h2>

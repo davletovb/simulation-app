@@ -6,7 +6,8 @@ Source of truth: crates/domain/src/reducer.rs (RESPONSE_BASE_PPM, RESPONSE_CLIP_
 reproduced and compared (see docs/decisions/0003-recalibrate-the-support-model.md):
 
     v1  rules p4-england-education-rules-v1   base 500/400/750/400,    clip 8000   (before 2026-11-01)
-    v2  rules p4-england-education-rules-v2   base 3200/2800/3000/2000, clip 40000  (current)
+    v2  rules p4-england-education-rules-v2   base 3200/2800/3000/2000, clip 40000  (current numbers;
+                                              rules v3 added the second term and kept them)
 
 `--check` replays strategies that were played against the real service under each calibration
 (captured_runs_v1.json, captured_runs_v2.json) and requires the replica to match the engine's

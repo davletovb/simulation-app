@@ -1,10 +1,17 @@
 import type { PreviewResult } from '../usePreview'
-import { QUARTERS, draftStatus, lastQuarterLabel, type Allocation } from '../game'
+import { draftStatus, termEndLabel, termQuarters, type Allocation } from '../game'
 import { Icon } from './Icon'
 
 /** Best-case delivery ceiling per family and quarter for the current plan. */
-export function DeliveryForecast({ allocation, preview }: { allocation: Allocation; preview: PreviewResult }) {
-  const status = draftStatus(allocation)
+export function DeliveryForecast({ allocation, preview, term, budget }: {
+  allocation: Allocation
+  preview: PreviewResult
+  /** The term the plan would run in: its six quarters are the columns. */
+  term: number
+  /** What the player can fund now. */
+  budget: number
+}) {
+  const status = draftStatus(allocation, budget)
   if (status !== 'valid') {
     return (
       <div className="forecast-empty">
@@ -46,7 +53,7 @@ export function DeliveryForecast({ allocation, preview }: { allocation: Allocati
           <thead>
             <tr>
               <th scope="col"><span className="sr-only">Area</span></th>
-              {QUARTERS.map(q => (
+              {termQuarters(term).map(q => (
                 <th scope="col" key={q.label}>{q.short}<small>{q.year}</small></th>
               ))}
             </tr>
@@ -84,7 +91,7 @@ export function DeliveryForecast({ allocation, preview }: { allocation: Allocati
             <li key={r.family.id}>
               <Icon name="alert" size={16} />
               {r.outstanding} {r.family.label.toLowerCase()} unit{r.outstanding === 1 ? '' : 's'} can’t be delivered
-              by {lastQuarterLabel()}, even in the best case. They would stay on the record as unfinished promises.
+              by {termEndLabel(term)}, even in the best case. They would stay on the record as unfinished promises.
             </li>
           ))}
         </ul>

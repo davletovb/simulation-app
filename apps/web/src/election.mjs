@@ -62,23 +62,39 @@ export function bars(election) {
   ]
 }
 
+/** The election that ends the last term: winning it ends the game in victory instead of starting another term. */
+export function isLastTerm(election) {
+  return election.term === election.terms
+}
+
+/** "first", "second": how a term is named on screen. */
+export function termName(term) {
+  return ['first', 'second', 'third'][term - 1] ?? `term ${term}`
+}
+
 /**
- * The verdict as the player should read it. While the campaign runs this is an outlook ("if the
- * election were held now"); once it has closed it is the result.
+ * The verdict as the player should read it. While a term runs this is an outlook ("if the
+ * election were held now"); once the term has ended it is the result. `final` means "a result, not an
+ * outlook"; `lastTerm` means the election is the one that ends the game.
  *
- * @returns {{ key: 'reelected'|'narrow'|'heavy'|'on-course'|'behind', label: string, final: boolean, won: boolean }}
+ * @returns {{ key: 'reelected'|'victory'|'narrow'|'heavy'|'on-course'|'behind', label: string, final: boolean, won: boolean, lastTerm: boolean }}
  */
 export function verdict(election) {
   const both = bars(election).every(b => b.met)
-  if (election.status === 'won') return { key: 'reelected', label: 'Re-elected', final: true, won: true }
+  const lastTerm = isLastTerm(election)
+  if (election.status === 'won') {
+    return lastTerm
+      ? { key: 'victory', label: 'Final victory', final: true, won: true, lastTerm }
+      : { key: 'reelected', label: 'Re-elected', final: true, won: true, lastTerm }
+  }
   if (election.status === 'lost') {
     return election.weighted_support_ppm >= NARROW_DEFEAT_PPM
-      ? { key: 'narrow', label: 'Narrow defeat', final: true, won: false }
-      : { key: 'heavy', label: 'Heavy defeat', final: true, won: false }
+      ? { key: 'narrow', label: 'Narrow defeat', final: true, won: false, lastTerm }
+      : { key: 'heavy', label: 'Heavy defeat', final: true, won: false, lastTerm }
   }
   return both
-    ? { key: 'on-course', label: 'On course to win', final: false, won: true }
-    : { key: 'behind', label: 'Behind', final: false, won: false }
+    ? { key: 'on-course', label: 'On course to win', final: false, won: true, lastTerm }
+    : { key: 'behind', label: 'Behind', final: false, won: false, lastTerm }
 }
 
 /** The headline and one sentence of explanation, naming the bar that decided it. */
@@ -87,11 +103,11 @@ export function headline(election) {
   const [support, blocs] = bars(election)
   const supportText = `${pctText(support.value)} overall support`
   const blocsText = `${pctText(blocs.value)} of voters in groups behind you`
-  if (v.key === 'reelected') {
-    return {
-      title: 'You’ve been re-elected',
-      lede: `You cleared both bars: ${supportText} (${pctText(support.need)} needed) and ${blocsText} (${pctText(blocs.need)} needed).`,
-    }
+  if (v.key === 'reelected' || v.key === 'victory') {
+    const cleared = `${supportText} (${pctText(support.need)} needed) and ${blocsText} (${pctText(blocs.need)} needed)`
+    return v.key === 'reelected'
+      ? { title: 'You’ve been re-elected', lede: `You cleared both bars: ${cleared}.` }
+      : { title: 'Final victory', lede: `You cleared both bars again: ${cleared}. Your time in office is complete.` }
   }
   const missed = []
   if (!support.met) missed.push(`${supportText} was short of the ${pctText(support.need)} you needed`)

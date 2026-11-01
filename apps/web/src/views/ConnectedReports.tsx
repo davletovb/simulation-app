@@ -68,7 +68,8 @@ export function CabinetMeetingStatus({ snapshot, unavailable }: { snapshot: Snap
   if (!snapshot) return <Pending title="This quarter’s meeting" error={unavailable} />
   const answered = answeredMinistries(snapshot.votes).length
   const turn = turnState(snapshot)
-  const stepName = turn.step === 'done' ? 'Campaign complete'
+  const stepName = turn.step === 'done' ? 'Game over'
+    : turn.step === 'night' ? 'Election night'
     : turn.keeping ? 'Programme kept'
     : `${turn.index + 1} of ${STEPS.length} · ${STEPS[turn.index]?.label}`
   return (
@@ -125,7 +126,7 @@ export function ConnectedCampaignReport() {
   return <section className="panel" aria-labelledby="connected-campaign-report">
     <div className="panel-head">
       <h2 id="connected-campaign-report">What has happened so far</h2>
-      <span className="tag">{snapshot.closed ? 'Campaign complete' : `Quarter ${snapshot.quarter}`}</span>
+      <span className="tag">{snapshot.closed ? 'Campaign complete' : snapshot.phase === 'ElectionNight' ? 'Election night' : `Quarter ${snapshot.quarter}`}</span>
     </div>
     <p className="panel-lede">Your decisions, where the budget stands, and what the ministers say they have delivered.</p>
 

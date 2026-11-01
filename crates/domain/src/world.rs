@@ -129,6 +129,8 @@ pub enum MeetingPhase {
     AmendmentWindow,
     FinalPositionsFrozen,
     Resolved,
+    /// A term has ended in a win and the player has yet to begin the next one (decision 0005).
+    ElectionNight,
     QuarterClosed,
 }
 

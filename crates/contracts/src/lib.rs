@@ -190,6 +190,8 @@ pub enum PlayerAction {
     },
     Defer {},
     AdvanceQuarter {},
+    /// Begin the next term after winning the election that ended the last one.
+    BeginTerm {},
 }
 impl TryFrom<PlayerAction> for d::PlayerCommand {
     type Error = WireError;
@@ -257,6 +259,7 @@ impl TryFrom<PlayerAction> for d::PlayerCommand {
             }
             PlayerAction::Defer {} => Self::Defer,
             PlayerAction::AdvanceQuarter {} => Self::AdvanceQuarter,
+            PlayerAction::BeginTerm {} => Self::BeginTerm,
         })
     }
 }

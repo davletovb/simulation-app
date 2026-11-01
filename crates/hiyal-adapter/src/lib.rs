@@ -46,7 +46,7 @@ fn sha(bytes: &[u8]) -> String {
 }
 /// A deliberate, migration-controlled behavior contract, not raw source text.
 /// Bump when P3 rules, parsing, adapters, scenario selection or model policy change.
-pub const RULES_VERSION: &str = "p4-england-education-rules-v2";
+pub const RULES_VERSION: &str = "p4-england-education-rules-v3";
 type FrozenSource = Result<(String, String, [u32; 6]), String>;
 static FROZEN: OnceLock<FrozenSource> = OnceLock::new();
 fn frozen() -> Result<&'static (String, String, [u32; 6]), String> {
@@ -421,6 +421,7 @@ impl GameWorld {
             }
             (Phase::QuarterOpen, "propose" | "order_audit") if !self.continuation_pending() => true,
             (Phase::AmendmentWindow, "amend") => true,
+            (Phase::ElectionNight, "begin_term") => true,
             (Phase::FinalPositionsFrozen, "ratify" | "defer")
                 if self.final_votes_this_meeting() == 3 =>
             {
@@ -523,6 +524,7 @@ impl GameWorld {
                 } else {
                     json!({"staff":0,"repairs":0,"access":0})
                 }}),
+                Phase::ElectionNight => json!({"kind":"begin_term"}),
                 Phase::FinalPositionsFrozen => {
                     if self.final_votes_this_meeting() != 3 {
                         return Err("must finish frozen final votes before player decision".into());

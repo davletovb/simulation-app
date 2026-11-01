@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent } from 'react'
 import {
-  FACTIONS, FAMILIES, POLICY_CARDS, committed, firstDeliveryLabel, lastQuarterLabel, sameAllocation,
+  FACTIONS, FAMILIES, POLICY_CARDS, committed, firstDeliveryLabel, quarterInTerm, sameAllocation, termEndLabel, termOf,
   type Allocation, type Family, type FamilyInfo, type PolicyCard,
 } from '../game'
 import { CreditMeter } from './CreditMeter'
@@ -129,14 +129,14 @@ function FamilyControl({ family, value, budget, quarter, onChange }: {
         1 credit buys 1 {family.unit} · at most {family.quarterCap} a quarter ·{' '}
         {starts
           ? <>work can start arriving in {starts}</>
-          : <strong className="late">too late: it wouldn’t arrive before the campaign ends</strong>}
+          : <strong className="late">too late: it wouldn’t arrive before the election</strong>}
       </p>
     </div>
   )
 }
 
 /** What the organisations would think of this plan, plus any work that cannot arrive in time. */
-function Reactions({ allocation, preview }: { allocation: Allocation; preview: PreviewResult | null }) {
+function Reactions({ allocation, preview, term }: { allocation: Allocation; preview: PreviewResult | null; term: number }) {
   const reactions = FACTIONS.flatMap(f => {
     const pressure = f.pressure(allocation)
     return pressure ? [{ faction: f, pressure }] : []
@@ -158,7 +158,7 @@ function Reactions({ allocation, preview }: { allocation: Allocation; preview: P
         <li className="pressure pressure-risk">
           <Icon name="hourglass" size={16} />
           <span><strong>Some of this can’t arrive in time</strong>{shortfall} funded unit{shortfall === 1 ? '' : 's'} would
-            still be undelivered by {lastQuarterLabel()}, even in the best case.</span>
+            still be undelivered by {termEndLabel(term)}, even in the best case, so they can’t help you win that election.</span>
         </li>
       )}
     </ul>
@@ -179,10 +179,11 @@ export function PlanBuilder({ allocation, budget, quarter, replacing = 0, onChan
   onChange: (next: Allocation) => void
 }) {
   const setFamily = (family: Family, value: number) => onChange({ ...allocation, [family]: value })
-  const preview = usePreview(allocation)
-  // The service forecasts a plan approved at the start of the campaign, so it is
-  // only a fair picture in Q1. Later quarters rely on the per-area start dates.
-  const forecastable = quarter === 1
+  const preview = usePreview(allocation, budget)
+  // The service forecasts a plan approved at the start of a term, so it is only a fair picture in the
+  // first quarter of each term. Other quarters rely on the per-area start dates.
+  const forecastable = quarterInTerm(quarter) === 1
+  const term = termOf(quarter)
   return (
     <div className="builder">
       {replacing > 0 && (
@@ -209,14 +210,14 @@ export function PlanBuilder({ allocation, budget, quarter, replacing = 0, onChan
               onChange={v => setFamily(f.id, v)} />
           ))}
         </div>
-        <Reactions allocation={allocation} preview={forecastable ? preview : null} />
+        <Reactions allocation={allocation} preview={forecastable ? preview : null} term={term} />
       </section>
 
       {forecastable && (
         <details className="forecast-details">
           <summary>When could this plan’s work arrive?</summary>
           <div className="forecast-body">
-            <DeliveryForecast allocation={allocation} preview={preview} />
+            <DeliveryForecast allocation={allocation} preview={preview} term={term} budget={budget} />
           </div>
         </details>
       )}

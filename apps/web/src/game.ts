@@ -64,10 +64,17 @@ export const DEFAULT_CARD: PolicyCard = POLICY_CARDS[0]!
 export const committed = (a: Allocation): number => a.staff + a.repairs + a.access
 export const available = (a: Allocation): number => OFFLINE_PILOT.credits - committed(a)
 
-export function draftStatus(a: Allocation): DraftStatus {
+/** Everything a player is ever given across both terms: no plan can exceed it. */
+export const MOST_CREDITS = OFFLINE_PILOT.credits * OFFLINE_PILOT.terms
+
+/**
+ * `budget` is what the player can fund right now (unspent credits plus the undelivered work a new plan
+ * would replace). Without one, a plan is only checked against the most anyone could ever be given.
+ */
+export function draftStatus(a: Allocation, budget: number = MOST_CREDITS): DraftStatus {
   const total = committed(a)
   if (total === 0) return 'empty'
-  return total > OFFLINE_PILOT.credits ? 'over_budget' : 'valid'
+  return total > budget ? 'over_budget' : 'valid'
 }
 
 export const sameAllocation = (a: Allocation, b: Allocation): boolean =>
@@ -86,16 +93,28 @@ export const QUARTERS: readonly { short: string; year: number; label: string }[]
 
 export const lastQuarterLabel = (): string => QUARTERS[QUARTERS.length - 1]?.label ?? ''
 
+/** Which term a quarter (1-based) belongs to: Q1-Q6 are term 1, Q7-Q12 term 2. */
+export const termOf = (quarter: number): number => Math.max(1, Math.ceil(quarter / OFFLINE_PILOT.quarters_per_term))
+/** A quarter's place within its term, 1 to 6. */
+export const quarterInTerm = (quarter: number): number => ((Math.max(1, quarter) - 1) % OFFLINE_PILOT.quarters_per_term) + 1
+/** The labels of the quarters in a term. */
+export const termQuarters = (term: number): typeof QUARTERS =>
+  QUARTERS.slice((term - 1) * OFFLINE_PILOT.quarters_per_term, term * OFFLINE_PILOT.quarters_per_term)
+/** The last quarter of a term: when its election is held. */
+export const termEndLabel = (term: number): string => termQuarters(term).at(-1)?.label ?? ''
+
 /**
  * When work funded by a plan approved in `quarter` (1-based) can first arrive,
- * or null if that is after the campaign ends. Delivery starts `lag` quarters
- * after approval (P0 scheduling rule), not at a fixed calendar quarter.
+ * or null if that is after the term's election. Delivery starts `lag` quarters
+ * after approval (P0 scheduling rule), not at a fixed calendar quarter, and work
+ * that lands after the election cannot help win it.
  */
 export function firstDeliveryLabel(family: FamilyInfo, quarter: number): string | null {
-  return QUARTERS[quarter - 1 + family.lag]?.label ?? null
+  const arrives = quarter + family.lag
+  return termOf(arrives) === termOf(quarter) ? QUARTERS[arrives - 1]?.label ?? null : null
 }
 
-/** First quarter (1-based) in which the campaign's first audit is free. */
+/** First quarter of a term (1-based, within the term) in which the term's free audit can be used. */
 export const FIRST_FREE_AUDIT_QUARTER = 3
 export const PAID_AUDIT_COST = 2
 

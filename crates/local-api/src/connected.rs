@@ -13,6 +13,7 @@ use axum::{
 };
 use futures_util::stream;
 use myth_contracts::Allocation as WireAllocation;
+use myth_domain as d;
 use myth_domain::PolicyFamily;
 use myth_domain::reducer::{
     ELECTION_HELD_ABOVE_PPM, ELECTION_MIN_BLOCS_PPM, ELECTION_MIN_SUPPORT_PPM,
@@ -97,6 +98,8 @@ pub enum CommandKind {
         family: myth_contracts::Family,
         inspected_quarter: u8,
     },
+    /// After a won election, start the next term. Never implied by a generic advance.
+    BeginTerm,
 }
 impl CommandKind {
     fn body(&self, world: &GameWorld) -> Result<Option<Value>, String> {
@@ -125,6 +128,7 @@ impl CommandKind {
                 "proposal_version":proposal_version()?,
             })),
             Self::Decide { ratify: false } => Some(json!({"kind":"defer"})),
+            Self::BeginTerm => Some(json!({"kind":"begin_term"})),
             Self::OrderAudit {
                 family,
                 inspected_quarter,
@@ -581,11 +585,14 @@ pub struct PublicSupport {
     /// Each group's share of the voters, in parts per million. Sums to 1,000,000.
     pub weight_ppm: [u32; 6],
 }
-/// What an election would return. `projected` while the campaign is running (every queued response
-/// lands, nothing new is delivered); `won` or `lost` once it has closed.
+/// What an election returns. `projected` while a term is running (every queued response lands, nothing new
+/// is delivered); `won` or `lost` once the term has ended and the verdict is recorded.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct PublicElection {
     pub status: String,
+    /// The term this election ends (1-based) and how many terms there are in all.
+    pub term: u8,
+    pub terms: u8,
     pub settled_group_ppm: [u32; 6],
     pub weighted_support_ppm: u32,
     pub blocs_held_ppm: u32,
@@ -594,9 +601,11 @@ pub struct PublicElection {
     pub held_above_ppm: u32,
 }
 impl PublicElection {
-    fn bars(status: &str, settled: [u32; 6], weighted: u32, held: u32) -> Self {
+    fn bars(status: &str, term: u8, settled: [u32; 6], weighted: u32, held: u32) -> Self {
         Self {
             status: status.into(),
+            term,
+            terms: d::TERMS,
             settled_group_ppm: settled,
             weighted_support_ppm: weighted,
             blocs_held_ppm: held,
@@ -605,6 +614,15 @@ impl PublicElection {
             held_above_ppm: ELECTION_HELD_ABOVE_PPM,
         }
     }
+}
+/// An election already held, kept so the screen can say how the first term went.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct PublicPastElection {
+    pub term: u8,
+    pub quarter: u8,
+    pub won: bool,
+    pub weighted_support_ppm: u32,
+    pub blocs_held_ppm: u32,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct PublicView {
@@ -624,6 +642,11 @@ pub struct PublicView {
     pub delivery_history: Vec<PublicDelivery>,
     pub support: PublicSupport,
     pub election: PublicElection,
+    /// Elections already held, oldest first. Empty during the first term.
+    pub past_elections: Vec<PublicPastElection>,
+    pub term: u8,
+    pub terms: u8,
+    pub term_quarters: u8,
     pub news: Vec<PublicNews>,
     pub comparison: PublicComparison,
     pub evidence: PublicEvidence,
@@ -711,7 +734,15 @@ fn capture(trial: &GameTrial) -> Result<PublicView, String> {
                         final_votes,
                     });
                 }
+                // The clock stops at the end of a term: the election is held in that same quarter, and
+                // only an explicit `begin_term` opens the next one.
                 Some("advance_quarter") => {
+                    if !quarter.is_multiple_of(d::TERM_QUARTERS) {
+                        quarter = quarter.saturating_add(1);
+                    }
+                    meeting_opened = false;
+                }
+                Some("begin_term") => {
                     quarter = quarter.saturating_add(1);
                     meeting_opened = false;
                 }
@@ -738,7 +769,7 @@ fn capture(trial: &GameTrial) -> Result<PublicView, String> {
         votes.clear();
         outcome = None;
     }
-    if decisions.len() > 6 {
+    if decisions.len() > usize::from(d::MAX_QUARTERS) {
         return Err("unexpected number of public decisions".into());
     }
     let evidence = PublicEvidence {
@@ -766,7 +797,7 @@ fn capture(trial: &GameTrial) -> Result<PublicView, String> {
             access_bonus_next: report.access_bonus_next,
         })
         .collect();
-    if delivery_history.len() > 6
+    if delivery_history.len() > usize::from(d::MAX_QUARTERS)
         || delivery_history
             .iter()
             .enumerate()
@@ -786,13 +817,30 @@ fn capture(trial: &GameTrial) -> Result<PublicView, String> {
         *delta = i32::try_from(i64::from(*settled) - i64::from(*now))
             .map_err(|_| "pending support change out of range".to_string())?;
     }
-    let status = if !world.is_closed() {
-        "projected"
-    } else if election.is_win() {
-        "won"
-    } else {
-        "lost"
+    // Once a term has ended the verdict is the one recorded on election night, not a projection.
+    let quarter_now =
+        d::Quarter::new(world.quarter).map_err(|e| format!("invalid quarter: {e:?}"))?;
+    let held_now = campaign
+        .elections()
+        .last()
+        .filter(|record| record.quarter == quarter_now);
+    let status = match held_now {
+        Some(record) if record.won => "won",
+        Some(_) => "lost",
+        None if world.is_closed() => return Err("campaign closed without an election".into()),
+        None => "projected",
     };
+    let past_elections: Vec<PublicPastElection> = campaign
+        .elections()
+        .iter()
+        .map(|record| PublicPastElection {
+            term: record.term,
+            quarter: record.quarter.value(),
+            won: record.won,
+            weighted_support_ppm: record.projection.weighted_support_ppm,
+            blocs_held_ppm: record.projection.blocs_held_ppm,
+        })
+        .collect();
     let support = PublicSupport {
         group_ids: GROUP_IDS.iter().map(|id| (*id).to_owned()).collect(),
         group_ppm: current,
@@ -801,6 +849,7 @@ fn capture(trial: &GameTrial) -> Result<PublicView, String> {
     };
     let election = PublicElection::bars(
         status,
+        quarter_now.term(),
         election.group_support_ppm,
         election.weighted_support_ppm,
         election.blocs_held_ppm,
@@ -830,6 +879,10 @@ fn capture(trial: &GameTrial) -> Result<PublicView, String> {
         delivery_history,
         support,
         election,
+        past_elections,
+        term: quarter_now.term(),
+        terms: d::TERMS,
+        term_quarters: d::TERM_QUARTERS,
         news: frozen_news(&world.source_cutoff_utc)?,
         comparison: PublicComparison {
             mode: "primary_campaign".into(),
@@ -1149,7 +1202,11 @@ fn schedule(owner: Arc<Owner>) {
                             pending_delta_ppm: [0; 6],
                             weight_ppm: [0; 6],
                         },
-                        election: PublicElection::bars("projected", [0; 6], 0, 0),
+                        election: PublicElection::bars("projected", 1, [0; 6], 0, 0),
+                        past_elections: vec![],
+                        term: 1,
+                        terms: d::TERMS,
+                        term_quarters: d::TERM_QUARTERS,
                         news: vec![],
                         comparison: PublicComparison {
                             mode: "verification_failed".into(),
@@ -1309,6 +1366,15 @@ async fn command(
     }
     if engine.trial.store.world().is_closed() {
         return Err(status(StatusCode::CONFLICT, "campaign closed"));
+    }
+    if request.kind == CommandKind::AdvanceSlice
+        && engine.trial.store.world().phase == myth_contracts::checkpoint::Phase::ElectionNight
+    {
+        // The scripted player would otherwise begin the next term on the person's behalf.
+        return Err(status(
+            StatusCode::CONFLICT,
+            "election night needs an explicit begin_term",
+        ));
     }
     if matches!(
         request.kind,
@@ -2747,7 +2813,10 @@ mod tests {
             }
             let owner = service.owner(id, false).await.unwrap();
             let snapshot = capture_for(&owner.engine.lock().await.trial, id).unwrap();
-            assert!(snapshot.closed);
+            // Six quarters are reported and the first term's election has been held: either the game is
+            // over (a loss) or it waits on election night for the second term.
+            assert!(snapshot.closed || snapshot.phase == "ElectionNight");
+            assert_ne!(snapshot.election.status, "projected");
             assert_eq!(snapshot.delivery_history.len(), 6);
             // Q1 was ratified; Q2-Q6 each kept the programme, which is not a deferral.
             let labels: Vec<_> = snapshot
@@ -2782,7 +2851,7 @@ mod tests {
         fs::remove_dir_all(dir).unwrap();
     }
     #[tokio::test]
-    async fn p7_complete_scripted_campaign_reports_exactly_six_quarters_and_replays() {
+    async fn p7_complete_scripted_game_reports_exactly_twelve_quarters_and_replays() {
         let dir = root();
         let service = Connected::new(dir.clone()).unwrap();
         let owner = service.owner("six-report", true).await.unwrap();
@@ -2793,15 +2862,16 @@ mod tests {
             run_until_closed(&mut engine.trial).await.unwrap();
             final_view = capture_for(&engine.trial, "six-report").unwrap();
             assert!(final_view.closed);
-            assert_eq!(final_view.quarter, 6);
-            assert_eq!(final_view.delivery_history.len(), 6);
+            assert_eq!(final_view.quarter, 12);
+            assert_eq!(final_view.past_elections.len(), 2);
+            assert_eq!(final_view.delivery_history.len(), 12);
             assert_eq!(
                 final_view
                     .delivery_history
                     .iter()
                     .map(|r| r.quarter)
                     .collect::<Vec<_>>(),
-                vec![1, 2, 3, 4, 5, 6]
+                (1..=12).collect::<Vec<_>>()
             );
             assert_eq!(final_view.news.len(), 3);
             assert_eq!(final_view.comparison.mode, "primary_campaign");
@@ -2813,7 +2883,7 @@ mod tests {
                     + u32::from(t.encumbered_access)
                     + u32::from(t.service_spent)
                     + u32::from(t.audit_spent),
-                100
+                200
             );
             saved_hash = inspect(&engine.trial.store.dir).unwrap().0;
         }
@@ -2825,7 +2895,7 @@ mod tests {
         let view = capture_for(&restored.engine.lock().await.trial, "six-report").unwrap();
         assert_eq!(view.cursor, final_view.cursor);
         assert_eq!(view.view_version, final_view.view_version);
-        assert_eq!(view.delivery_history.len(), 6);
+        assert_eq!(view.delivery_history.len(), 12);
         assert_eq!(
             view.treasury.service_spent,
             final_view.treasury.service_spent
@@ -2961,9 +3031,13 @@ mod tests {
             serial += 1;
             view = accepted_step(&service, "term", CommandKind::FinishContinuation, serial).await;
         }
-        assert!(view.closed);
+        // The first term is won, so the game waits on election night for the player to begin the second.
+        assert!(!view.closed);
+        assert_eq!(view.phase, "ElectionNight");
+        assert_eq!((view.quarter, view.term, view.terms), (6, 1, 2));
         // Expected values come from tools/support-model, an independent implementation.
         assert_eq!(view.election.status, "won");
+        assert_eq!(view.election.term, 1);
         assert_eq!(
             view.election.settled_group_ppm,
             [571_800, 602_000, 472_200, 579_240, 615_600, 491_960]
@@ -2991,10 +3065,99 @@ mod tests {
         assert_eq!(view.support.group_ids[2], "urban_high");
         assert_eq!(view.election.min_support_ppm, ELECTION_MIN_SUPPORT_PPM);
         assert_eq!(view.election.min_blocs_ppm, ELECTION_MIN_BLOCS_PPM);
+        assert_eq!(view.past_elections.len(), 1);
+        assert!(view.past_elections[0].won);
+        assert_eq!(view.past_elections[0].weighted_support_ppm, 559_584);
         // What the browser receives.
         let wire = serde_json::to_value(&view).unwrap();
         assert_eq!(wire["election"]["status"], "won");
         assert_eq!(wire["support"]["group_ids"][5], "rural_high");
+        assert_eq!(wire["terms"], 2);
+        // A generic step must never begin the second term on the person's behalf, and neither may
+        // the other quarter commands.
+        for (n, kind) in [
+            CommandKind::AdvanceSlice,
+            CommandKind::ContinueQuarter,
+            CommandKind::Decide { ratify: true },
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let refused = command(
+                State(service.clone()),
+                Path("term".to_owned()),
+                Json(Command {
+                    command_id: format!("refused-{n}"),
+                    expected_world_version: view.view_version.clone(),
+                    kind,
+                }),
+            )
+            .await;
+            assert_eq!(refused.unwrap_err().0, StatusCode::CONFLICT);
+        }
+        // Begin the second term: a fresh allocation is granted on top of what was left, and the
+        // earlier result is kept.
+        let before = view.treasury.available_credits;
+        serial += 1;
+        let second = accepted_step(&service, "term", CommandKind::BeginTerm, serial).await;
+        assert_eq!((second.quarter, second.term), (7, 2));
+        assert_eq!(second.phase, "QuarterOpen");
+        assert_eq!(second.treasury.available_credits, before + 100);
+        assert_eq!(second.election.status, "projected");
+        assert_eq!(second.election.term, 2);
+        assert_eq!(second.past_elections.len(), 1);
+        // Nothing is rewritten at the boundary: the last quarter's queued response simply lands during
+        // the second term's first quarter, as it would in any other quarter.
+        assert_eq!(second.support.group_ppm, view.support.group_ppm);
+        assert_eq!(
+            second.support.pending_delta_ppm,
+            view.support.pending_delta_ppm
+        );
+        // Beginning a term twice is refused.
+        let again = command(
+            State(service.clone()),
+            Path("term".to_owned()),
+            Json(Command {
+                command_id: "again".into(),
+                expected_world_version: second.view_version.clone(),
+                kind: CommandKind::BeginTerm,
+            }),
+        )
+        .await;
+        assert_eq!(again.unwrap_err().0, StatusCode::CONFLICT);
+        // Keep the programme through the second term: its own election ends the game.
+        let mut view = second;
+        for _ in 7..=12 {
+            serial += 1;
+            accepted_step(&service, "term", CommandKind::ContinueQuarter, serial).await;
+            serial += 1;
+            view = accepted_step(&service, "term", CommandKind::FinishContinuation, serial).await;
+        }
+        assert!(view.closed);
+        assert_eq!((view.quarter, view.term), (12, 2));
+        assert_eq!(view.past_elections.len(), 2);
+        assert_eq!(
+            view.election.status,
+            if view.past_elections[1].won {
+                "won"
+            } else {
+                "lost"
+            }
+        );
+        assert_eq!(
+            view.election.weighted_support_ppm,
+            view.past_elections[1].weighted_support_ppm
+        );
+        // KNOWN LIMITATION (decision 0007): nothing erodes support yet, so after a first-term win a second
+        // term spent doing nothing returns the very same result and wins again. When the second term gets
+        // pressure (decay, events or a higher bar), these are the assertions that should change.
+        assert_eq!(view.election.status, "won");
+        assert_eq!(view.election.weighted_support_ppm, 559_584);
+        assert_eq!(
+            view.election.settled_group_ppm,
+            [571_800, 602_000, 472_200, 579_240, 615_600, 491_960]
+        );
+        assert_eq!(view.delivery_history.len(), 12);
         fs::remove_dir_all(dir).unwrap();
     }
 }

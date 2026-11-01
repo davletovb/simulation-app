@@ -5,6 +5,15 @@
   "locale": "en-GB",
   "start": "2027-Q1",
   "quarters": 6,
+  "terms": 2,
+  "election": {
+    "held_after_quarters": [6, 12],
+    "min_weighted_support_ppm": 550000,
+    "min_blocs_ppm": 600000,
+    "bloc_held_above_ppm": 500000,
+    "on_win": "next term begins with a new allocation added to anything unspent; a win in the last term ends the game",
+    "on_loss": "game over"
+  },
   "warning": "Illustrative game mechanics, not an official England policy, survey, population reconstruction, or forecast.",
   "pilot": {
     "credits": 100,
@@ -91,9 +100,11 @@
         2
       ]
     },
-    "treasury_invariant": "available + encumbered_staffing + encumbered_repairs + encumbered_access + service_spent + audit_spent = 100",
+    "treasury_invariant": "available + encumbered_staffing + encumbered_repairs + encumbered_access + service_spent + audit_spent = credits granted so far (credits per term, one grant per term begun)",
     "audit": {
       "first_eligible_free": true,
+      "free_audits_per_term": 1,
+      "first_eligible_quarter_in_term": 3,
       "subsequent_cost_credits": 2
     }
   },

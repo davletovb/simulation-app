@@ -18,7 +18,16 @@ use std::fmt;
 
 pub const SCHEMA_VERSION: u16 = 1;
 pub const PILOT_CREDITS: u16 = 100;
-pub const SIX_QUARTERS: u8 = 6;
+/// Quarters in one term. A term ends with an election (decisions 0002 and 0005).
+pub const TERM_QUARTERS: u8 = 6;
+/// Terms in a game. Winning the election at the end of every term but the last starts the next one.
+pub const TERMS: u8 = 2;
+/// Quarters in a whole game.
+pub const MAX_QUARTERS: u8 = TERM_QUARTERS * TERMS;
+/// Credits granted at the start of each term after the first, added to anything unspent (R3, decision 0005).
+pub const TERM_ALLOCATION_CREDITS: u16 = PILOT_CREDITS;
+/// The most credits one game can ever grant: the opening 100 plus one allocation per later term.
+pub const MAX_CREDITS: u16 = PILOT_CREDITS * TERMS as u16;
 pub const SHARE_DENOMINATOR: u32 = 1_000_000;
 pub const EFFORT_DENOMINATOR: u16 = 1_000;
 
@@ -84,11 +93,23 @@ pub struct Quarter(u8);
 
 impl Quarter {
     pub fn new(value: u8) -> Result<Self, ContractError> {
-        if (1..=SIX_QUARTERS).contains(&value) {
+        if (1..=MAX_QUARTERS).contains(&value) {
             Ok(Self(value))
         } else {
             Err(ContractError::InvalidQuarter)
         }
+    }
+    /// Which term (1-based) this quarter belongs to.
+    pub const fn term(self) -> u8 {
+        (self.0 - 1) / TERM_QUARTERS + 1
+    }
+    /// This quarter's place within its term, 1 to `TERM_QUARTERS`.
+    pub const fn in_term(self) -> u8 {
+        (self.0 - 1) % TERM_QUARTERS + 1
+    }
+    /// The last quarter of a term: an election follows it.
+    pub const fn ends_term(self) -> bool {
+        self.0.is_multiple_of(TERM_QUARTERS)
     }
     pub const fn value(self) -> u8 {
         self.0
@@ -324,7 +345,7 @@ pub struct PreferredAllocation {
 }
 impl PreferredAllocation {
     pub fn assess(draft: Allocation, eligible_credits: u16) -> Result<Self, ContractError> {
-        if eligible_credits > PILOT_CREDITS {
+        if eligible_credits > MAX_CREDITS {
             return Err(ContractError::InvalidCreditAmount);
         }
         let validity = if draft.total() <= u32::from(eligible_credits) {
@@ -374,15 +395,31 @@ impl CapacityCaps {
 /// A checked treasury account movement. P3 must authorize each move.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum LedgerMove {
-    Reserve { family: PolicyFamily, credits: u16 },
-    Release { family: PolicyFamily, credits: u16 },
-    SpendService { family: PolicyFamily, credits: u16 },
-    SpendAudit { credits: u16 },
+    Reserve {
+        family: PolicyFamily,
+        credits: u16,
+    },
+    Release {
+        family: PolicyFamily,
+        credits: u16,
+    },
+    SpendService {
+        family: PolicyFamily,
+        credits: u16,
+    },
+    SpendAudit {
+        credits: u16,
+    },
+    /// A new term's allocation: the only movement that brings credits into the game.
+    Grant {
+        credits: u16,
+    },
 }
 impl LedgerMove {
     pub const fn credits(self) -> u16 {
         match self {
-            Self::Reserve { credits, .. }
+            Self::Grant { credits }
+            | Self::Reserve { credits, .. }
             | Self::Release { credits, .. }
             | Self::SpendService { credits, .. }
             | Self::SpendAudit { credits } => credits,
@@ -411,6 +448,9 @@ pub struct Treasury {
     encumbered_access: u16,
     service_spent: u16,
     audit_spent: u16,
+    /// Every credit the player has ever been given: the opening 100, plus a fresh allocation at the start
+    /// of each later term. The six accounts always add up to exactly this.
+    granted: u16,
 }
 impl Treasury {
     pub const fn initial() -> Self {
@@ -421,9 +461,31 @@ impl Treasury {
             encumbered_access: 0,
             service_spent: 0,
             audit_spent: 0,
+            granted: PILOT_CREDITS,
         }
     }
+    /// A treasury within the opening 100 credits (the first term).
     pub fn from_parts(
+        available: u16,
+        encumbered_staff: u16,
+        encumbered_repairs: u16,
+        encumbered_access: u16,
+        service_spent: u16,
+        audit_spent: u16,
+    ) -> Result<Self, ContractError> {
+        Self::from_parts_granted(
+            PILOT_CREDITS,
+            available,
+            encumbered_staff,
+            encumbered_repairs,
+            encumbered_access,
+            service_spent,
+            audit_spent,
+        )
+    }
+    /// A treasury that has been granted `granted` credits in total (100 per term played).
+    pub fn from_parts_granted(
+        granted: u16,
         available: u16,
         encumbered_staff: u16,
         encumbered_repairs: u16,
@@ -438,9 +500,14 @@ impl Treasury {
             encumbered_access,
             service_spent,
             audit_spent,
+            granted,
         };
         result.validate()?;
         Ok(result)
+    }
+    /// Every credit granted so far (100, then 200 after the second term begins).
+    pub const fn granted(self) -> u16 {
+        self.granted
     }
     pub const fn available(self) -> u16 {
         self.available
@@ -470,7 +537,12 @@ impl Treasury {
         .iter()
         .try_fold(0_u32, |acc, value| acc.checked_add(u32::from(*value)))
         .ok_or(ContractError::ArithmeticOverflow)?;
-        if sum == u32::from(PILOT_CREDITS) {
+        // Credits are granted in whole terms' allocations, never more than the game allows, and every one
+        // of them is in exactly one account.
+        let whole_terms = self.granted >= PILOT_CREDITS
+            && self.granted <= MAX_CREDITS
+            && self.granted.is_multiple_of(TERM_ALLOCATION_CREDITS);
+        if whole_terms && sum == u32::from(self.granted) {
             Ok(())
         } else {
             Err(ContractError::InvalidTreasury)
@@ -499,8 +571,17 @@ impl Treasury {
         let mut access = self.encumbered_access;
         let mut service = self.service_spent;
         let mut audit = self.audit_spent;
+        let mut granted = self.granted;
 
         match movement {
+            LedgerMove::Grant { .. } => {
+                available = available
+                    .checked_add(credits)
+                    .ok_or(ContractError::ArithmeticOverflow)?;
+                granted = granted
+                    .checked_add(credits)
+                    .ok_or(ContractError::ArithmeticOverflow)?;
+            }
             LedgerMove::Reserve { family, .. } => {
                 available = available
                     .checked_sub(credits)
@@ -537,7 +618,7 @@ impl Treasury {
                     .ok_or(ContractError::ArithmeticOverflow)?;
             }
         }
-        Treasury::from_parts(available, staff, repairs, access, service, audit)
+        Treasury::from_parts_granted(granted, available, staff, repairs, access, service, audit)
     }
     /// Compatibility primitive; delegates to the single checked movement path.
     /// P3 must enforce authority, unique payout and scope identity separately.
@@ -1107,6 +1188,8 @@ pub enum PlayerCommand {
     },
     Defer,
     AdvanceQuarter,
+    /// Begin the next term after winning the election that ended the last one.
+    BeginTerm,
 }
 
 impl PlayerCommand {
@@ -1381,7 +1464,7 @@ impl RoleObservation {
     pub fn new(input: RoleObservationInput) -> Result<Self, ContractError> {
         validate_identifier(&input.campaign_id)?;
         validate_identifier(&input.meeting_id)?;
-        if input.available_credits > PILOT_CREDITS {
+        if input.available_credits > MAX_CREDITS {
             return Err(ContractError::InvalidCreditAmount);
         }
         Ok(Self {
@@ -1407,7 +1490,7 @@ impl RoleObservation {
         for id in &self.visible_evidence_ids {
             validate_identifier(id)?;
         }
-        if self.available_credits > PILOT_CREDITS {
+        if self.available_credits > MAX_CREDITS {
             return Err(ContractError::InvalidCreditAmount);
         }
         let mut commitment_ids = BTreeSet::new();
@@ -1784,8 +1867,59 @@ mod tests {
     }
 
     #[test]
+    fn a_grant_is_the_only_way_credits_enter_and_the_total_is_always_whole_terms() {
+        let start = Treasury::initial();
+        assert_eq!(start.granted(), 100);
+        let granted = start
+            .apply(LedgerMove::Grant {
+                credits: TERM_ALLOCATION_CREDITS,
+            })
+            .unwrap();
+        assert_eq!((granted.available(), granted.granted()), (200, 200));
+        granted.validate().unwrap();
+        // A third allocation would exceed what a game can ever grant.
+        assert!(granted.apply(LedgerMove::Grant { credits: 100 }).is_err());
+        // Money cannot appear any other way: accounts that add up to 200 need 200 granted.
+        assert!(Treasury::from_parts(200, 0, 0, 0, 0, 0).is_err());
+        assert!(Treasury::from_parts_granted(200, 200, 0, 0, 0, 0, 0).is_ok());
+        // ...and a part-term total is never valid.
+        assert!(Treasury::from_parts_granted(150, 150, 0, 0, 0, 0, 0).is_err());
+        assert!(Treasury::from_parts_granted(0, 0, 0, 0, 0, 0, 0).is_err());
+        // Spending and reserving keep the total unchanged.
+        let moved = granted
+            .apply(LedgerMove::Reserve {
+                family: PolicyFamily::Staffing,
+                credits: 30,
+            })
+            .unwrap();
+        assert_eq!((moved.granted(), moved.available()), (200, 170));
+    }
+    #[test]
+    fn quarters_know_their_term() {
+        let q = |n| Quarter::new(n).unwrap();
+        assert_eq!(
+            (q(1).term(), q(1).in_term(), q(1).ends_term()),
+            (1, 1, false)
+        );
+        assert_eq!(
+            (q(6).term(), q(6).in_term(), q(6).ends_term()),
+            (1, 6, true)
+        );
+        assert_eq!(
+            (q(7).term(), q(7).in_term(), q(7).ends_term()),
+            (2, 1, false)
+        );
+        assert_eq!(
+            (q(12).term(), q(12).in_term(), q(12).ends_term()),
+            (2, 6, true)
+        );
+    }
+    #[test]
     fn future_due_quarters_and_canonical_disclosures() {
-        assert!(Quarter::new(7).is_err());
+        // A game is two terms of six quarters; quarter 12 is the last.
+        assert!(Quarter::new(0).is_err());
+        assert!(Quarter::new(12).is_ok());
+        assert!(Quarter::new(13).is_err());
         assert_eq!(DueQuarter::new(8).unwrap().value(), 8);
         assert_eq!(DueQuarter::new(0), Err(ContractError::InvalidQuarter));
         let roles = EvidenceRecipients::new(vec![
