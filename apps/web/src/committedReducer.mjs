@@ -105,6 +105,33 @@ function validTerms(s, held) {
     (s.closed ? (e.status === 'lost' || e.ceiling) : (s.phase === 'ElectionNight' && e.status === 'won'))
 }
 
+const tone = t => t === 'bad' || t === 'good'
+const effectOk = e => sixOf(e, n => Number.isInteger(n) && Math.abs(n) <= 40000)
+const wordsOk = h => typeof h.id === 'string' && h.id.length > 0 && typeof h.title === 'string' && h.title.length > 0 &&
+  typeof h.summary === 'string' && ['invented', 'real'].includes(h.source)
+
+/**
+ * The news calendar. Upcoming headlines are only ever the ones announced, never a surprise, and are at most the two
+ * nearest quarters; a bad one carries a price unless it has been answered. Landed headlines are in order.
+ */
+function validCalendar(calendar, quarter) {
+  if (!calendar || !Array.isArray(calendar.upcoming) || !Array.isArray(calendar.recent)) return false
+  if (calendar.upcoming.length > 2 || calendar.recent.length > MAX_QUARTERS) return false
+  const upcomingOk = calendar.upcoming.every(h => wordsOk(h) && tone(h.tone) && effectOk(h.effect_ppm) &&
+    Number.isInteger(h.quarter) && h.quarter >= quarter && h.quarter <= quarter + 1 &&
+    Number.isInteger(h.overall_ppm) && ['serious', 'minor', 'welcome'].includes(h.severity) &&
+    h.relief_cut_pct >= 0 && h.relief_cut_pct <= 100 &&
+    (h.tone === 'good' ? h.relief_cost === null && h.paid === null
+      : (h.relief_cost === null) !== (h.paid === null) &&
+        (h.relief_cost === null || (Number.isInteger(h.relief_cost) && h.relief_cost >= 1 && h.relief_cost <= MAX_CREDITS)) &&
+        (h.paid === null || (Number.isInteger(h.paid) && h.paid >= 1 && h.paid <= MAX_CREDITS))))
+  const landedOk = calendar.recent.every((h, i, all) => wordsOk(h) && tone(h.tone) && effectOk(h.effect_ppm) &&
+    Number.isInteger(h.quarter) && h.quarter >= 1 && h.quarter <= MAX_QUARTERS && Number.isInteger(h.overall_ppm) &&
+    typeof h.surprise === 'boolean' && typeof h.responded === 'boolean' &&
+    (h.tone === 'bad' || !h.responded) && (i === 0 || all[i - 1].quarter < h.quarter))
+  return upcomingOk && landedOk
+}
+
 /** Validate the real SSE/snapshot envelope before admitting it to the cache. */
 export function validSnapshot(raw, campaignId) {
   if (typeof raw !== 'object' || raw === null) return false
@@ -151,9 +178,11 @@ export function validSnapshot(raw, campaignId) {
       typeof item.display_value==='string' && typeof item.source_url==='string' &&
       item.source_url.startsWith('https://') && Array.isArray(item.quality_flags)) &&
     validSupport(s.support, s.comparison.mode==='verification_failed') &&
+    validCalendar(s.calendar, s.quarter) &&
     validElection(s.election, s.closed || s.phase==='ElectionNight') &&
     validTerms(s, s.closed || s.phase==='ElectionNight') &&
     // What is queued to land is exactly settled support minus current support.
     s.support.pending_delta_ppm.every((d,i)=>d===s.election.settled_group_ppm[i]-s.support.group_ppm[i]) &&
-    !!s.treasury && Object.values(s.treasury).every(n=>Number.isInteger(n) && n>=0 && n<=MAX_CREDITS)
+    !!s.treasury && Number.isInteger(s.treasury.relief_spent) &&
+    Object.values(s.treasury).every(n=>Number.isInteger(n) && n>=0 && n<=MAX_CREDITS)
 }

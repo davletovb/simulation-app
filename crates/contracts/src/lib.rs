@@ -179,7 +179,8 @@ pub enum PlayerAction {
     },
     OrderAudit {
         family: Family,
-        #[schemars(range(min = 1, max = 6))]
+        // Any quarter already played: a game can run to 60 (`MAX_QUARTERS`).
+        #[schemars(range(min = 1, max = 60))]
         inspected_quarter: u8,
     },
     DiscloseEvidence {
@@ -192,6 +193,11 @@ pub enum PlayerAction {
     AdvanceQuarter {},
     /// Begin the next term after winning the election that ended the last one.
     BeginTerm {},
+    /// Pay to soften an announced bad headline that lands in `headline_quarter` (decision 0010).
+    Respond {
+        #[schemars(range(min = 2, max = 60))]
+        headline_quarter: u8,
+    },
 }
 impl TryFrom<PlayerAction> for d::PlayerCommand {
     type Error = WireError;
@@ -260,6 +266,9 @@ impl TryFrom<PlayerAction> for d::PlayerCommand {
             PlayerAction::Defer {} => Self::Defer,
             PlayerAction::AdvanceQuarter {} => Self::AdvanceQuarter,
             PlayerAction::BeginTerm {} => Self::BeginTerm,
+            PlayerAction::Respond { headline_quarter } => Self::Respond {
+                headline_quarter: d::Quarter::new(headline_quarter)?,
+            },
         })
     }
 }

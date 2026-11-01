@@ -170,6 +170,19 @@ test('legacy counts everything the player was given, so a second term is graded 
   assert.equal(l.label, 'Mandate delivered')
 })
 
+test('credits spent answering headlines count against the legacy: they bought votes, not delivered work', () => {
+  const l = legacy(snapshot({}, { service_spent: 80, available_credits: 0, audit_spent: 0, relief_spent: 20 }))
+  assert.equal(l.relief, 20)
+  assert.equal(l.total, 100)
+  assert.equal(l.share, 80)
+  assert.equal(l.key, 'partly')
+  // The same plan without answering anything grades better.
+  assert.equal(legacy(snapshot({}, { service_spent: 80, available_credits: 20, relief_spent: 0 })).share, 80)
+  assert.equal(legacy(snapshot({}, { service_spent: 100 })).key, 'delivered')
+  // An older snapshot without the account is read as "nothing spent", not as a failure.
+  assert.equal(legacy(snapshot({}, { service_spent: 100 })).relief, 0)
+})
+
 test('"short by" rounds up, so a miss by a single ppm never reads as having met the bar', () => {
   assert.equal(shortByText(1), '0.1')
   assert.equal(shortByText(1000), '0.1')

@@ -3,6 +3,7 @@
 //! campaign, treasury, funded scopes, phases or private minister effort.
 //! P4 will own replay serialization; P5 may only supply typed role actions.
 use crate::audit::{BeliefLedger, BeliefReceipt, DeliveryAudit};
+use crate::news::{self, Landed, Response, Scheduled, Tone};
 use crate::world::{
     LedgerReceipt, MeetingPhase, Organisation, OrganisationAccount, QueuedResponse, SupportPpm,
     WorldSnapshot,
@@ -87,6 +88,18 @@ pub fn evaluate_election(
     })
 }
 
+/// A headline the player has been told about and has not yet seen land.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct UpcomingHeadline {
+    pub scheduled: Scheduled,
+    /// What it would do to each group's support if it landed now, with no response.
+    pub expected: [i32; 6],
+    /// What a response would cost now; `None` for good news and once a response has been paid.
+    pub relief_cost: Option<u16>,
+    /// The credits already paid to answer it, if they were.
+    pub answered: Option<u16>,
+}
+
 /// The verdict of one election, kept for the rest of the game. It is derived while the journal is replayed,
 /// so it is as reproducible as everything else, and it is what decides whether the game goes on.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -107,6 +120,9 @@ pub struct Rules {
     pub response_lag: u16,
     pub shocks: [[i32; 6]; MAX_QUARTERS as usize],
     pub q2_repair_cap: Option<u16>,
+    /// The news calendar (decision 0010) runs when there is a seed. Without one (the fixed-action sensitivity runs, most
+    /// unit tests) no headline ever lands.
+    pub news_seed: Option<u64>,
 }
 impl Default for Rules {
     fn default() -> Self {
@@ -116,6 +132,7 @@ impl Default for Rules {
             response_lag: 1,
             shocks: [[0; 6]; MAX_QUARTERS as usize],
             q2_repair_cap: None,
+            news_seed: None,
         }
     }
 }
@@ -262,6 +279,10 @@ pub struct Campaign {
     elections: Vec<ElectionRecord>,
     /// Audits ordered in the current term; the first of each term is free (decision 0005).
     term_audits: u16,
+    /// Headlines that have landed, oldest first (decision 0010).
+    landed: Vec<Landed>,
+    /// Responses that were paid for, oldest first.
+    responses: Vec<Response>,
 }
 
 pub enum Action {
@@ -315,12 +336,69 @@ impl Campaign {
             vote_history: vec![],
             elections: vec![],
             term_audits: 0,
+            landed: vec![],
+            responses: vec![],
         })
     }
     /// The elections held so far. After the last quarter of a term there is a new entry, and its `won`
     /// decides whether the game goes on.
     pub fn elections(&self) -> &[ElectionRecord] {
         &self.elections
+    }
+    /// Headlines that have landed, oldest first.
+    pub fn landed_headlines(&self) -> &[Landed] {
+        &self.landed
+    }
+    /// Responses that were paid for.
+    pub fn responses(&self) -> &[Response] {
+        &self.responses
+    }
+    /// Announced headlines that have not landed yet and are close enough to answer: those landing at the end of this
+    /// quarter or the next. Surprises are never listed (nobody is told), and nothing is listed without a calendar.
+    pub fn upcoming_headlines(&self) -> Vec<UpcomingHeadline> {
+        let Some(seed) = self.rules.news_seed else {
+            return vec![];
+        };
+        let now = self.world.quarter();
+        if matches!(
+            self.world.phase(),
+            MeetingPhase::QuarterClosed | MeetingPhase::ElectionNight
+        ) {
+            return vec![];
+        }
+        let support = self.support_values();
+        let weights = *self.world.cohort_weights().parts_ppm();
+        news::schedule(seed, now.term())
+            .into_iter()
+            .filter(|s| {
+                !s.surprise
+                    && s.quarter >= now
+                    && s.quarter.value() <= now.value() + 1
+                    && !self.landed.iter().any(|l| l.scheduled.quarter == s.quarter)
+            })
+            .map(|scheduled| {
+                let expected = news::landing_shock(&scheduled, now.term(), &support);
+                let answered = self
+                    .responses
+                    .iter()
+                    .find(|r| r.headline_quarter == scheduled.quarter)
+                    .map(|r| r.credits);
+                UpcomingHeadline {
+                    scheduled,
+                    expected,
+                    relief_cost: (scheduled.tone == Tone::Bad && answered.is_none())
+                        .then(|| news::relief_cost(&expected, &weights)),
+                    answered,
+                }
+            })
+            .collect()
+    }
+    fn support_values(&self) -> [u32; 6] {
+        let mut out = [0_u32; 6];
+        for (o, cell) in out.iter_mut().zip(self.world.support()) {
+            *o = cell.value();
+        }
+        out
     }
     pub fn world(&self) -> &WorldSnapshot {
         &self.world
@@ -605,6 +683,9 @@ impl Campaign {
                     }
                     crate::PlayerCommand::AdvanceQuarter => self.advance(receipt)?,
                     crate::PlayerCommand::BeginTerm => self.begin_term(receipt)?,
+                    crate::PlayerCommand::Respond { headline_quarter } => {
+                        self.respond(*headline_quarter, receipt)?;
+                    }
                     crate::PlayerCommand::OrderAudit {
                         family,
                         inspected_quarter,
@@ -1021,6 +1102,53 @@ impl Campaign {
     /// Start the next term. Only possible on election night after a win. A fresh allocation is added to
     /// anything unspent (R3); the support, lobbies, ministers' trust and unfinished promises all carry on,
     /// because this is the same campaign rather than a new one (decision 0007).
+    /// Pay to soften an announced bad headline before it lands (decision 0010).
+    fn respond(
+        &mut self,
+        headline_quarter: Quarter,
+        receipt: &mut ReducerReceipt,
+    ) -> Result<(), Rejection> {
+        let seed = self.rules.news_seed.ok_or(Rejection::InvalidCondition)?;
+        let now = self.world.quarter();
+        if matches!(
+            self.world.phase(),
+            MeetingPhase::QuarterClosed | MeetingPhase::ElectionNight
+        ) {
+            return Err(Rejection::InvalidPhase);
+        }
+        // Only a headline that has been announced and has not landed: this quarter's or the next one's.
+        if headline_quarter < now || headline_quarter.value() > now.value() + 1 {
+            return Err(Rejection::InvalidCondition);
+        }
+        let scheduled = news::schedule(seed, headline_quarter.term())
+            .into_iter()
+            .find(|s| s.quarter == headline_quarter)
+            .ok_or(Rejection::InvalidCondition)?;
+        if scheduled.tone != Tone::Bad
+            || scheduled.surprise
+            || self
+                .responses
+                .iter()
+                .any(|r| r.headline_quarter == headline_quarter)
+        {
+            return Err(Rejection::InvalidCondition);
+        }
+        let shock = news::landing_shock(&scheduled, now.term(), &self.support_values());
+        let credits = news::relief_cost(&shock, self.world.cohort_weights().parts_ppm());
+        let mut parts = self.world.private_checkpoint_parts();
+        let movement = LedgerMove::SpendRelief { credits };
+        let before = parts.treasury;
+        parts.treasury = before.apply(movement)?;
+        receipt
+            .ledger
+            .push(LedgerReceipt::new(before, movement, parts.treasury)?);
+        self.world = WorldSnapshot::from_parts(parts)?;
+        self.responses.push(Response {
+            headline_quarter,
+            credits,
+        });
+        Ok(())
+    }
     fn begin_term(&mut self, receipt: &mut ReducerReceipt) -> Result<(), Rejection> {
         let q = self.world.quarter();
         let won = self
@@ -1189,10 +1317,36 @@ impl Campaign {
                     .ok_or(Rejection::Arithmetic)?;
             }
         }
+        // The news calendar: a headline due this quarter lands now, before the queued responses (decision 0010). What it
+        // takes depends on where each group stands, a response softens it, and good news is a flat gift.
+        let mut headline_shock = [0_i32; 6];
+        if let Some(seed) = self.rules.news_seed
+            && let Some(scheduled) = news::schedule(seed, q.term())
+                .into_iter()
+                .find(|s| s.quarter == q)
+        {
+            let mut support = [0_u32; 6];
+            for (now, cell) in support.iter_mut().zip(parts.support.iter()) {
+                *now = cell.value();
+            }
+            let mut shock = news::landing_shock(&scheduled, q.term(), &support);
+            let responded = scheduled.tone == Tone::Bad
+                && self.responses.iter().any(|r| r.headline_quarter == q);
+            if responded {
+                shock = news::soften(shock);
+            }
+            headline_shock = shock;
+            self.landed.push(Landed {
+                scheduled,
+                shock,
+                responded,
+            });
+        }
         // Frozen exogenous shocks precede previously queued cohort responses.
-        for ix in 0..6 {
+        for (ix, headline) in headline_shock.iter().enumerate() {
             let candidate = (i64::from(parts.support[ix].value())
-                + i64::from(self.rules.shocks[usize::from(q.value() - 1)][ix]))
+                + i64::from(self.rules.shocks[usize::from(q.value() - 1)][ix])
+                + i64::from(*headline))
             .clamp(0, 1_000_000);
             parts.support[ix] =
                 SupportPpm::new(u32::try_from(candidate).map_err(|_| Rejection::Arithmetic)?)?;
@@ -1404,6 +1558,7 @@ mod tests {
     use super::*;
     use crate::{
         CounterproposalOrigin, MAX_TERMS, PILOT_CREDITS, PlayerCommand, PreferredAllocation,
+        Treasury,
     };
 
     fn campaign() -> Campaign {
@@ -2594,6 +2749,352 @@ mod tests {
             c.world().treasury().granted(),
             PILOT_CREDITS * u16::from(MAX_TERMS)
         );
+    }
+    // ---- the news calendar (decision 0010) ----
+    fn with_calendar(seed: u64) -> Campaign {
+        Campaign::with_rules(
+            "case",
+            "england-school-delivery-v1",
+            voters(),
+            Rules {
+                news_seed: Some(seed),
+                ..Rules::default()
+            },
+        )
+        .unwrap()
+    }
+    /// The first seed whose term `term` has an announced (not surprise) headline of this tone.
+    fn seed_with(term: u8, tone: Tone, surprise: bool) -> (u64, Scheduled) {
+        (0..10_000_u64)
+            .find_map(|seed| {
+                news::schedule(seed, term)
+                    .into_iter()
+                    .find(|s| s.tone == tone && s.surprise == surprise)
+                    .map(|s| (seed, s))
+            })
+            .unwrap()
+    }
+    /// Plays the game forward by ending quarters until `quarter` has been reached (not ended).
+    fn coast_to(c: &mut Campaign, quarter: u8, tag: &str) {
+        let mut n = 0;
+        while c.world().quarter().value() < quarter {
+            advance(c, &format!("{tag}{n}")).unwrap();
+            n += 1;
+        }
+    }
+    fn respond_cmd(c: &mut Campaign, id: &str, q: Quarter) -> Result<ReducerReceipt, Rejection> {
+        c.apply(player(
+            c,
+            id,
+            PlayerCommand::Respond {
+                headline_quarter: q,
+            },
+        ))
+    }
+    #[test]
+    fn without_a_seed_no_headline_ever_lands() {
+        let mut c = campaign();
+        ratify_balanced_q1(&mut c);
+        coast(&mut c, 6, "t-");
+        assert!(c.landed_headlines().is_empty());
+        assert!(c.upcoming_headlines().is_empty());
+        let (_, s) = seed_with(2, Tone::Bad, false);
+        assert_eq!(
+            respond_cmd(&mut c, "no-calendar", s.quarter).err(),
+            Some(Rejection::InvalidCondition)
+        );
+    }
+    #[test]
+    fn the_first_term_brings_good_news_only_and_it_helps() {
+        let mut plain = campaign();
+        ratify_balanced_q1(&mut plain);
+        coast(&mut plain, 6, "p-");
+        for seed in [1_u64, 2, 3, 99, 12345] {
+            let mut c = with_calendar(seed);
+            ratify_balanced_q1(&mut c);
+            coast(&mut c, 6, "t-");
+            assert_eq!(c.landed_headlines().len(), 2, "seed {seed}");
+            assert!(
+                c.landed_headlines()
+                    .iter()
+                    .all(|l| l.scheduled.tone == Tone::Good && l.shock.iter().all(|x| *x >= 0)),
+                "term 1 has no bad news (seed {seed})"
+            );
+            // Good news is a gift on top of what the work earned, so the first election is easier, never harder.
+            let with = c.elections()[0].projection.weighted_support_ppm;
+            let without = plain.elections()[0].projection.weighted_support_ppm;
+            assert!(with > without, "seed {seed}: {with} vs {without}");
+            assert!(c.elections()[0].won);
+        }
+    }
+    #[test]
+    fn an_announced_headline_is_listed_a_quarter_ahead_and_a_surprise_never_is() {
+        let (seed, bad) = seed_with(2, Tone::Bad, false);
+        let mut c = with_calendar(seed);
+        ratify_balanced_q1(&mut c);
+        coast(&mut c, 6, "t1-");
+        c.apply(player(&c, "begin", PlayerCommand::BeginTerm))
+            .unwrap();
+        // Walk up to the quarter before it lands: the headline is listed, with its price, and not before.
+        let listed = |c: &Campaign| {
+            c.upcoming_headlines()
+                .into_iter()
+                .any(|u| u.scheduled.quarter == bad.quarter)
+        };
+        assert!(
+            bad.quarter.value() >= 8,
+            "headlines never fall in the first quarter of a term"
+        );
+        if bad.quarter.value() > 8 {
+            coast_to(&mut c, bad.quarter.value() - 2, "early-");
+            assert!(!listed(&c), "two quarters ahead is too early");
+        }
+        coast_to(&mut c, bad.quarter.value() - 1, "ahead-");
+        assert!(listed(&c), "announced a quarter ahead");
+        let up = c
+            .upcoming_headlines()
+            .into_iter()
+            .find(|u| u.scheduled.quarter == bad.quarter)
+            .unwrap();
+        assert!(up.relief_cost.is_some_and(|cost| cost >= 1));
+        assert_eq!(up.answered, None);
+        // Surprises are never listed, at any point.
+        let (sseed, surprise) = seed_with(2, Tone::Bad, true);
+        let mut d = with_calendar(sseed);
+        ratify_balanced_q1(&mut d);
+        coast(&mut d, 6, "s1-");
+        d.apply(player(&d, "begin", PlayerCommand::BeginTerm))
+            .unwrap();
+        for step in 0..6 {
+            assert!(
+                d.upcoming_headlines()
+                    .iter()
+                    .all(|u| u.scheduled.quarter != surprise.quarter),
+                "a surprise was announced at step {step}"
+            );
+            if d.world().quarter() < surprise.quarter {
+                advance(&mut d, &format!("s2-{step}")).unwrap();
+            }
+        }
+        coast_to(&mut d, surprise.quarter.value(), "s3-");
+        assert_eq!(
+            respond_cmd(&mut d, "too-late", surprise.quarter).err(),
+            Some(Rejection::InvalidCondition),
+            "a surprise cannot be answered"
+        );
+    }
+    #[test]
+    fn a_response_softens_the_hit_for_credits_and_the_money_still_adds_up() {
+        let (seed, bad) = seed_with(2, Tone::Bad, false);
+        let play = |respond: bool| {
+            let mut c = with_calendar(seed);
+            ratify_balanced_q1(&mut c);
+            coast(&mut c, 6, "t1-");
+            c.apply(player(&c, "begin", PlayerCommand::BeginTerm))
+                .unwrap();
+            coast_to(&mut c, bad.quarter.value() - 1, "to-");
+            let before = c.world().treasury();
+            let mut paid = 0;
+            if respond {
+                let quote = c
+                    .upcoming_headlines()
+                    .into_iter()
+                    .find(|u| u.scheduled.quarter == bad.quarter)
+                    .unwrap()
+                    .relief_cost
+                    .unwrap();
+                let receipt = respond_cmd(&mut c, "answer", bad.quarter).unwrap();
+                assert_eq!(receipt.ledger.len(), 1);
+                let t = c.world().treasury();
+                paid = quote;
+                assert_eq!(t.relief_spent(), quote, "what was quoted is what was paid");
+                assert_eq!(t.available(), before.available() - quote);
+                assert_eq!(t.granted(), before.granted());
+                t.validate().unwrap();
+                // Once is enough: the same headline cannot be answered twice.
+                assert_eq!(
+                    respond_cmd(&mut c, "twice", bad.quarter).err(),
+                    Some(Rejection::InvalidCondition)
+                );
+                assert!(
+                    c.upcoming_headlines()
+                        .iter()
+                        .any(|u| u.answered == Some(quote))
+                );
+            }
+            coast_to(&mut c, bad.quarter.value() + 1, "past-");
+            let landed = *c
+                .landed_headlines()
+                .iter()
+                .find(|l| l.scheduled.quarter == bad.quarter)
+                .unwrap();
+            c.world().validate().unwrap();
+            (landed, paid)
+        };
+        let (unanswered, _) = play(false);
+        let (answered, paid) = play(true);
+        assert!(!unanswered.responded && answered.responded);
+        assert!(paid >= 1);
+        // The same headline took 60% less from every group that lost something, and gave nothing back to the rest.
+        let lost = |l: &Landed| l.shock.iter().filter(|x| **x < 0).count();
+        assert!(lost(&unanswered) > 0 && lost(&answered) == lost(&unanswered));
+        for (a, u) in answered.shock.iter().zip(unanswered.shock) {
+            assert!(
+                *a >= u && *a <= 0,
+                "a response never makes it worse: {a} vs {u}"
+            );
+            assert_eq!(*a, u * 40 / 100);
+        }
+    }
+    #[test]
+    fn a_response_has_to_be_possible_to_be_paid() {
+        let (seed, bad) = seed_with(2, Tone::Bad, false);
+        let mut c = with_calendar(seed);
+        ratify_balanced_q1(&mut c);
+        coast(&mut c, 6, "t1-");
+        c.apply(player(&c, "begin", PlayerCommand::BeginTerm))
+            .unwrap();
+        // Too early: it has not been announced yet.
+        if bad.quarter.value() > 8 {
+            assert_eq!(
+                respond_cmd(&mut c, "early", bad.quarter).err(),
+                Some(Rejection::InvalidCondition)
+            );
+        }
+        coast_to(&mut c, bad.quarter.value() - 1, "to-");
+        // Good news, headlines that do not exist, and ones already past cannot be answered.
+        let good = news::schedule(seed, 2)
+            .into_iter()
+            .find(|s| s.tone == Tone::Good);
+        if let Some(g) = good.filter(|g| g.quarter.value() <= c.world().quarter().value() + 1) {
+            assert_eq!(
+                respond_cmd(&mut c, "good", g.quarter).err(),
+                Some(Rejection::InvalidCondition)
+            );
+        }
+        let nowhere = Quarter::new(c.world().quarter().value() + 1).unwrap();
+        if nowhere != bad.quarter {
+            assert!(respond_cmd(&mut c, "nowhere", nowhere).is_err() || nowhere.in_term() == 1);
+        }
+        // Not enough credits: spend them all first (a fresh plan commits everything), then the answer is refused.
+        let mut parts = c.world.private_checkpoint_parts();
+        parts.treasury = Treasury::from_parts_all(200, 0, 0, 0, 0, 200, 0, 0).unwrap();
+        c.world = WorldSnapshot::from_parts(parts).unwrap();
+        assert!(respond_cmd(&mut c, "broke", bad.quarter).is_err());
+        assert!(
+            c.responses().is_empty(),
+            "a refused response leaves no trace"
+        );
+    }
+    #[test]
+    fn a_player_who_does_nothing_is_voted_out_in_the_end_and_one_who_keeps_delivering_is_not() {
+        // Across several calendars, doing nothing after the first win loses an election within a handful of terms,
+        // while repeating the Balanced plan every term stays ahead at least that long (decision 0010).
+        let mut idle_lost_by = vec![];
+        let mut busy_lost_by = vec![];
+        for seed in 0..12_u64 {
+            for busy in [false, true] {
+                let mut c = with_calendar(seed);
+                ratify_balanced_q1(&mut c);
+                let mut term = 1;
+                loop {
+                    coast(&mut c, 6, &format!("s{seed}b{busy}t{term}-"));
+                    if !c.elections().last().unwrap().won || term == 5 {
+                        break;
+                    }
+                    c.apply(player(
+                        &c,
+                        &format!("begin{seed}{busy}{term}"),
+                        PlayerCommand::BeginTerm,
+                    ))
+                    .unwrap();
+                    term += 1;
+                    if busy {
+                        let q = c.world().quarter().value();
+                        open_meeting_and_ratify(&mut c, q);
+                    }
+                }
+                let verdicts: Vec<bool> = c.elections().iter().map(|e| e.won).collect();
+                (if busy {
+                    &mut busy_lost_by
+                } else {
+                    &mut idle_lost_by
+                })
+                .push(verdicts.iter().position(|w| !*w).map_or(99, |i| i + 1));
+            }
+        }
+        let median = |v: &Vec<usize>| {
+            let mut s = v.clone();
+            s.sort_unstable();
+            s[s.len() / 2]
+        };
+        assert!(
+            idle_lost_by.iter().filter(|t| **t <= 5).count() >= 8,
+            "most idle games end within five terms: {idle_lost_by:?}"
+        );
+        assert!(
+            median(&busy_lost_by) >= median(&idle_lost_by),
+            "delivering is never worse than doing nothing: busy {busy_lost_by:?} vs idle {idle_lost_by:?}"
+        );
+    }
+    /// Proposes the Balanced plan in the quarter the campaign is now in, with every minister in favour, and ratifies it.
+    fn open_meeting_and_ratify(c: &mut Campaign, quarter: u8) {
+        let meeting = format!("q{quarter}");
+        let draft = Allocation::draft(50, 40, 10).unwrap();
+        let assess = PreferredAllocation::assess(draft, 100).unwrap();
+        c.apply(player(
+            c,
+            &format!("m{quarter}-propose"),
+            PlayerCommand::Propose {
+                meeting_id: meeting.clone(),
+                allocation: draft,
+            },
+        ))
+        .unwrap();
+        for m in ROLES {
+            let pos = FirstPosition::new(
+                meeting.clone(),
+                c.proposal_version().unwrap(),
+                m,
+                Position::Support,
+                assess,
+                CounterproposalOrigin::Menu("balanced".into()),
+            )
+            .unwrap();
+            c.apply(Action::First(pos)).unwrap();
+        }
+        c.apply(Action::FreezeFinal {
+            command_id: format!("m{quarter}-freeze"),
+        })
+        .unwrap();
+        for m in ROLES {
+            let pos = FinalPosition::new(
+                meeting.clone(),
+                c.proposal_version().unwrap(),
+                m,
+                Position::Support,
+                assess,
+            )
+            .unwrap();
+            let private = (m != Ministry::Finance).then(|| {
+                PrivateEffortDeclaration::new(
+                    meeting.clone(),
+                    m,
+                    EffortPermille::new(1000).unwrap(),
+                )
+                .unwrap()
+            });
+            c.apply(Action::Final(pos, private)).unwrap();
+        }
+        c.apply(player(
+            c,
+            &format!("m{quarter}-ratify"),
+            PlayerCommand::Ratify {
+                meeting_id: meeting,
+                proposal_version: c.proposal_version().unwrap(),
+            },
+        ))
+        .unwrap();
     }
     #[test]
     fn the_free_audit_comes_back_each_term() {

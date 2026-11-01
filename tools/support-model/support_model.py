@@ -9,7 +9,7 @@ reproduced and compared (see docs/decisions/0003-recalibrate-the-support-model.m
     v2  rules p4-england-education-rules-v2   base 3200/2800/3000/2000, clip 40000  (current numbers;
                                               later rules versions added further terms and kept them)
 
-`--check` replays strategies that were played against the real service under each calibration
+The news calendar has its own independent replica, `news_model.py`. `--check` replays strategies that were played against the real service under each calibration
 (captured_runs_v1.json, captured_runs_v2.json) and requires the replica to match the engine's
 reported support to the ppm. Without arguments it prints the election table for both.
 To re-tune: change a number here, read the table, then change the engine constants and re-capture.

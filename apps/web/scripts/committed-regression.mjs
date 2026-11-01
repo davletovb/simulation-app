@@ -66,7 +66,8 @@ const completeSseFrame = (cursor='17') => ({
     proposal:{staff:50,repairs:40,access:10},
     votes:[{ministry:'finance',stage:'first',position:'support'}],
     treasury:{available_credits:100,encumbered_staff:0,encumbered_repairs:0,
-      encumbered_access:0,service_spent:0,audit_spent:0},
+      encumbered_access:0,service_spent:0,audit_spent:0,relief_spent:0},
+    calendar:{upcoming:[],recent:[]},
     decisions:[],news:[],delivery_history:[],
     support:{group_ids:['urban_low','urban_middle','urban_high','rural_low','rural_middle','rural_high'],
       group_ppm:[500000,500000,500000,500000,500000,500000],
@@ -209,6 +210,53 @@ test('a long game carries many allocations and many quarters of history',()=>{
   frame.snapshot.treasury.available_credits = 1000
   frame.snapshot.delivery_history.push({ ...frame.snapshot.delivery_history[0], quarter: 61 })
   assert.equal(validSnapshot(frame,'demo-england'),false)
+})
+
+/** A bad headline announced a quarter ahead, as the engine reports it. */
+const upcoming = (over = {}) => ({
+  quarter: 2, id: 'roof_scare', title: 'Roof scare closes classrooms', summary: 'Surveyors find unsafe ceilings.',
+  source: 'invented', tone: 'bad', effect_ppm: [-9462, -11610, -1250, -36310, -40000, -9996], overall_ppm: -13000,
+  severity: 'minor', relief_cost: 13, relief_cut_pct: 60, paid: null, ...over,
+})
+const landed = (over = {}) => ({
+  quarter: 2, id: 'roof_scare', title: 'Roof scare closes classrooms', summary: 'Surveyors find unsafe ceilings.',
+  source: 'invented', tone: 'bad', effect_ppm: [-3852, -5060, -500, -15448, -16000, -4975], overall_ppm: -5200,
+  surprise: false, responded: true, ...over,
+})
+test('the news calendar is validated, so a malformed headline never reaches the screen',()=>{
+  const withCalendar = calendar => { const f = completeSseFrame(); f.snapshot.quarter = 1; f.snapshot.calendar = calendar; return f }
+  assert.equal(validSnapshot(withCalendar({ upcoming: [upcoming()], recent: [] }),'demo-england'),true)
+  assert.equal(validSnapshot(withCalendar({ upcoming: [upcoming({ relief_cost: null, paid: 13 })], recent: [landed({ quarter: 1 })] }),'demo-england'),true)
+  const good = upcoming({ tone: 'good', severity: 'welcome', relief_cost: null, paid: null, effect_ppm: [15000, 15000, 15000, 15000, 15000, 15000], overall_ppm: 15000 })
+  assert.equal(validSnapshot(withCalendar({ upcoming: [good], recent: [] }),'demo-england'),true)
+  const bad = (name, calendar) => assert.equal(validSnapshot(withCalendar(calendar),'demo-england'),false,name)
+  bad('no calendar at all', undefined)
+  bad('upcoming is not a list', { upcoming: {}, recent: [] })
+  bad('three headlines announced at once', { upcoming: [upcoming(), upcoming({ quarter: 2 }), upcoming({ quarter: 2 })], recent: [] })
+  bad('announced beyond the next quarter', { upcoming: [upcoming({ quarter: 3 })], recent: [] })
+  bad('announced for a quarter already past', { upcoming: [upcoming({ quarter: 0 })], recent: [] })
+  bad('an unknown tone', { upcoming: [upcoming({ tone: 'neutral' })], recent: [] })
+  bad('a bad headline with neither a price nor a payment', { upcoming: [upcoming({ relief_cost: null, paid: null })], recent: [] })
+  bad('a bad headline with both a price and a payment', { upcoming: [upcoming({ relief_cost: 13, paid: 13 })], recent: [] })
+  bad('a price of nothing', { upcoming: [upcoming({ relief_cost: 0 })], recent: [] })
+  bad('good news cannot be answered', { upcoming: [{ ...good, relief_cost: 5 }], recent: [] })
+  bad('an effect beyond the engine\'s cap', { upcoming: [upcoming({ effect_ppm: [-40001, 0, 0, 0, 0, 0] })], recent: [] })
+  bad('five groups instead of six', { upcoming: [upcoming({ effect_ppm: [0, 0, 0, 0, 0] })], recent: [] })
+  bad('an unlabelled source', { upcoming: [upcoming({ source: '' })], recent: [] })
+  bad('good news that was answered', { upcoming: [], recent: [landed({ tone: 'good', responded: true })] })
+  bad('headlines out of order', { upcoming: [], recent: [landed({ quarter: 5 }), landed({ quarter: 3 })] })
+  bad('the same quarter twice', { upcoming: [], recent: [landed({ quarter: 3 }), landed({ quarter: 3 })] })
+  bad('a surprise flag that is not a flag', { upcoming: [], recent: [landed({ surprise: 'yes' })] })
+})
+
+test('credits spent answering headlines are part of the treasury and must be a whole number',()=>{
+  const f = completeSseFrame()
+  f.snapshot.treasury.relief_spent = 13
+  assert.equal(validSnapshot(f,'demo-england'),true)
+  f.snapshot.treasury.relief_spent = 1.5
+  assert.equal(validSnapshot(f,'demo-england'),false)
+  delete f.snapshot.treasury.relief_spent
+  assert.equal(validSnapshot(f,'demo-england'),false,'an older server without the account is refused, not guessed at')
 })
 
 test('the zeroed integrity-failure frame is still accepted, but only that frame may carry zero voter shares',()=>{

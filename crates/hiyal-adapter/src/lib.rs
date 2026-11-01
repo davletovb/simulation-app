@@ -45,9 +45,32 @@ const MANIFEST: &str = include_str!("../../../data/england-school-pilot-v1/manif
 fn sha(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
 }
+/// The seed of a campaign's news calendar (decision 0010): the first eight bytes of a digest of its identity.
+pub fn news_seed(campaign_id: &str) -> u64 {
+    let digest = Sha256::digest(format!("myth-maker-news-calendar:{campaign_id}").as_bytes());
+    let mut bytes = [0_u8; 8];
+    bytes.copy_from_slice(&digest[..8]);
+    u64::from_be_bytes(bytes)
+}
+/// The words of a headline, from the frozen scenario file: `(title, summary)`. The engine only knows the numbers.
+pub fn headline_text(tone: d::news::Tone, index: usize) -> Option<(String, String)> {
+    static TEXT: OnceLock<Option<Value>> = OnceLock::new();
+    let scenario = TEXT
+        .get_or_init(|| serde_json::from_str::<Value>(SCENARIO).ok())
+        .as_ref()?;
+    let key = match tone {
+        d::news::Tone::Bad => "bad",
+        d::news::Tone::Good => "good",
+    };
+    let entry = scenario["news_calendar"][key].get(index)?;
+    Some((
+        entry["title"].as_str()?.to_owned(),
+        entry["summary"].as_str()?.to_owned(),
+    ))
+}
 /// A deliberate, migration-controlled behavior contract, not raw source text.
 /// Bump when P3 rules, parsing, adapters, scenario selection or model policy change.
-pub const RULES_VERSION: &str = "p4-england-education-rules-v5";
+pub const RULES_VERSION: &str = "p4-england-education-rules-v6";
 type FrozenSource = Result<(String, String, [u32; 6]), String>;
 static FROZEN: OnceLock<FrozenSource> = OnceLock::new();
 fn frozen() -> Result<&'static (String, String, [u32; 6]), String> {
@@ -223,6 +246,9 @@ impl GameWorld {
     fn rules(&self) -> Rules {
         Rules {
             q2_repair_cap: Some(8),
+            // Every campaign has its own calendar, fixed by its identity: a replay and a what-if branch (which keeps the
+            // original identity) see the same headlines.
+            news_seed: Some(news_seed(&self.campaign_id)),
             ..Rules::default()
         }
     }
@@ -420,7 +446,11 @@ impl GameWorld {
             (Phase::QuarterOpen, "defer") if self.quarter > 1 && !self.continuation_pending() => {
                 true
             }
-            (Phase::QuarterOpen, "propose" | "order_audit") if !self.continuation_pending() => true,
+            (Phase::QuarterOpen, "propose" | "order_audit" | "respond")
+                if !self.continuation_pending() =>
+            {
+                true
+            }
             (Phase::AmendmentWindow, "amend") => true,
             (Phase::ElectionNight, "begin_term") => true,
             (Phase::FinalPositionsFrozen, "ratify" | "defer")

@@ -1,6 +1,7 @@
 import { BudgetFigures } from '../components/BudgetFigures'
 import { Icon } from '../components/Icon'
-import { FAMILIES, MINISTERS } from '../game'
+import { FAMILIES, MINISTERS, quarterLabel } from '../game'
+import { overallText } from '../news.mjs'
 import { formatDay, formatPpm, formatUtc, humanize, outcomeLabel, pillTone, positionLabel, shortHash, stageLabel } from '../format'
 import { answeredMinistries, positionsFor } from '../positions.mjs'
 import { STEPS, turnState } from '../turn.mjs'
@@ -157,6 +158,23 @@ export function ConnectedCampaignReport() {
       </li>)}
     </ol> : <p className="forecast-empty"><Icon name="banner" size={20} />
       <span>No decision has been made yet.</span></p>}
+
+    <h3 className="section-label report-gap">The news so far</h3>
+    {snapshot.calendar.recent.length ? <ul className="ledger news-log">
+      {[...snapshot.calendar.recent].reverse().map(h => <li key={h.quarter} className={`ledger-item headline is-${h.tone}`}>
+        <span className="tag">{quarterLabel(h.quarter).label}</span>
+        <div className="ledger-body">
+          <div className="ledger-title"><strong>{h.title}</strong></div>
+          <p className="ledger-votes">{h.summary}</p>
+          <p className="ledger-votes">
+            {h.surprise ? 'Nobody saw it coming. ' : 'It was announced a quarter ahead. '}
+            {h.responded ? 'You answered it. ' : ''}
+            <strong>{overallText(h.overall_ppm)}</strong>.
+          </p>
+        </div>
+      </li>)}
+    </ul> : <p className="forecast-empty"><Icon name="banner" size={20} />
+      <span>No headline has landed yet. They are invented, for the game.</span></p>}
 
     <h3 className="section-label report-gap">Progress reports from the ministers</h3>
     {snapshot.delivery_history.length ? (

@@ -1,0 +1,65 @@
+import test from 'node:test'
+import assert from 'node:assert/strict'
+import { canRespond, justIn, landsText, overallText, reliefText, whoItHits } from '../src/news.mjs'
+
+const ids = ['urban_low', 'urban_middle', 'urban_high', 'rural_low', 'rural_middle', 'rural_high']
+const bad = (over = {}) => ({ tone: 'bad', relief_cost: 13, relief_cut_pct: 60, paid: null, ...over })
+
+test('who a headline hits: the groups taking at least half as much as the hardest hit', () => {
+  // Roof scare (as the engine computed it): the rural groups are hit hardest, the urban ones lightly.
+  assert.equal(whoItHits([-9462, -11610, -1250, -36310, -40000, -9996], ids), 'Rural, low income; Rural, middle income')
+  assert.equal(whoItHits([-5000, -5000, -5000, -5000, -5000, -5000], ids), 'Every group')
+  assert.equal(whoItHits([0, 0, 0, -5000, -5000, -5000], ids), 'Rural, low income; Rural, middle income; Rural, high income')
+  assert.equal(whoItHits([0, 0, 0, 0, 0, 0], ids), 'Nobody much')
+  // Good news reads the same way, by size of the gain.
+  assert.equal(whoItHits([0, 0, 0, 25000, 25000, 25000], ids), 'Rural, low income; Rural, middle income; Rural, high income')
+})
+
+test('the effect on overall support is said in points, honestly approximate before it lands', () => {
+  assert.equal(overallText(-13000, { approximate: true }), 'about −1.3 points overall')
+  assert.equal(overallText(-13000), '−1.3 points overall')
+  assert.equal(overallText(15000), '+1.5 points overall')
+  assert.equal(overallText(0), 'no change overall')
+  assert.equal(overallText(300, { approximate: true }), 'about no change overall')
+})
+
+test('a headline lands at the end of this quarter or the next', () => {
+  assert.equal(landsText(8, 8), 'at the end of this quarter')
+  assert.equal(landsText(9, 8), 'at the end of next quarter')
+})
+
+test('Respond is offered only for an announced bad headline, at the start of a quarter, with the credits to pay', () => {
+  const ok = { available: 40, step: 'plan', busy: false }
+  assert.deepEqual(canRespond(bad(), ok), { ok: true, why: null })
+  // Never for good news, for a headline already answered, or one with no price.
+  assert.deepEqual(canRespond(bad({ tone: 'good', relief_cost: null }), ok), { ok: false, why: null })
+  assert.deepEqual(canRespond(bad({ paid: 13, relief_cost: null }), ok), { ok: false, why: null })
+  assert.deepEqual(canRespond(bad({ relief_cost: null }), ok), { ok: false, why: null })
+  // Not once the quarter's meeting is under way: the player is told why.
+  for (const step of ['reactions', 'revise', 'vote', 'decide', 'end']) {
+    const r = canRespond(bad(), { ...ok, step })
+    assert.equal(r.ok, false)
+    assert.match(r.why, /start of a quarter/)
+  }
+  // Not without the credits, and the shortfall is stated.
+  const poor = canRespond(bad(), { ...ok, available: 12 })
+  assert.equal(poor.ok, false)
+  assert.match(poor.why, /12 credits left to spend and an answer costs 13/)
+  // Exactly enough is enough.
+  assert.equal(canRespond(bad(), { ...ok, available: 13 }).ok, true)
+  // While another move is being sent, the button waits, without scolding.
+  assert.deepEqual(canRespond(bad(), { ...ok, busy: true }), { ok: false, why: null })
+})
+
+test('the price and the benefit of an answer are stated plainly', () => {
+  assert.equal(reliefText(bad()), 'Answering costs 13 credits that will not become delivered work, and takes 60% off the loss.')
+  assert.match(reliefText(bad({ relief_cost: 1 })), /costs 1 credit that/)
+  assert.equal(reliefText(bad({ relief_cost: null })), '')
+})
+
+test('"just in" is this quarter and the one before', () => {
+  const recent = [3, 5, 6, 6].map(quarter => ({ quarter }))
+  assert.deepEqual(justIn(recent, 7), [{ quarter: 6 }, { quarter: 6 }])
+  assert.deepEqual(justIn(recent, 6), [{ quarter: 5 }, { quarter: 6 }, { quarter: 6 }])
+  assert.deepEqual(justIn([], 1), [])
+})

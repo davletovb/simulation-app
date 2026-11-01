@@ -3,7 +3,7 @@
   "apply_rule": "Copy baseline state; for Q2 set repair cap to 8; never mutate raw pack or baseline",
   "baseline_pack_sha256": "578577433018638561b4ba08cbc8aff3049a4a09154a6faec38974065517a901",
   "baseline_repair_cap": 10,
-  "baseline_scenario_sha256": "2a7285dd5579cad9dc27699ce5f7131b303384bd4967bffd0f18dd2314362246",
+  "baseline_scenario_sha256": "2008fadfd7ff9d9f1ca5acdf311d21f150d0d741ff7ab2571d9c05f301db751e",
   "evidence_modified": false,
   "overlay_id": "fictional_repair_disruption",
   "overlay_repair_cap": 8,

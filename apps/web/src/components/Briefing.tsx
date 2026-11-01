@@ -62,6 +62,15 @@ export function Briefing({ open, onClose }: { open: boolean; onClose: () => void
             can be re-planned: a new plan replaces it.</p>
         </div>
 
+        <div className="briefing-rule">
+          <Icon name="spark" size={20} />
+          <p><strong>The news will test you.</strong>{' '}
+            Each term brings a few invented headlines. Good ones lift support; bad ones take some of it back, and the
+            higher you stand, the more they take. Most are announced a quarter ahead, and at the start of a quarter you can
+            pay credits to take 60% off a bad one: credits that will not become delivered work. A few arrive unannounced.
+            The first term brings good news only.</p>
+        </div>
+
         <h3 className="section-label">You spend it on three things</h3>
         <ul className="briefing-families">
           {FAMILIES.map(f => (

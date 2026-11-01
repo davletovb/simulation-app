@@ -1046,23 +1046,45 @@ mod tests {
         std::fs::remove_dir_all(path).unwrap();
     }
     #[tokio::test]
-    async fn a_won_game_goes_on_into_further_terms_and_replays_identically() {
+    async fn a_game_goes_on_for_as_long_as_it_is_won_then_ends_in_a_loss_and_replays_identically() {
         let path = temp("further-terms");
         let hash;
+        let terms_won;
         {
             let mut trial = create(&path, "scripted-pilot", 44).unwrap();
-            run_until_term_end(&mut trial).await.unwrap();
-            assert_eq!(trial.store.world().phase, Phase::ElectionNight);
-            assert_eq!(trial.store.world().quarter, 6);
-            // A generic step is the scripted player, who begins the next term; it is the HTTP API that
-            // refuses it on election night. A won game is never "closed": it waits for the next term.
-            advance_slice(&mut trial).await.unwrap();
-            assert_eq!(trial.store.world().quarter, 7);
-            run_until_term_end(&mut trial).await.unwrap();
+            // The scripted player plans once, in quarter 1, and then does nothing. With the news calendar that cannot
+            // last: it wins the first (quiet) term, keeps going while it keeps winning, and is voted out in the end.
+            let mut terms = 0;
+            loop {
+                run_until_term_end(&mut trial).await.unwrap();
+                terms += 1;
+                if trial.store.world().is_closed() {
+                    break;
+                }
+                assert_eq!(trial.store.world().phase, Phase::ElectionNight);
+                assert_eq!(usize::from(trial.store.world().quarter), terms * 6);
+                // A generic step is the scripted player, who begins the next term; it is the HTTP API that refuses it.
+                advance_slice(&mut trial).await.unwrap();
+                assert_eq!(usize::from(trial.store.world().quarter), terms * 6 + 1);
+                assert!(
+                    terms < 10,
+                    "a player who does nothing cannot last ten terms"
+                );
+            }
             let world = trial.store.world();
-            assert!(!world.is_closed());
-            assert_eq!(world.phase, Phase::ElectionNight);
-            assert_eq!(world.quarter, 12);
+            let campaign = world.fold().unwrap();
+            let elections = campaign.elections();
+            assert_eq!(elections.len(), terms);
+            assert!(
+                elections[0].won,
+                "the quiet first term is won by the opening plan"
+            );
+            assert!(elections[..terms - 1].iter().all(|e| e.won));
+            assert!(
+                !elections[terms - 1].won,
+                "the game ends in a lost election"
+            );
+            assert!(terms >= 2, "it lasted past the first term");
             let count = |kind: &str| {
                 world
                     .actions
@@ -1070,23 +1092,29 @@ mod tests {
                     .filter(|a| a.payload["command"]["kind"] == kind)
                     .count()
             };
-            assert_eq!(count("begin_term"), 1);
+            assert_eq!(count("begin_term"), terms - 1);
             assert_eq!(
                 world
                     .actions
                     .iter()
                     .filter(|a| a.kind == ActionKind::MinisterAction)
                     .count(),
-                72
+                terms * 36
             );
-            let campaign = world.fold().unwrap();
-            let elections = campaign.elections();
-            assert_eq!(elections.len(), 2);
-            assert!(elections[0].won && elections[1].won);
-            assert_eq!(elections[1].quarter.value(), 12);
+            // Headlines landed along the way, none of them bad in the first term.
+            let landed = campaign.landed_headlines();
+            assert!(landed.len() >= 2);
+            assert!(
+                landed
+                    .iter()
+                    .filter(|l| l.scheduled.quarter.term() == 1)
+                    .all(|l| l.scheduled.tone == myth_domain::news::Tone::Good)
+            );
+            terms_won = terms - 1;
             hash = world.private_state_sha256.clone();
         }
-        // The whole twelve-quarter journal replays to the same private state.
+        assert!(terms_won >= 1);
+        // The whole journal, headlines included, replays to the same private state.
         assert_eq!(inspect(&path).unwrap().0, hash);
         assert_eq!(
             resume(&path, true)

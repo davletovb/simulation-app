@@ -162,11 +162,13 @@ export function legacy(snapshot) {
   const t = snapshot.treasury
   const unfinished = t.encumbered_staff + t.encumbered_repairs + t.encumbered_access
   const delivered = t.service_spent
-  const total = delivered + unfinished + t.available_credits + t.audit_spent
+  // Credits spent answering headlines buy votes, not delivered work, so they count against the legacy (decision 0010).
+  const relief = t.relief_spent ?? 0
+  const total = delivered + unfinished + t.available_credits + t.audit_spent + relief
   const share = total === 0 ? 0 : (delivered / total) * 100
   const [key, label] = share >= 90 ? ['delivered', 'Mandate delivered']
     : share >= 70 ? ['partly', 'Partly delivered']
     : share >= 40 ? ['short', 'Falling short']
     : ['missed', 'Mandate missed']
-  return { delivered, unfinished, unspent: t.available_credits, audits: t.audit_spent, total, share, key, label }
+  return { delivered, unfinished, unspent: t.available_credits, audits: t.audit_spent, relief, total, share, key, label }
 }

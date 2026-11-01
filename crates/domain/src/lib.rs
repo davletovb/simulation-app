@@ -7,6 +7,7 @@
 
 pub mod audit;
 pub mod fixed;
+pub mod news;
 pub mod preview;
 pub mod reducer;
 pub mod scripted;
@@ -412,6 +413,10 @@ pub enum LedgerMove {
     SpendAudit {
         credits: u16,
     },
+    /// Credits paid to soften a headline (decision 0010). They never become delivered work.
+    SpendRelief {
+        credits: u16,
+    },
     /// A new term's allocation: the only movement that brings credits into the game.
     Grant {
         credits: u16,
@@ -424,7 +429,8 @@ impl LedgerMove {
             | Self::Reserve { credits, .. }
             | Self::Release { credits, .. }
             | Self::SpendService { credits, .. }
-            | Self::SpendAudit { credits } => credits,
+            | Self::SpendAudit { credits }
+            | Self::SpendRelief { credits } => credits,
         }
     }
 }
@@ -450,8 +456,10 @@ pub struct Treasury {
     encumbered_access: u16,
     service_spent: u16,
     audit_spent: u16,
+    /// Credits spent answering headlines (decision 0010).
+    relief_spent: u16,
     /// Every credit the player has ever been given: the opening 100, plus a fresh allocation at the start
-    /// of each later term. The six accounts always add up to exactly this.
+    /// of each later term. The seven accounts always add up to exactly this.
     granted: u16,
 }
 impl Treasury {
@@ -463,6 +471,7 @@ impl Treasury {
             encumbered_access: 0,
             service_spent: 0,
             audit_spent: 0,
+            relief_spent: 0,
             granted: PILOT_CREDITS,
         }
     }
@@ -485,7 +494,8 @@ impl Treasury {
             audit_spent,
         )
     }
-    /// A treasury that has been granted `granted` credits in total (100 per term played).
+    /// A treasury that has been granted `granted` credits in total (100 per term played), with nothing yet
+    /// spent on answering headlines.
     pub fn from_parts_granted(
         granted: u16,
         available: u16,
@@ -495,6 +505,29 @@ impl Treasury {
         service_spent: u16,
         audit_spent: u16,
     ) -> Result<Self, ContractError> {
+        Self::from_parts_all(
+            granted,
+            available,
+            encumbered_staff,
+            encumbered_repairs,
+            encumbered_access,
+            service_spent,
+            audit_spent,
+            0,
+        )
+    }
+    /// Every account, including what was spent answering headlines.
+    #[allow(clippy::too_many_arguments)]
+    pub fn from_parts_all(
+        granted: u16,
+        available: u16,
+        encumbered_staff: u16,
+        encumbered_repairs: u16,
+        encumbered_access: u16,
+        service_spent: u16,
+        audit_spent: u16,
+        relief_spent: u16,
+    ) -> Result<Self, ContractError> {
         let result = Self {
             available,
             encumbered_staff,
@@ -502,6 +535,7 @@ impl Treasury {
             encumbered_access,
             service_spent,
             audit_spent,
+            relief_spent,
             granted,
         };
         result.validate()?;
@@ -520,6 +554,10 @@ impl Treasury {
     pub const fn audit_spent(self) -> u16 {
         self.audit_spent
     }
+    /// Credits spent answering headlines.
+    pub const fn relief_spent(self) -> u16 {
+        self.relief_spent
+    }
     pub fn encumbered(self, family: PolicyFamily) -> u16 {
         match family {
             PolicyFamily::Staffing => self.encumbered_staff,
@@ -535,6 +573,7 @@ impl Treasury {
             self.encumbered_access,
             self.service_spent,
             self.audit_spent,
+            self.relief_spent,
         ]
         .iter()
         .try_fold(0_u32, |acc, value| acc.checked_add(u32::from(*value)))
@@ -573,6 +612,7 @@ impl Treasury {
         let mut access = self.encumbered_access;
         let mut service = self.service_spent;
         let mut audit = self.audit_spent;
+        let mut relief = self.relief_spent;
         let mut granted = self.granted;
 
         match movement {
@@ -619,8 +659,18 @@ impl Treasury {
                     .checked_add(credits)
                     .ok_or(ContractError::ArithmeticOverflow)?;
             }
+            LedgerMove::SpendRelief { .. } => {
+                available = available
+                    .checked_sub(credits)
+                    .ok_or(ContractError::InsufficientAvailableFunds)?;
+                relief = relief
+                    .checked_add(credits)
+                    .ok_or(ContractError::ArithmeticOverflow)?;
+            }
         }
-        Treasury::from_parts_granted(granted, available, staff, repairs, access, service, audit)
+        Treasury::from_parts_all(
+            granted, available, staff, repairs, access, service, audit, relief,
+        )
     }
     /// Compatibility primitive; delegates to the single checked movement path.
     /// P3 must enforce authority, unique payout and scope identity separately.
@@ -1192,6 +1242,10 @@ pub enum PlayerCommand {
     AdvanceQuarter,
     /// Begin the next term after winning the election that ended the last one.
     BeginTerm,
+    /// Pay to soften an announced bad headline that lands in `headline_quarter` (decision 0010).
+    Respond {
+        headline_quarter: Quarter,
+    },
 }
 
 impl PlayerCommand {

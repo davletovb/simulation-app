@@ -35,6 +35,13 @@ export interface Snapshot {
     encumbered_access: number
     service_spent: number
     audit_spent: number
+    /** Credits spent answering headlines. */
+    relief_spent: number
+  }
+  /** The news calendar: invented headlines announced a quarter ahead (surprises are not), and the ones that have landed. */
+  calendar: {
+    upcoming: Upcoming[]
+    recent: Landed[]
   }
   decisions: {
     quarter: number; outcome: string; allocation: { staff: number; repairs: number; access: number } | null
@@ -103,6 +110,38 @@ export interface Snapshot {
   assumption: string
   mode: 'offline_scripted'
 }
+/** A headline the player has been told about. It lands at the end of `quarter`. */
+export interface Upcoming {
+  quarter: number
+  id: string
+  title: string
+  summary: string
+  /** `invented` today; real-world items will carry another value and are always labelled. */
+  source: string
+  tone: 'bad' | 'good'
+  /** What it would do to each group's support if it landed now (ppm; negative takes support away). */
+  effect_ppm: number[]
+  overall_ppm: number
+  severity: 'serious' | 'minor' | 'welcome'
+  /** What answering it would cost now; absent for good news and once it has been answered. */
+  relief_cost: number | null
+  relief_cut_pct: number
+  paid: number | null
+}
+export interface Landed {
+  quarter: number
+  id: string
+  title: string
+  summary: string
+  source: string
+  tone: 'bad' | 'good'
+  effect_ppm: number[]
+  overall_ppm: number
+  /** Nobody was told in advance. */
+  surprise: boolean
+  /** An answer softened it. */
+  responded: boolean
+}
 export interface Operation {
   campaign_id: string
   command_id: string
@@ -120,6 +159,7 @@ export type PlayerCommand =
   | { kind: 'advance_slice' | 'continue_quarter' | 'finish_continuation' | 'begin_term' }
   | { kind: 'propose' | 'amend'; allocation: Allocation }
   | { kind: 'decide'; ratify: boolean }
+  | { kind: 'respond'; headline_quarter: number }
   | { kind: 'order_audit'; family: AuditFamily; inspected_quarter: number }
 interface Pending { id: string; version: string; action: PlayerCommand }
 
@@ -154,6 +194,9 @@ function failureFor(action: PlayerCommand | undefined): string {
   }
   if (action?.kind === 'order_audit') {
     return 'The audit couldn’t be ordered. Only the first audit of each term is free; each later one costs 2 credits from “Left to spend”, which must be at least 2.'
+  }
+  if (action?.kind === 'respond') {
+    return 'That headline couldn’t be answered. It may already have been answered, or you may not have enough credits left.'
   }
   if (action?.kind === 'begin_term') {
     return 'The next term couldn’t begin. It can only start from election night after a win, and only once.'

@@ -165,6 +165,9 @@ pub struct Treasury {
     pub encumbered_access: u16,
     pub service_spent: u16,
     pub audit_spent: u16,
+    /// Credits spent answering headlines (decision 0010). Absent in data written before the calendar existed.
+    #[serde(default)]
+    pub relief_spent: u16,
     /// Every credit granted so far (100 per term begun). Absent in data written before a second term
     /// existed, which always had exactly the opening 100.
     #[serde(default = "opening_grant")]
@@ -182,6 +185,7 @@ impl From<d::Treasury> for Treasury {
             encumbered_access: t.encumbered(d::PolicyFamily::Access),
             service_spent: t.service_spent(),
             audit_spent: t.audit_spent(),
+            relief_spent: t.relief_spent(),
             granted: t.granted(),
         }
     }
@@ -189,7 +193,7 @@ impl From<d::Treasury> for Treasury {
 impl TryFrom<Treasury> for d::Treasury {
     type Error = WireError;
     fn try_from(t: Treasury) -> Result<Self, WireError> {
-        Ok(Self::from_parts_granted(
+        Ok(Self::from_parts_all(
             t.granted,
             t.available,
             t.encumbered_staff,
@@ -197,6 +201,7 @@ impl TryFrom<Treasury> for d::Treasury {
             t.encumbered_access,
             t.service_spent,
             t.audit_spent,
+            t.relief_spent,
         )?)
     }
 }
@@ -540,6 +545,7 @@ pub enum Move {
     Release { family: Family, credits: u16 },
     SpendService { family: Family, credits: u16 },
     SpendAudit { credits: u16 },
+    SpendRelief { credits: u16 },
     Grant { credits: u16 },
 }
 impl From<d::LedgerMove> for Move {
@@ -558,6 +564,7 @@ impl From<d::LedgerMove> for Move {
                 credits,
             },
             d::LedgerMove::SpendAudit { credits } => Self::SpendAudit { credits },
+            d::LedgerMove::SpendRelief { credits } => Self::SpendRelief { credits },
             d::LedgerMove::Grant { credits } => Self::Grant { credits },
         }
     }
@@ -578,6 +585,7 @@ impl From<Move> for d::LedgerMove {
                 credits,
             },
             Move::SpendAudit { credits } => Self::SpendAudit { credits },
+            Move::SpendRelief { credits } => Self::SpendRelief { credits },
             Move::Grant { credits } => Self::Grant { credits },
         }
     }
@@ -976,6 +984,66 @@ mod p2_frozen_pack_tests {
                     i64::try_from(myth_domain::reducer::INCOME_PERCENT[n][i]).ok(),
                     "income multiplier drift: {name}/{key}"
                 );
+            }
+        }
+        // The news calendar (decision 0010): the file carries the words, the engine carries the numbers, and they
+        // must say the same.
+        let news = &authored["news_calendar"];
+        let n = |v: &serde_json::Value| v.as_u64().unwrap();
+        assert_eq!(
+            n(&news["quiet_term_headlines"]),
+            u64::from(myth_domain::news::QUIET_TERM_HEADLINES)
+        );
+        assert_eq!(
+            n(&news["headlines_per_term"]),
+            u64::from(myth_domain::news::HEADLINES_PER_TERM)
+        );
+        assert_eq!(n(&news["good_percent"]), myth_domain::news::GOOD_PERCENT);
+        assert_eq!(
+            n(&news["surprise_one_in"]),
+            myth_domain::news::SURPRISE_ONE_IN
+        );
+        let severity = &news["severity"];
+        for (key, value) in [
+            ("base_ppm", myth_domain::news::BASE_PPM),
+            ("base_step_pct", myth_domain::news::BASE_STEP_PCT),
+            ("base_cap_pct", myth_domain::news::BASE_CAP_PCT),
+            ("share_pct", myth_domain::news::SHARE_PCT),
+            ("share_step_pct", myth_domain::news::SHARE_STEP_PCT),
+            ("share_cap_pct", myth_domain::news::SHARE_CAP_PCT),
+        ] {
+            assert_eq!(
+                n(&severity[key]),
+                u64::from(value),
+                "news severity drift: {key}"
+            );
+        }
+        assert_eq!(
+            n(&news["relief"]["credits_per_point"]),
+            u64::from(myth_domain::news::RELIEF_CREDITS_PER_POINT)
+        );
+        assert_eq!(
+            news["relief"]["cut_pct"].as_i64(),
+            Some(i64::from(myth_domain::news::RELIEF_CUT_PCT))
+        );
+        for (key, deck, field) in [
+            ("bad", &myth_domain::news::BAD[..], "exposure_pct"),
+            ("good", &myth_domain::news::GOOD[..], "gain_ppm"),
+        ] {
+            let listed = news[key].as_array().unwrap();
+            assert_eq!(listed.len(), deck.len(), "news deck size drift: {key}");
+            for (entry, headline) in listed.iter().zip(deck) {
+                assert_eq!(entry["id"].as_str(), Some(headline.id));
+                let effect: Vec<u64> = entry[field]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|v| v.as_u64().unwrap())
+                    .collect();
+                let engine: Vec<u64> = headline.effect.iter().map(|v| u64::from(*v)).collect();
+                assert_eq!(effect, engine, "news effect drift: {}", headline.id);
+                assert!(!entry["title"].as_str().unwrap().is_empty());
+                assert!(!entry["summary"].as_str().unwrap().is_empty());
             }
         }
         let board = &authored["board"];

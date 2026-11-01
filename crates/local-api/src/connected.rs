@@ -17,7 +17,7 @@ use myth_domain as d;
 use myth_domain::PolicyFamily;
 use myth_domain::reducer::{ELECTION_HELD_ABOVE_PPM, ELECTION_MIN_SUPPORT_PPM};
 use myth_hiyal_adapter::{
-    ActionKind, GameWorld,
+    ActionKind, GameWorld, headline_text,
     orchestrator::{
         GameTrial, advance_slice, advance_unmodified_quarter, create_campaign, inspect, resume,
     },
@@ -99,6 +99,10 @@ pub enum CommandKind {
     },
     /// After a won election, start the next term. Never implied by a generic advance.
     BeginTerm,
+    /// Pay to soften an announced bad headline that lands in `headline_quarter` (decision 0010).
+    Respond {
+        headline_quarter: u8,
+    },
 }
 impl CommandKind {
     fn body(&self, world: &GameWorld) -> Result<Option<Value>, String> {
@@ -128,6 +132,10 @@ impl CommandKind {
             })),
             Self::Decide { ratify: false } => Some(json!({"kind":"defer"})),
             Self::BeginTerm => Some(json!({"kind":"begin_term"})),
+            Self::Respond { headline_quarter } => Some(json!({
+                "kind": "respond",
+                "headline_quarter": headline_quarter,
+            })),
             Self::OrderAudit {
                 family,
                 inspected_quarter,
@@ -311,6 +319,8 @@ pub struct PublicTreasury {
     pub encumbered_access: u16,
     pub service_spent: u16,
     pub audit_spent: u16,
+    /// Credits spent answering headlines (decision 0010).
+    pub relief_spent: u16,
 }
 /// Only public, explicitly recorded player decisions are projected. The
 /// complete private P3 world, latent support, actor beliefs and efforts are
@@ -347,6 +357,54 @@ pub struct PublicNews {
     pub title: String,
     pub summary: String,
     pub url: Option<String>,
+}
+/// A headline from the news calendar, announced a quarter ahead (decision 0010). Surprises are never listed here.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct PublicUpcoming {
+    /// The quarter it lands in, at the end of that quarter.
+    pub quarter: u8,
+    pub id: String,
+    pub title: String,
+    pub summary: String,
+    /// `invented` today; real-world items will use another value (they are labelled, never mixed in unmarked).
+    pub source: String,
+    /// `bad` or `good`.
+    pub tone: String,
+    /// What it would do to each group's support if it landed now, in ppm (negative takes support away).
+    pub effect_ppm: [i32; 6],
+    /// The same, weighted by each group's share of the voters: the effect on overall support.
+    pub overall_ppm: i32,
+    /// `serious` (takes two points or more of overall support), `minor`, or `welcome` for good news.
+    pub severity: String,
+    /// What a response would cost now, in credits. Absent for good news and once a response has been paid.
+    pub relief_cost: Option<u16>,
+    /// How much of every loss a response takes off, in percent.
+    pub relief_cut_pct: u8,
+    /// Credits already paid to answer it, if they were.
+    pub paid: Option<u16>,
+}
+/// A headline that has landed.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct PublicLanded {
+    pub quarter: u8,
+    pub id: String,
+    pub title: String,
+    pub summary: String,
+    pub source: String,
+    pub tone: String,
+    /// What it did to each group's support, after any response.
+    pub effect_ppm: [i32; 6],
+    pub overall_ppm: i32,
+    /// Nobody was told in advance.
+    pub surprise: bool,
+    /// A response softened it.
+    pub responded: bool,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct PublicCalendar {
+    pub upcoming: Vec<PublicUpcoming>,
+    /// Every headline that has landed, oldest first.
+    pub recent: Vec<PublicLanded>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -646,6 +704,7 @@ pub struct PublicView {
     pub term: u8,
     pub term_quarters: u8,
     pub news: Vec<PublicNews>,
+    pub calendar: PublicCalendar,
     pub comparison: PublicComparison,
     pub evidence: PublicEvidence,
     pub outcome: Option<String>,
@@ -852,6 +911,7 @@ fn capture(trial: &GameTrial) -> Result<PublicView, String> {
         election.weighted_support_ppm,
         election.blocs_held_ppm,
     );
+    let calendar = public_calendar(&campaign)?;
     let fiscal = PublicTreasury {
         available_credits: treasury.available(),
         encumbered_staff: treasury.encumbered(PolicyFamily::Staffing),
@@ -859,6 +919,7 @@ fn capture(trial: &GameTrial) -> Result<PublicView, String> {
         encumbered_access: treasury.encumbered(PolicyFamily::Access),
         service_spent: treasury.service_spent(),
         audit_spent: treasury.audit_spent(),
+        relief_spent: treasury.relief_spent(),
     };
     Ok(PublicView{
         schema_version:1,
@@ -881,6 +942,7 @@ fn capture(trial: &GameTrial) -> Result<PublicView, String> {
         term: quarter_now.term(),
         term_quarters: d::TERM_QUARTERS,
         news: frozen_news(&world.source_cutoff_utc)?,
+        calendar,
         comparison: PublicComparison {
             mode: "primary_campaign".into(),
             source_campaign_id: None,
@@ -893,6 +955,70 @@ fn capture(trial: &GameTrial) -> Result<PublicView, String> {
         assumption:"Synthetic education-delivery rules; scripted cabinet, not live ministers or empirical predictions".into(),
         mode:"offline_scripted",
     })
+}
+/// What the news calendar shows (decision 0010): headlines announced a quarter ahead with their price, and every headline
+/// that has landed. Words come from the frozen scenario file; the engine only knows numbers.
+fn public_calendar(campaign: &myth_domain::reducer::Campaign) -> Result<PublicCalendar, String> {
+    let weights = *campaign.world().cohort_weights().parts_ppm();
+    let overall = |shock: &[i32; 6]| -> Result<i32, String> {
+        let weighted: i64 = shock
+            .iter()
+            .zip(weights.iter())
+            .map(|(s, w)| i64::from(*s) * i64::from(*w))
+            .sum();
+        i32::try_from(weighted / 1_000_000).map_err(|_| "headline effect out of range".to_string())
+    };
+    let words = |s: &d::news::Scheduled| {
+        headline_text(s.tone, s.index).ok_or_else(|| "headline text missing".to_string())
+    };
+    let tone = |t: d::news::Tone| match t {
+        d::news::Tone::Bad => "bad".to_string(),
+        d::news::Tone::Good => "good".to_string(),
+    };
+    let mut upcoming = vec![];
+    for up in campaign.upcoming_headlines() {
+        let (title, summary) = words(&up.scheduled)?;
+        let overall_ppm = overall(&up.expected)?;
+        upcoming.push(PublicUpcoming {
+            quarter: up.scheduled.quarter.value(),
+            id: up.scheduled.headline().id.to_owned(),
+            title,
+            summary,
+            source: "invented".into(),
+            tone: tone(up.scheduled.tone),
+            effect_ppm: up.expected,
+            overall_ppm,
+            severity: if up.scheduled.tone == d::news::Tone::Good {
+                "welcome"
+            } else if overall_ppm <= -20_000 {
+                "serious"
+            } else {
+                "minor"
+            }
+            .into(),
+            relief_cost: up.relief_cost,
+            relief_cut_pct: u8::try_from(d::news::RELIEF_CUT_PCT)
+                .map_err(|_| "cut out of range")?,
+            paid: up.answered,
+        });
+    }
+    let mut recent = vec![];
+    for landed in campaign.landed_headlines() {
+        let (title, summary) = words(&landed.scheduled)?;
+        recent.push(PublicLanded {
+            quarter: landed.scheduled.quarter.value(),
+            id: landed.scheduled.headline().id.to_owned(),
+            title,
+            summary,
+            source: "invented".into(),
+            tone: tone(landed.scheduled.tone),
+            effect_ppm: landed.shock,
+            overall_ppm: overall(&landed.shock)?,
+            surprise: landed.scheduled.surprise,
+            responded: landed.responded,
+        });
+    }
+    Ok(PublicCalendar { upcoming, recent })
 }
 /// Hiyal's original campaign/trial identity is preserved in the journal;
 /// the API's logical branch ID is distinct and scopes commands/SSE.
@@ -1190,6 +1316,7 @@ fn schedule(owner: Arc<Owner>) {
                             encumbered_access: 0,
                             service_spent: 0,
                             audit_spent: 0,
+                            relief_spent: 0,
                         },
                         decisions: vec![],
                         delivery_history: vec![],
@@ -1204,6 +1331,10 @@ fn schedule(owner: Arc<Owner>) {
                         term: 1,
                         term_quarters: d::TERM_QUARTERS,
                         news: vec![],
+                        calendar: PublicCalendar {
+                            upcoming: vec![],
+                            recent: vec![],
+                        },
                         comparison: PublicComparison {
                             mode: "verification_failed".into(),
                             source_campaign_id: None,
@@ -1398,6 +1529,33 @@ async fn command(
             StatusCode::CONFLICT,
             "cannot repeat continuation choice",
         ));
+    }
+    if let CommandKind::Respond { headline_quarter } = request.kind {
+        // Refuse here, with a reason, anything the engine would only fail later: no such announced headline, one already
+        // answered, or not enough credits.
+        let campaign = engine
+            .trial
+            .store
+            .world()
+            .fold()
+            .map_err(|_| status(StatusCode::CONFLICT, "campaign state unavailable"))?;
+        let quote = campaign
+            .upcoming_headlines()
+            .into_iter()
+            .find(|u| u.scheduled.quarter.value() == headline_quarter)
+            .and_then(|u| u.relief_cost)
+            .ok_or_else(|| {
+                status(
+                    StatusCode::CONFLICT,
+                    "no announced headline to answer for that quarter",
+                )
+            })?;
+        if quote > campaign.world().treasury().available() {
+            return Err(status(
+                StatusCode::CONFLICT,
+                "not enough credits to answer that headline",
+            ));
+        }
     }
     if let Some(body) = request
         .kind
@@ -2883,7 +3041,8 @@ mod tests {
                     + u32::from(t.encumbered_repairs)
                     + u32::from(t.encumbered_access)
                     + u32::from(t.service_spent)
-                    + u32::from(t.audit_spent),
+                    + u32::from(t.audit_spent)
+                    + u32::from(t.relief_spent),
                 200
             );
             saved_hash = inspect(&engine.trial.store.dir).unwrap().0;
@@ -3040,16 +3199,53 @@ mod tests {
         // Expected values come from tools/support-model, an independent implementation.
         assert_eq!(view.election.status, "won");
         assert_eq!(view.election.term, 1);
+        // The news calendar is part of it (decision 0010): this campaign's first term brings two good headlines. The numbers
+        // are those of tools/support-model/news_model.py, which repeats the schedule, the shocks and the arithmetic.
         assert_eq!(
             view.election.settled_group_ppm,
-            [571_800, 602_000, 472_200, 579_240, 615_600, 491_960]
+            [583_800, 614_000, 484_200, 616_240, 652_600, 528_960]
         );
-        assert_eq!(view.election.weighted_support_ppm, 559_584);
-        assert_eq!(view.election.blocs_held_ppm, 730_000);
+        assert_eq!(view.election.weighted_support_ppm, 576_584);
+        assert_eq!(view.election.blocs_held_ppm, 780_000);
         // Before the election the last quarter's response has not landed yet.
         assert_eq!(
             view.support.group_ppm,
-            [570_120, 591_600, 472_280, 571_536, 598_080, 483_824]
+            [582_120, 603_600, 484_280, 608_536, 635_080, 520_824]
+        );
+        let landed: Vec<_> = view
+            .calendar
+            .recent
+            .iter()
+            .map(|h| {
+                (
+                    h.quarter,
+                    h.id.as_str(),
+                    h.tone.as_str(),
+                    h.surprise,
+                    h.responded,
+                )
+            })
+            .collect();
+        assert_eq!(
+            landed,
+            [
+                (5, "recruitment_up", "good", false, false),
+                (6, "volunteer_surge", "good", false, false)
+            ]
+        );
+        assert!(
+            view.calendar
+                .recent
+                .iter()
+                .all(|h| h.source == "invented" && !h.title.is_empty())
+        );
+        assert_eq!(
+            view.calendar.recent[1].effect_ppm,
+            [0, 0, 0, 25_000, 25_000, 25_000]
+        );
+        assert!(
+            view.calendar.upcoming.is_empty(),
+            "nothing is announced on election night"
         );
         for i in 0..6 {
             assert_eq!(
@@ -3068,7 +3264,7 @@ mod tests {
         assert_eq!(view.election.min_support_ppm, ELECTION_MIN_SUPPORT_PPM);
         assert_eq!(view.past_elections.len(), 1);
         assert!(view.past_elections[0].won);
-        assert_eq!(view.past_elections[0].weighted_support_ppm, 559_584);
+        assert_eq!(view.past_elections[0].weighted_support_ppm, 576_584);
         // What the browser receives.
         let wire = serde_json::to_value(&view).unwrap();
         assert_eq!(wire["election"]["status"], "won");
@@ -3118,6 +3314,59 @@ mod tests {
             second.support.pending_delta_ppm,
             view.support.pending_delta_ppm
         );
+        // The calendar announces the term's first headline a quarter ahead, with its price. Answer it.
+        let up = &second.calendar.upcoming;
+        assert_eq!(
+            up.len(),
+            1,
+            "one headline is due in the next quarter or two: {up:?}"
+        );
+        assert_eq!(
+            (up[0].quarter, up[0].id.as_str(), up[0].tone.as_str()),
+            (8, "roof_scare", "bad")
+        );
+        assert_eq!(up[0].source, "invented");
+        assert_eq!(up[0].relief_cut_pct, 60);
+        assert!(up[0].overall_ppm < 0 && up[0].effect_ppm.iter().all(|x| *x <= 0));
+        assert_eq!(up[0].paid, None);
+        // 13 credits, as news_model.py prices it from the support the player has now.
+        assert_eq!(up[0].relief_cost, Some(13));
+        let money_before = second.treasury.available_credits;
+        serial += 1;
+        let answered = accepted_step(
+            &service,
+            "term",
+            CommandKind::Respond {
+                headline_quarter: 8,
+            },
+            serial,
+        )
+        .await;
+        assert_eq!(answered.treasury.relief_spent, 13);
+        assert_eq!(answered.treasury.available_credits, money_before - 13);
+        assert_eq!(answered.calendar.upcoming[0].paid, Some(13));
+        assert_eq!(answered.calendar.upcoming[0].relief_cost, None);
+        // Answering twice, a headline that does not exist, and a quarter with nothing announced are all refused.
+        for (n, quarter) in [(1_u8, 8_u8), (2, 9), (3, 30)] {
+            let refused = command(
+                State(service.clone()),
+                Path("term".to_owned()),
+                Json(Command {
+                    command_id: format!("respond-refused-{n}"),
+                    expected_world_version: answered.view_version.clone(),
+                    kind: CommandKind::Respond {
+                        headline_quarter: quarter,
+                    },
+                }),
+            )
+            .await;
+            assert_eq!(
+                refused.unwrap_err().0,
+                StatusCode::CONFLICT,
+                "quarter {quarter}"
+            );
+        }
+        let second = answered;
         // Beginning a term twice is refused.
         let again = command(
             State(service.clone()),
@@ -3138,38 +3387,69 @@ mod tests {
             serial += 1;
             view = accepted_step(&service, "term", CommandKind::FinishContinuation, serial).await;
         }
-        // A second win does not end the game: terms go on for as long as the player keeps winning.
-        assert!(!view.closed);
-        assert_eq!(view.phase, "ElectionNight");
+        // The calendar did its job. This player stopped playing after the first term, and the same support that won the first
+        // election (57.7%) was worn down by the second term's headlines to 53.0% even with one of them softened: voted out. The
+        // numbers are tools/support-model/news_model.py's, with the response in quarter 8.
+        assert!(view.closed, "doing nothing no longer wins term after term");
         assert_eq!((view.quarter, view.term), (12, 2));
-        assert!(!view.election.ceiling);
-        assert_eq!(view.past_elections.len(), 2);
-        assert!(view.past_elections.iter().all(|e| e.won));
-        assert_eq!(view.election.status, "won");
-        assert_eq!(
-            view.election.weighted_support_ppm,
-            view.past_elections[1].weighted_support_ppm
-        );
-        // KNOWN LIMITATION (decisions 0007 and 0008): nothing erodes support yet, so after a first-term win a
-        // later term spent doing nothing returns the very same result and wins again, term after term. When
-        // terms get pressure (decay, events or a rising bar), these are the assertions that should change.
-        assert_eq!(view.election.status, "won");
-        assert_eq!(view.election.weighted_support_ppm, 559_584);
+        assert_eq!(view.election.status, "lost");
         assert_eq!(
             view.election.settled_group_ppm,
-            [571_800, 602_000, 472_200, 579_240, 615_600, 491_960]
+            [526_848, 549_523, 479_700, 550_310, 586_694, 518_367]
+        );
+        assert_eq!(view.election.weighted_support_ppm, 529_737);
+        assert_eq!(view.election.blocs_held_ppm, 780_000);
+        assert_eq!(view.past_elections.len(), 2);
+        assert!(view.past_elections[0].won && !view.past_elections[1].won);
+        assert_eq!(view.past_elections[1].weighted_support_ppm, 529_737);
+        let landed: Vec<_> = view
+            .calendar
+            .recent
+            .iter()
+            .map(|h| (h.quarter, h.tone.as_str(), h.responded))
+            .collect();
+        assert_eq!(
+            landed,
+            [
+                (5, "good", false),
+                (6, "good", false),
+                (8, "bad", true),
+                (9, "bad", false),
+                (11, "bad", false),
+                (12, "bad", false)
+            ]
+        );
+        // The answered headline took 60% less than it would have.
+        assert_eq!(
+            view.calendar.recent[2].effect_ppm,
+            [-3_852, -5_060, -500, -15_448, -16_000, -4_975]
+        );
+        assert!(view.calendar.recent[2].overall_ppm > view.calendar.recent[3].overall_ppm / 2 - 1);
+        // A lost election cannot be undone by beginning another term.
+        let after = command(
+            State(service.clone()),
+            Path("term".to_owned()),
+            Json(Command {
+                command_id: "too-late".into(),
+                expected_world_version: view.view_version.clone(),
+                kind: CommandKind::BeginTerm,
+            }),
+        )
+        .await;
+        assert_eq!(after.unwrap_err().0, StatusCode::CONFLICT);
+        // Every credit is still in exactly one account, answers included.
+        let t = &view.treasury;
+        assert_eq!(
+            u32::from(t.available_credits)
+                + u32::from(t.encumbered_staff)
+                + u32::from(t.encumbered_repairs)
+                + u32::from(t.encumbered_access)
+                + u32::from(t.service_spent)
+                + u32::from(t.audit_spent)
+                + u32::from(t.relief_spent),
+            200
         );
         assert_eq!(view.delivery_history.len(), 12);
-        // And so a third term can begin, with its own fresh allocation and both earlier wins on record.
-        let before = view.treasury.available_credits;
-        serial += 1;
-        let third = accepted_step(&service, "term", CommandKind::BeginTerm, serial).await;
-        assert_eq!((third.quarter, third.term), (13, 3));
-        assert_eq!(third.phase, "QuarterOpen");
-        assert_eq!(third.treasury.available_credits, before + 100);
-        assert_eq!(third.election.status, "projected");
-        assert_eq!((third.election.term, third.election.ceiling), (3, false));
-        assert_eq!(third.past_elections.len(), 2);
         fs::remove_dir_all(dir).unwrap();
     }
 }

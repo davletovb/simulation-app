@@ -14,6 +14,7 @@ import { BudgetFigures } from '../components/BudgetFigures'
 import { CabinetStrip } from '../components/CabinetStrip'
 import { ElectionNight } from '../components/ElectionNight'
 import { ElectionOutlook } from '../components/ElectionOutlook'
+import { NewsCard } from '../components/NewsCard'
 import { Icon } from '../components/Icon'
 import { PlanBuilder } from '../components/PlanBuilder'
 import { StepTracker } from '../components/StepTracker'
@@ -405,6 +406,7 @@ export function PlayView({ allocation, onChange }: { allocation: Allocation; onC
           </section>
           {turn.step === 'night' && <NextTerm snapshot={snapshot} />}
           {!snapshot.closed && turn.step !== 'night' && <ElectionOutlook snapshot={snapshot} />}
+          {!snapshot.closed && turn.step !== 'night' && <NewsCard snapshot={snapshot} step={turn.keeping ? 'keeping' : turn.step} />}
           {latest && (
             <section className="panel side-card" aria-labelledby="report-title">
               <h2 id="report-title" className="section-label">Latest report · Q{latest.quarter}</h2>

@@ -57,6 +57,7 @@ export function ElectionNight({ snapshot }: { snapshot: Snapshot }) {
           <li className="chip">{l.unfinished} promised, unfinished</li>
           <li className="chip">{l.unspent} unspent</li>
           <li className="chip">{l.audits} on audits</li>
+          {l.relief > 0 && <li className="chip">{l.relief} on answering headlines</li>}
         </ul>
         {snapshot.decisions.length > 0 && (
           <details className="mechanics">

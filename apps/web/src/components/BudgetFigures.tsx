@@ -8,6 +8,7 @@ interface Treasury {
   encumbered_access: number
   service_spent: number
   audit_spent: number
+  relief_spent: number
 }
 
 /**
@@ -47,6 +48,12 @@ export function BudgetFigures({ treasury, breakdown = false, compact = false }: 
         <dt>Spent on audits</dt>
         <dd>{treasury.audit_spent}</dd>
       </div>
+      {treasury.relief_spent > 0 && (
+        <div className="figure">
+          <dt>Spent answering headlines</dt>
+          <dd>{treasury.relief_spent}</dd>
+        </div>
+      )}
     </dl>
   )
 }

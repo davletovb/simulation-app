@@ -118,6 +118,8 @@ pub fn run_one(
             response_lag,
             shocks: [[0; 6]; crate::MAX_QUARTERS as usize],
             q2_repair_cap: Some(8),
+            // The pinned sensitivity report is for the frozen scenario without headlines.
+            news_seed: None,
         },
     )?;
     let allocation = Allocation::draft(credits[0], credits[1], credits[2])?;

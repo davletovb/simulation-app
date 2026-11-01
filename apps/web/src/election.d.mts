@@ -61,6 +61,8 @@ interface SnapshotLike {
     encumbered_access: number
     service_spent: number
     audit_spent: number
+    /** Credits spent answering headlines. */
+    relief_spent?: number
   }
 }
 export function groups(snapshot: SnapshotLike, when?: 'current' | 'settled'): GroupView[]
@@ -70,6 +72,8 @@ export interface Legacy {
   unfinished: number
   unspent: number
   audits: number
+  /** Credits spent answering headlines: they buy votes, not delivered work. */
+  relief: number
   total: number
   share: number
   key: 'delivered' | 'partly' | 'short' | 'missed'

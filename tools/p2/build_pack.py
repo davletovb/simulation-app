@@ -197,6 +197,10 @@ def authoring_checks(authored):
     need(election["technical_ceiling_terms"] >= 1, "term ceiling")
     need(0 < election["bloc_held_above_ppm"] < election["min_weighted_support_ppm"] <= 1_000_000, "election bars")
     need("min_blocs_ppm" not in election, "only overall support decides the election (decision 0009)")
+    calendar = authored["news_calendar"]
+    need(len(calendar["bad"]) >= 4 and len(calendar["good"]) >= 4, "a term needs four distinct headlines of either tone")
+    need(all(len(item.get("exposure_pct", item.get("gain_ppm", []))) == 6 for item in calendar["bad"] + calendar["good"]), "six groups per headline")
+    need("invented" in calendar["label"].lower(), "headlines must be labelled as invented")
     need(authored["board"]["support_votes_required"] == 2, "two-thirds vote")
     need(len(authored["board"]["ministers"]) == 3, "not three ministers")
     board = authored["board"]

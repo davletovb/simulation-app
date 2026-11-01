@@ -1136,3 +1136,22 @@ code { font-family: var(--font-mono); font-size: .92em; color: var(--text); }
   content: ""; position: absolute; left: 0; top: .62em; width: 6px; height: 6px; border-radius: 50%; background: var(--gold);
 }
 .carry-list li strong { color: var(--text); }
+
+/* ---------- News ---------- */
+.news-card { gap: 10px; }
+.news-sub { margin: 4px 0 0; font-size: 11px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; color: var(--text-3); }
+.headlines { display: flex; flex-direction: column; gap: 10px; margin: 0; padding: 0; list-style: none; }
+.headline { display: flex; flex-direction: column; gap: 6px; padding: 12px; border-radius: 10px; border: 1px solid var(--line-2); background: var(--panel-3); }
+.headline.is-bad { border-left: 3px solid var(--danger); }
+.headline.is-good { border-left: 3px solid var(--ok); }
+.headline.is-landed { background: transparent; }
+.headline-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 8px; }
+.headline-head strong { font-size: 14px; line-height: 1.3; }
+.headline-body, .headline-facts { margin: 0; font-size: 13px; line-height: 1.45; color: var(--text-2); }
+.headline-facts strong { color: var(--text); }
+.headline-done { display: flex; align-items: center; gap: 6px; margin: 0; font-size: 12px; font-weight: 600; color: var(--ok); }
+.headline-answer { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
+.headline-tone.is-serious { color: var(--danger); border-color: #f0707055; }
+.headline-tone.is-minor { color: var(--access); border-color: #f3a75c55; }
+.headline-tone.is-welcome { color: var(--ok); border-color: #8fe09a55; }
+.news-log .headline { padding: 10px 12px; }

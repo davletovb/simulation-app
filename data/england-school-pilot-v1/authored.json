@@ -15,6 +15,185 @@
     "technical_ceiling_terms": 10
   },
   "warning": "Illustrative game mechanics, not an official England policy, survey, population reconstruction, or forecast.",
+  "news_calendar": {
+    "label": "Invented headlines. None is a report about a real person, organisation or event.",
+    "quiet_term_headlines": 2,
+    "headlines_per_term": 4,
+    "good_percent": 30,
+    "surprise_one_in": 3,
+    "severity": {
+      "base_ppm": 5000,
+      "base_step_pct": 50,
+      "base_cap_pct": 400,
+      "share_pct": 40,
+      "share_step_pct": 8,
+      "share_cap_pct": 90
+    },
+    "relief": {
+      "credits_per_point": 10,
+      "cut_pct": 60
+    },
+    "bad": [
+      {
+        "id": "teacher_shortage",
+        "title": "Teacher shortage hits the headlines",
+        "summary": "Schools report empty posts and cancelled lessons. Families in towns and cities worry most.",
+        "exposure_pct": [
+          50,
+          50,
+          50,
+          25,
+          25,
+          25
+        ]
+      },
+      {
+        "id": "roof_scare",
+        "title": "Roof scare closes classrooms",
+        "summary": "Surveyors find unsafe ceilings. Older rural school buildings are hit hardest.",
+        "exposure_pct": [
+          25,
+          25,
+          25,
+          75,
+          75,
+          75
+        ]
+      },
+      {
+        "id": "funding_row",
+        "title": "Funding row in Parliament",
+        "summary": "A public argument over school budgets leaves every group less sure of the pilot.",
+        "exposure_pct": [
+          50,
+          50,
+          50,
+          50,
+          50,
+          50
+        ]
+      },
+      {
+        "id": "rural_bus_cuts",
+        "title": "Rural school bus routes cut",
+        "summary": "Villages lose their morning services, and families blame the pilot.",
+        "exposure_pct": [
+          0,
+          0,
+          0,
+          100,
+          100,
+          100
+        ]
+      },
+      {
+        "id": "cost_of_living",
+        "title": "Cost-of-living squeeze",
+        "summary": "Rising bills make lower-income households less patient with delays.",
+        "exposure_pct": [
+          75,
+          40,
+          0,
+          75,
+          40,
+          0
+        ]
+      },
+      {
+        "id": "exam_results_row",
+        "title": "Exam results row",
+        "summary": "A marking dispute dents confidence among families whose children are about to sit exams.",
+        "exposure_pct": [
+          0,
+          60,
+          75,
+          0,
+          40,
+          50
+        ]
+      },
+      {
+        "id": "agency_scandal",
+        "title": "Supply-agency scandal",
+        "summary": "Reports of overcharging by staffing agencies reflect badly on school spending.",
+        "exposure_pct": [
+          60,
+          60,
+          30,
+          30,
+          30,
+          15
+        ]
+      },
+      {
+        "id": "broadband_outage",
+        "title": "Broadband outage hits remote lessons",
+        "summary": "Rural pupils lose online lessons for days.",
+        "exposure_pct": [
+          10,
+          10,
+          10,
+          80,
+          80,
+          80
+        ]
+      }
+    ],
+    "good": [
+      {
+        "id": "inspectorate_praise",
+        "title": "Inspectorate praises the pilot",
+        "summary": "A glowing visit report lifts confidence everywhere.",
+        "gain_ppm": [
+          15000,
+          15000,
+          15000,
+          15000,
+          15000,
+          15000
+        ]
+      },
+      {
+        "id": "volunteer_surge",
+        "title": "Volunteers rally to local schools",
+        "summary": "Community groups in rural areas offer their time, and word spreads.",
+        "gain_ppm": [
+          0,
+          0,
+          0,
+          25000,
+          25000,
+          25000
+        ]
+      },
+      {
+        "id": "attendance_rises",
+        "title": "Attendance rises",
+        "summary": "Fewer missed days in lower-income areas make good local news.",
+        "gain_ppm": [
+          20000,
+          10000,
+          0,
+          20000,
+          10000,
+          0
+        ]
+      },
+      {
+        "id": "recruitment_up",
+        "title": "Teacher recruitment picks up",
+        "summary": "More graduates apply, and the mood improves across the board.",
+        "gain_ppm": [
+          12000,
+          12000,
+          12000,
+          12000,
+          12000,
+          12000
+        ]
+      }
+    ]
+  },
   "pilot": {
     "credits": 100,
     "GBP_conversion": null,
