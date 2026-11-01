@@ -21,22 +21,12 @@
         "funding redistribution",
         "redistribute funding"
       ],
-      "exposure_pct": [
-        40,
-        40,
-        40,
-        0,
-        0,
-        0
-      ],
-      "winners_ppm": [
-        0,
-        0,
-        0,
-        20000,
-        20000,
-        20000
-      ]
+      "exposure_pct": {
+        "urban": 40
+      },
+      "winners_ppm": {
+        "rural": 20000
+      }
     },
     {
       "id": "small_schools_mixed",
@@ -50,22 +40,15 @@
         "rural school closures",
         "rural school closure"
       ],
-      "exposure_pct": [
-        0,
-        0,
-        0,
-        70,
-        70,
-        40
-      ],
-      "winners_ppm": [
-        0,
-        8000,
-        12000,
-        0,
-        0,
-        0
-      ]
+      "exposure_pct": {
+        "rural_low": 70,
+        "rural_middle": 70,
+        "rural_high": 40
+      },
+      "winners_ppm": {
+        "urban_middle": 8000,
+        "urban_high": 12000
+      }
     },
     {
       "id": "teacher_pay_good",
@@ -83,14 +66,9 @@
         "teacher recruitment up",
         "teacher retention boost"
       ],
-      "gain_ppm": [
-        12000,
-        12000,
-        12000,
-        12000,
-        12000,
-        12000
-      ]
+      "gain_ppm": {
+        "everyone": 12000
+      }
     },
     {
       "id": "school_buildings_good",
@@ -107,14 +85,10 @@
         "new schools",
         "school building programme"
       ],
-      "gain_ppm": [
-        10000,
-        10000,
-        10000,
-        20000,
-        20000,
-        20000
-      ]
+      "gain_ppm": {
+        "urban": 10000,
+        "rural": 20000
+      }
     },
     {
       "id": "attendance_good",
@@ -130,14 +104,10 @@
         "free school meals",
         "free breakfast"
       ],
-      "gain_ppm": [
-        20000,
-        10000,
-        0,
-        20000,
-        10000,
-        0
-      ]
+      "gain_ppm": {
+        "low_income": 20000,
+        "middle_income": 10000
+      }
     },
     {
       "id": "funding_good",
@@ -152,14 +122,9 @@
         "investment in schools",
         "funding for schools"
       ],
-      "gain_ppm": [
-        15000,
-        15000,
-        15000,
-        15000,
-        15000,
-        15000
-      ]
+      "gain_ppm": {
+        "everyone": 15000
+      }
     },
     {
       "id": "teacher_supply_bad",
@@ -179,14 +144,10 @@
         "walkout",
         "unfilled posts"
       ],
-      "exposure_pct": [
-        50,
-        50,
-        50,
-        25,
-        25,
-        25
-      ]
+      "exposure_pct": {
+        "urban": 50,
+        "rural": 25
+      }
     },
     {
       "id": "school_buildings_bad",
@@ -203,14 +164,10 @@
         "condition of school buildings",
         "school closures"
       ],
-      "exposure_pct": [
-        25,
-        25,
-        25,
-        75,
-        75,
-        75
-      ]
+      "exposure_pct": {
+        "urban": 25,
+        "rural": 75
+      }
     },
     {
       "id": "funding_bad",
@@ -227,14 +184,9 @@
         "underfunded",
         "deficit"
       ],
-      "exposure_pct": [
-        50,
-        50,
-        50,
-        50,
-        50,
-        50
-      ]
+      "exposure_pct": {
+        "everyone": 50
+      }
     },
     {
       "id": "attendance_bad",
@@ -249,14 +201,10 @@
         "child poverty",
         "cost of living"
       ],
-      "exposure_pct": [
-        75,
-        40,
-        0,
-        75,
-        40,
-        0
-      ]
+      "exposure_pct": {
+        "low_income": 75,
+        "middle_income": 40
+      }
     },
     {
       "id": "standards_bad",
@@ -271,14 +219,12 @@
         "standards fall",
         "standards slip"
       ],
-      "exposure_pct": [
-        0,
-        60,
-        75,
-        0,
-        40,
-        50
-      ]
+      "exposure_pct": {
+        "urban_middle": 60,
+        "urban_high": 75,
+        "rural_middle": 40,
+        "rural_high": 50
+      }
     }
   ]
 }

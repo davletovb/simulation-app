@@ -1,6 +1,6 @@
 # 0014. Groups with opposed interests (news calendar, stage 5)
 
-- **Status:** **Implemented** (rules v10). Not on `main` until the owner says so.
+- **Status:** **Implemented** (rules v10); **its groups were then rebuilt on a general structure in [0015](0015-a-population-of-cells-and-groups.md)** (rules v11), where a story names groups rather than six positions. What it does in play is unchanged. Not on `main` until the owner says so.
 - **Date:** 2026-11-01
 - **Decided by:** the project owner said "go ahead" with the last item of the plan: groups with opposed interests, which the earlier
   notes had described as "a headline hits groups in different amounts but still moves everyone the same way". They did not say what

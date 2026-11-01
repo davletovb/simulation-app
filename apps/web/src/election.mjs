@@ -2,9 +2,11 @@
  * Election night, in words and numbers. Pure and dependency-free so `node --test` can check it
  * without a browser. The engine decides the result; this module only describes it.
  *
- * Every per-group array follows `support.group_ids`: urban low, middle, high, then rural.
+ * Every per-cell array follows `support.group_ids`: one entry per cell of the campaign's population, whatever its size
+ * (decision 0015). For the pilot those are urban low, middle, high, then rural.
  */
 
+/** The pilot's six cells in words. Only a fallback: the engine sends a label for every group (`support.groups`). */
 export const GROUP_LABELS = Object.freeze({
   urban_low: 'Urban, low income',
   urban_middle: 'Urban, middle income',
@@ -13,6 +15,15 @@ export const GROUP_LABELS = Object.freeze({
   rural_middle: 'Rural, middle income',
   rural_high: 'Rural, high income',
 })
+
+/** The engine's label for every group, by id (cells and named groups), from a snapshot's `support`. */
+export function groupLabels(support) {
+  return Object.fromEntries((support?.groups ?? []).map(g => [g.id, g.label]))
+}
+/** A group's words: the engine's label if it sent one, else the pilot's, else the id. */
+export function labelOf(id, labels) {
+  return labels?.[id] ?? GROUP_LABELS[id] ?? id
+}
 
 /** A defeat at or above this overall support is "narrow" rather than "heavy" (decision 0004). */
 export const NARROW_DEFEAT_PPM = 520000
@@ -130,16 +141,17 @@ export function headline(election) {
 }
 
 /**
- * The six groups as a tidy list for the screen.
+ * The cells as a tidy list for the screen.
  * @param {'current'|'settled'} when `current` is support as of the last quarter; `settled` is once
  *   every queued response has landed (election night).
  */
 export function groups(snapshot, when = 'settled') {
   const { support, election } = snapshot
   const values = when === 'current' ? support.group_ppm : election.settled_group_ppm
+  const labelsByGroup = groupLabels(support)
   return support.group_ids.map((id, i) => ({
     id,
-    label: GROUP_LABELS[id] ?? id,
+    label: labelOf(id, labelsByGroup),
     ppm: values[i],
     weight: support.weight_ppm[i],
     held: values[i] > election.held_above_ppm,

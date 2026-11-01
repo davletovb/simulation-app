@@ -218,10 +218,11 @@ pub struct RealRuleWire {
     pub id: String,
     pub label: String,
     pub tone: RealToneWire,
-    /// Bad news: each group's exposure in percent of the worst case. Good news: each group's gain in ppm.
-    pub effect: [u32; 6],
-    /// Bad news that is also a trade-off: the groups it helps, a flat gain in ppm (decision 0014). All zero otherwise.
-    pub winners: [u32; 6],
+    /// Bad news: each group's exposure in percent of the worst case. Good news: each group's gain in ppm. Keyed by group id
+    /// (decision 0015); a group the campaign's population does not have makes the import invalid.
+    pub effect: std::collections::BTreeMap<String, u32>,
+    /// Bad news that is also a trade-off: the groups it helps, a flat gain in ppm (decision 0014). Empty otherwise.
+    pub winners: std::collections::BTreeMap<String, u32>,
 }
 /// A real headline: its words and link, and the rule that matched it, if any.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
@@ -249,8 +250,8 @@ impl From<RealItemWire> for d::news::RealItem {
                         RealToneWire::Bad => d::news::Tone::Bad,
                         RealToneWire::Good => d::news::Tone::Good,
                     },
-                    effect: r.effect,
-                    winners: r.winners,
+                    effect: r.effect.into_iter().collect(),
+                    winners: r.winners.into_iter().collect(),
                 },
             }),
         }

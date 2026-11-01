@@ -420,8 +420,11 @@ pub struct PrivateCheckpoint {
     pub phase: Phase,
     pub treasury: Treasury,
     pub scopes: Vec<Scope>,
-    pub cohort_weights_ppm: [u32; 6],
-    pub support_ppm: [u32; 6],
+    /// One entry per cell of the population (decision 0015); the same number of entries as `support_ppm`.
+    #[schemars(length(min = 1, max = 64))]
+    pub cohort_weights_ppm: Vec<u32>,
+    #[schemars(length(min = 1, max = 64))]
+    pub support_ppm: Vec<u32>,
     pub organisations: [OrganisationAccount; 2],
     pub commitments: Vec<Commitment>,
     pub queued_responses: Vec<QueuedResponse>,
@@ -445,8 +448,8 @@ impl PrivateCheckpoint {
             phase: parts.phase.into(),
             treasury: parts.treasury.into(),
             scopes: parts.scopes.iter().map(Into::into).collect(),
-            cohort_weights_ppm: *parts.cohort_weights.parts_ppm(),
-            support_ppm: parts.support.map(|v| v.value()),
+            cohort_weights_ppm: parts.cohort_weights.parts_ppm().to_vec(),
+            support_ppm: parts.support.iter().map(|v| v.value()).collect(),
             organisations: std::array::from_fn(|i| OrganisationAccount {
                 id: parts.organisations[i].id().into(),
                 resources: parts.organisations[i].resources(),
@@ -478,11 +481,9 @@ impl PrivateCheckpoint {
             cohort_weights: d::CohortWeights::new(self.cohort_weights_ppm)?,
             support: self
                 .support_ppm
-                .map(world::SupportPpm::new)
                 .into_iter()
-                .collect::<Result<Vec<_>, _>>()?
-                .try_into()
-                .map_err(|_| WireError::Field("support_ppm"))?,
+                .map(world::SupportPpm::new)
+                .collect::<Result<Vec<_>, _>>()?,
             organisations: self
                 .organisations
                 .map(TryInto::try_into)
@@ -890,6 +891,29 @@ mod p2_frozen_pack_tests {
         );
     }
 
+    /// A headline's group targets as the scenario file lists them: an object from group id to number, sorted by group id.
+    fn targets_in_file(entry: &serde_json::Value, key: &str) -> Vec<(String, u64)> {
+        let mut out: Vec<(String, u64)> = match entry.get(key) {
+            None => Vec::new(),
+            Some(v) => v
+                .as_object()
+                .unwrap_or_else(|| panic!("{key} must be an object from group id to number"))
+                .iter()
+                .map(|(g, n)| (g.clone(), n.as_u64().unwrap()))
+                .collect(),
+        };
+        out.sort();
+        out
+    }
+    /// The same targets as the engine's deck lists them.
+    fn targets_in_engine(list: &[myth_domain::news::Target]) -> Vec<(String, u64)> {
+        let mut out: Vec<(String, u64)> = list
+            .iter()
+            .map(|(g, n)| ((*g).to_string(), u64::from(*n)))
+            .collect();
+        out.sort();
+        out
+    }
     #[test]
     fn p2_authored_mechanics_match_pure_rust_domain() {
         let authored: serde_json::Value = serde_json::from_str(include_str!(
@@ -1040,31 +1064,15 @@ mod p2_frozen_pack_tests {
         );
         for (entry, headline) in mixed.iter().zip(myth_domain::news::MIXED) {
             assert_eq!(entry["id"].as_str(), Some(headline.id));
-            let numbers = |key: &str| -> Vec<u64> {
-                entry[key]
-                    .as_array()
-                    .unwrap()
-                    .iter()
-                    .map(|v| v.as_u64().unwrap())
-                    .collect()
-            };
             assert_eq!(
-                numbers("exposure_pct"),
-                headline
-                    .effect
-                    .iter()
-                    .map(|v| u64::from(*v))
-                    .collect::<Vec<_>>(),
+                targets_in_file(entry, "exposure_pct"),
+                targets_in_engine(headline.effect),
                 "trade-off exposure drift: {}",
                 headline.id
             );
             assert_eq!(
-                numbers("winners_ppm"),
-                headline
-                    .winners
-                    .iter()
-                    .map(|v| u64::from(*v))
-                    .collect::<Vec<_>>(),
+                targets_in_file(entry, "winners_ppm"),
+                targets_in_engine(headline.winners),
                 "trade-off winners drift: {}",
                 headline.id
             );
@@ -1095,14 +1103,12 @@ mod p2_frozen_pack_tests {
             assert_eq!(listed.len(), deck.len(), "news deck size drift: {key}");
             for (entry, headline) in listed.iter().zip(deck) {
                 assert_eq!(entry["id"].as_str(), Some(headline.id));
-                let effect: Vec<u64> = entry[field]
-                    .as_array()
-                    .unwrap()
-                    .iter()
-                    .map(|v| v.as_u64().unwrap())
-                    .collect();
-                let engine: Vec<u64> = headline.effect.iter().map(|v| u64::from(*v)).collect();
-                assert_eq!(effect, engine, "news effect drift: {}", headline.id);
+                assert_eq!(
+                    targets_in_file(entry, field),
+                    targets_in_engine(headline.effect),
+                    "news effect drift: {}",
+                    headline.id
+                );
                 // A bad headline may also stop one kind of work (decision 0011); the file and the engine agree on which.
                 let engine_cut = headline.disrupts.map(|d| {
                     (

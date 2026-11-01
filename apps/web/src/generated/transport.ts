@@ -17,13 +17,14 @@ export type RealToneWire = "bad" | "good";
 
 export type RealRuleWire = { id: string, label: string, tone: RealToneWire, 
 /**
- * Bad news: each group's exposure in percent of the worst case. Good news: each group's gain in ppm.
+ * Bad news: each group's exposure in percent of the worst case. Good news: each group's gain in ppm. Keyed by group id
+ * (decision 0015); a group the campaign's population does not have makes the import invalid.
  */
-effect: [number, number, number, number, number, number], 
+effect: { [key in string]: number }, 
 /**
- * Bad news that is also a trade-off: the groups it helps, a flat gain in ppm (decision 0014). All zero otherwise.
+ * Bad news that is also a trade-off: the groups it helps, a flat gain in ppm (decision 0014). Empty otherwise.
  */
-winners: [number, number, number, number, number, number], };
+winners: { [key in string]: number }, };
 
 export type RealItemWire = { title: string, summary: string, url: string, 
 /**

@@ -1,0 +1,545 @@
+{
+  "calendar": {
+    "real_news": [],
+    "recent": [
+      {
+        "disruption": null,
+        "effect_ppm": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          25000,
+          25000,
+          25000,
+          25000,
+          25000,
+          25000
+        ],
+        "grant_credits": null,
+        "id": "volunteer_surge",
+        "overall_ppm": 5000,
+        "quarter": 2,
+        "real": null,
+        "responded": false,
+        "scrutiny": null,
+        "source": "invented",
+        "summary": "Community groups in rural areas offer their time, and word spreads.",
+        "surprise": true,
+        "title": "Volunteers rally to local schools",
+        "tone": "good"
+      }
+    ],
+    "upcoming": [
+      {
+        "disruption": null,
+        "effect_ppm": [
+          20000,
+          20000,
+          10000,
+          10000,
+          0,
+          0,
+          20000,
+          20000,
+          10000,
+          10000,
+          0,
+          0
+        ],
+        "grant_credits": null,
+        "id": "attendance_rises",
+        "overall_ppm": 10600,
+        "paid": null,
+        "quarter": 5,
+        "real": null,
+        "relief_cost": null,
+        "relief_cut_pct": 60,
+        "scrutiny": null,
+        "severity": "welcome",
+        "source": "invented",
+        "summary": "Fewer missed days in lower-income areas make good local news.",
+        "title": "Attendance rises",
+        "tone": "good"
+      }
+    ]
+  },
+  "election": {
+    "blocs_held_ppm": 200000,
+    "ceiling": false,
+    "held_above_ppm": 500000,
+    "min_support_ppm": 550000,
+    "settled_group_ppm": [
+      500000,
+      500000,
+      500000,
+      500000,
+      500000,
+      500000,
+      525000,
+      525000,
+      525000,
+      525000,
+      525000,
+      525000
+    ],
+    "status": "projected",
+    "term": 1,
+    "weighted_support_ppm": 505000
+  },
+  "quarter": 5,
+  "support": {
+    "group_ids": [
+      "urban_low_progressive",
+      "urban_low_traditional",
+      "urban_middle_progressive",
+      "urban_middle_traditional",
+      "urban_high_progressive",
+      "urban_high_traditional",
+      "rural_low_progressive",
+      "rural_low_traditional",
+      "rural_middle_progressive",
+      "rural_middle_traditional",
+      "rural_high_progressive",
+      "rural_high_traditional"
+    ],
+    "group_ppm": [
+      500000,
+      500000,
+      500000,
+      500000,
+      500000,
+      500000,
+      525000,
+      525000,
+      525000,
+      525000,
+      525000,
+      525000
+    ],
+    "groups": [
+      {
+        "cells": [
+          0
+        ],
+        "id": "urban_low_progressive",
+        "label": "Urban, low income, progressive",
+        "pending_delta_ppm": 0,
+        "support_ppm": 500000,
+        "weight_ppm": 104000
+      },
+      {
+        "cells": [
+          1
+        ],
+        "id": "urban_low_traditional",
+        "label": "Urban, low income, traditional",
+        "pending_delta_ppm": 0,
+        "support_ppm": 500000,
+        "weight_ppm": 156000
+      },
+      {
+        "cells": [
+          2
+        ],
+        "id": "urban_middle_progressive",
+        "label": "Urban, middle income, progressive",
+        "pending_delta_ppm": 0,
+        "support_ppm": 500000,
+        "weight_ppm": 176000
+      },
+      {
+        "cells": [
+          3
+        ],
+        "id": "urban_middle_traditional",
+        "label": "Urban, middle income, traditional",
+        "pending_delta_ppm": 0,
+        "support_ppm": 500000,
+        "weight_ppm": 144000
+      },
+      {
+        "cells": [
+          4
+        ],
+        "id": "urban_high_progressive",
+        "label": "Urban, high income, progressive",
+        "pending_delta_ppm": 0,
+        "support_ppm": 500000,
+        "weight_ppm": 143000
+      },
+      {
+        "cells": [
+          5
+        ],
+        "id": "urban_high_traditional",
+        "label": "Urban, high income, traditional",
+        "pending_delta_ppm": 0,
+        "support_ppm": 500000,
+        "weight_ppm": 77000
+      },
+      {
+        "cells": [
+          6
+        ],
+        "id": "rural_low_progressive",
+        "label": "Rural, low income, progressive",
+        "pending_delta_ppm": 0,
+        "support_ppm": 525000,
+        "weight_ppm": 28000
+      },
+      {
+        "cells": [
+          7
+        ],
+        "id": "rural_low_traditional",
+        "label": "Rural, low income, traditional",
+        "pending_delta_ppm": 0,
+        "support_ppm": 525000,
+        "weight_ppm": 42000
+      },
+      {
+        "cells": [
+          8
+        ],
+        "id": "rural_middle_progressive",
+        "label": "Rural, middle income, progressive",
+        "pending_delta_ppm": 0,
+        "support_ppm": 525000,
+        "weight_ppm": 44000
+      },
+      {
+        "cells": [
+          9
+        ],
+        "id": "rural_middle_traditional",
+        "label": "Rural, middle income, traditional",
+        "pending_delta_ppm": 0,
+        "support_ppm": 525000,
+        "weight_ppm": 36000
+      },
+      {
+        "cells": [
+          10
+        ],
+        "id": "rural_high_progressive",
+        "label": "Rural, high income, progressive",
+        "pending_delta_ppm": 0,
+        "support_ppm": 525000,
+        "weight_ppm": 32500
+      },
+      {
+        "cells": [
+          11
+        ],
+        "id": "rural_high_traditional",
+        "label": "Rural, high income, traditional",
+        "pending_delta_ppm": 0,
+        "support_ppm": 525000,
+        "weight_ppm": 17500
+      },
+      {
+        "cells": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11
+        ],
+        "id": "everyone",
+        "label": "All voters",
+        "pending_delta_ppm": 0,
+        "support_ppm": 505000,
+        "weight_ppm": 1000000
+      },
+      {
+        "cells": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5
+        ],
+        "id": "urban",
+        "label": "All urban voters",
+        "pending_delta_ppm": 0,
+        "support_ppm": 500000,
+        "weight_ppm": 800000
+      },
+      {
+        "cells": [
+          6,
+          7,
+          8,
+          9,
+          10,
+          11
+        ],
+        "id": "rural",
+        "label": "All rural voters",
+        "pending_delta_ppm": 0,
+        "support_ppm": 525000,
+        "weight_ppm": 200000
+      },
+      {
+        "cells": [
+          0,
+          1,
+          6,
+          7
+        ],
+        "id": "low_income",
+        "label": "All lower-income voters",
+        "pending_delta_ppm": 0,
+        "support_ppm": 505303,
+        "weight_ppm": 330000
+      },
+      {
+        "cells": [
+          2,
+          3,
+          8,
+          9
+        ],
+        "id": "middle_income",
+        "label": "All middle-income voters",
+        "pending_delta_ppm": 0,
+        "support_ppm": 505000,
+        "weight_ppm": 400000
+      },
+      {
+        "cells": [
+          4,
+          5,
+          10,
+          11
+        ],
+        "id": "high_income",
+        "label": "All higher-income voters",
+        "pending_delta_ppm": 0,
+        "support_ppm": 504629,
+        "weight_ppm": 270000
+      },
+      {
+        "cells": [
+          0,
+          2,
+          4,
+          6,
+          8,
+          10
+        ],
+        "id": "progressive",
+        "label": "All progressive voters",
+        "pending_delta_ppm": 0,
+        "support_ppm": 504952,
+        "weight_ppm": 527500
+      },
+      {
+        "cells": [
+          1,
+          3,
+          5,
+          7,
+          9,
+          11
+        ],
+        "id": "traditional",
+        "label": "All traditional voters",
+        "pending_delta_ppm": 0,
+        "support_ppm": 505052,
+        "weight_ppm": 472500
+      },
+      {
+        "cells": [
+          7,
+          9,
+          11
+        ],
+        "id": "rural_traditional",
+        "label": "Rural traditional voters",
+        "pending_delta_ppm": 0,
+        "support_ppm": 525000,
+        "weight_ppm": 95500
+      },
+      {
+        "cells": [
+          1,
+          6,
+          7
+        ],
+        "id": "left_behind",
+        "label": "Lower-income voters outside the progressive cities",
+        "pending_delta_ppm": 0,
+        "support_ppm": 507743,
+        "weight_ppm": 226000
+      },
+      {
+        "cells": [
+          0,
+          1
+        ],
+        "id": "urban_low",
+        "label": "urban low-income voters",
+        "pending_delta_ppm": 0,
+        "support_ppm": 500000,
+        "weight_ppm": 260000
+      },
+      {
+        "cells": [
+          2,
+          3
+        ],
+        "id": "urban_middle",
+        "label": "urban middle-income voters",
+        "pending_delta_ppm": 0,
+        "support_ppm": 500000,
+        "weight_ppm": 320000
+      },
+      {
+        "cells": [
+          4,
+          5
+        ],
+        "id": "urban_high",
+        "label": "urban high-income voters",
+        "pending_delta_ppm": 0,
+        "support_ppm": 500000,
+        "weight_ppm": 220000
+      },
+      {
+        "cells": [
+          6,
+          7
+        ],
+        "id": "rural_low",
+        "label": "rural low-income voters",
+        "pending_delta_ppm": 0,
+        "support_ppm": 525000,
+        "weight_ppm": 70000
+      },
+      {
+        "cells": [
+          8,
+          9
+        ],
+        "id": "rural_middle",
+        "label": "rural middle-income voters",
+        "pending_delta_ppm": 0,
+        "support_ppm": 525000,
+        "weight_ppm": 80000
+      },
+      {
+        "cells": [
+          10,
+          11
+        ],
+        "id": "rural_high",
+        "label": "rural high-income voters",
+        "pending_delta_ppm": 0,
+        "support_ppm": 525000,
+        "weight_ppm": 50000
+      }
+    ],
+    "net_per_credit_ppm": [
+      [
+        2144,
+        188,
+        2210
+      ],
+      [
+        206,
+        -478,
+        260
+      ],
+      [
+        1920,
+        920,
+        1700
+      ],
+      [
+        380,
+        580,
+        200
+      ],
+      [
+        416,
+        372,
+        -90
+      ],
+      [
+        -1446,
+        -362,
+        -1860
+      ],
+      [
+        1299,
+        868,
+        3926
+      ],
+      [
+        -486,
+        353,
+        1664
+      ],
+      [
+        1216,
+        1676,
+        3020
+      ],
+      [
+        -196,
+        1504,
+        1280
+      ],
+      [
+        -148,
+        1203,
+        834
+      ],
+      [
+        -1907,
+        654,
+        -1104
+      ]
+    ],
+    "pending_delta_ppm": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "weight_ppm": [
+      104000,
+      156000,
+      176000,
+      144000,
+      143000,
+      77000,
+      28000,
+      42000,
+      44000,
+      36000,
+      32500,
+      17500
+    ]
+  }
+}

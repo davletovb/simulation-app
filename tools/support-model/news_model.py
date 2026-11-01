@@ -24,6 +24,47 @@ HELD_ABOVE = AUTHORED['election']['bloc_held_above_ppm']
 BAR = AUTHORED['election']['min_weighted_support_ppm']
 
 
+def _electorate():
+    """The cells and the named groups of the authored electorate (decision 0015), from its attributes and selectors alone:
+    for every group id (each cell is one too) the positions of the cells it selects. Cells are every combination of levels,
+    the first attribute varying slowest."""
+    e = AUTHORED['electorate']
+    levels = [[lv['id'] for lv in a['levels']] for a in e['attributes']]
+    names = [a['id'] for a in e['attributes']]
+    cells = [[]]
+    for options in levels:
+        cells = [c + [o] for c in cells for o in options]
+
+    def holds(sel, cell):
+        if sel == 'everyone':
+            return True
+        (key, inner), = sel.items()
+        if key == 'is':
+            return cells[cell][names.index(inner['attribute'])] == inner['level']
+        if key == 'all':
+            return all(holds(x, cell) for x in inner)
+        if key == 'any':
+            return any(holds(x, cell) for x in inner)
+        assert key == 'not'
+        return not holds(inner, cell)
+    groups = {'_'.join(c): {i} for i, c in enumerate(cells)}
+    for g in e['groups']:
+        groups[g['id']] = {i for i in range(len(cells)) if holds(g['select'], i)}
+    return len(cells), groups
+
+
+CELLS, GROUPS = _electorate()
+
+
+def spread(entries, cap):
+    """What named targets come to for each cell: the entries that reach a cell add up, and no cell goes past `cap`."""
+    out = [0] * CELLS
+    for group, amount in entries.items():
+        for cell in GROUPS[group]:
+            out[cell] += amount
+    return [min(x, cap) for x in out]
+
+
 def news_seed(campaign_id):
     """The first eight bytes of a digest of the campaign's identity, big-endian (crates/hiyal-adapter/src/lib.rs)."""
     return int.from_bytes(hashlib.sha256(f'myth-maker-news-calendar:{campaign_id}'.encode()).digest()[:8], 'big')
@@ -176,10 +217,10 @@ def severity(term):
 
 def landing_shock(tone, index, term, support):
     if tone == 'good':
-        return [min(g, SHOCK_CAP) for g in NEWS['good'][index]['gain_ppm']]
+        return spread(NEWS['good'][index]['gain_ppm'], SHOCK_CAP)
     base, share = severity(term)
     out = []
-    for exposure, now in zip(NEWS['bad'][index]['exposure_pct'], support):
+    for exposure, now in zip(spread(NEWS['bad'][index]['exposure_pct'], 100), support):
         lead = max(0, now - HELD_ABOVE)
         out.append(-min(SHOCK_CAP, exposure * (base + lead * share // 100) // 100))
     return out
@@ -247,7 +288,7 @@ def play(cums, campaign_id, quarters, answers=(), owed=None, real=None):
                 headline = {'id': 'real'}
             elif mixed:
                 headline = NEWS['mixed'][index]
-                shock = shock_from('bad', headline['exposure_pct'], term, sup, headline['winners_ppm'])
+                shock = shock_from('bad', spread(headline['exposure_pct'], 100), term, sup, spread(headline['winners_ppm'], SHOCK_CAP))
             else:
                 shock = landing_shock(tone, index, term, sup)
                 headline = NEWS[tone][index]
@@ -370,7 +411,8 @@ def check():
     # term 1 a real teacher pay award (good, takes the first good quarter, 2) and a RAAC story (bad, no bad quarter in term 1, so it
     # changes nothing), and term 2 a real strike ballot (bad, takes the first bad quarter, 10). Decision 0013.
     cid = 'rn112'
-    pay, raac, strike = ('good', [12000] * 6), ('bad', [25, 25, 25, 75, 75, 75]), ('bad', [50, 50, 50, 25, 25, 25])
+    pay, raac = ('good', spread({'everyone': 12000}, SHOCK_CAP)), ('bad', spread({'urban': 25, 'rural': 75}, 100))
+    strike = ('bad', spread({'urban': 50, 'rural': 25}, 100))
     real = {1: [pay, raac], 2: [strike]}
     seed = news_seed(cid)
     expect('rn112: the real pay award takes quarter 2 and the bad one finds no room in term 1',
@@ -408,7 +450,7 @@ def check():
     expect('tf2966: election nights 1 and 2', [sum(w * x for w, x in zip(sm.W, s)) // 10**6 for s in (s1, s2)], [576584, 623698])
     sup13, _, _ = play(cums[:13], cid, 13, owed=owed)
     story = NEWS['mixed'][3]
-    quote = shock_from('bad', story['exposure_pct'], 3, sup13, story['winners_ppm'])
+    quote = shock_from('bad', spread(story['exposure_pct'], 100), 3, sup13, spread(story['winners_ppm'], SHOCK_CAP))
     expect('tf2966: the trade-off quote', quote, [0, 8000, 12000, -40000, -40000, -9979])
     expect('tf2966: ...overall, and what answering would cost (only losses are priced)', (overall_ppm(quote), relief_cost(quote)), (-1298, 7))
     expect('tf2966: ...answered, the losses shrink by 60% and the gains stay',

@@ -378,15 +378,13 @@
       "type": "object",
       "properties": {
         "effect": {
-          "description": "Bad news: each group's exposure in percent of the worst case. Good news: each group's gain in ppm.",
-          "type": "array",
-          "items": {
+          "description": "Bad news: each group's exposure in percent of the worst case. Good news: each group's gain in ppm. Keyed by group id\n(decision 0015); a group the campaign's population does not have makes the import invalid.",
+          "type": "object",
+          "additionalProperties": {
             "type": "integer",
             "format": "uint32",
             "minimum": 0
-          },
-          "maxItems": 6,
-          "minItems": 6
+          }
         },
         "id": {
           "type": "string"
@@ -398,15 +396,13 @@
           "$ref": "#/$defs/RealToneWire"
         },
         "winners": {
-          "description": "Bad news that is also a trade-off: the groups it helps, a flat gain in ppm (decision 0014). All zero otherwise.",
-          "type": "array",
-          "items": {
+          "description": "Bad news that is also a trade-off: the groups it helps, a flat gain in ppm (decision 0014). Empty otherwise.",
+          "type": "object",
+          "additionalProperties": {
             "type": "integer",
             "format": "uint32",
             "minimum": 0
-          },
-          "maxItems": 6,
-          "minItems": 6
+          }
         }
       },
       "additionalProperties": false,

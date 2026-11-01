@@ -116,7 +116,7 @@ pub fn run_one(
             magnitude_percent: magnitude,
             delivery_extra_lag: extra_lag,
             response_lag,
-            shocks: [[0; 6]; crate::MAX_QUARTERS as usize],
+            shocks: vec![],
             q2_repair_cap: Some(8),
             // The pinned sensitivity report is for the frozen scenario without headlines.
             news_seed: None,
@@ -235,7 +235,8 @@ pub fn run_one(
         weighted_support_ppm: weighted,
         group_support_ppm: supports,
         settled_weighted_support_ppm,
-        settled_group_support_ppm: settled,
+        settled_group_support_ppm: <[u32; 6]>::try_from(settled)
+            .map_err(|_| Rejection::InvalidCondition)?,
         pending_cell_delta_ppm: pending_delta,
         pending_response_count: pending_count,
         relationships: c.relationship(),

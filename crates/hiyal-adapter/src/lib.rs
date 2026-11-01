@@ -18,6 +18,7 @@ use myth_contracts::{
     parse_command, parse_minister_action,
 };
 use myth_domain as d;
+use myth_domain::population::{Attribute, CHANNELS, Group, Kernel, Level, Population, Selector};
 use myth_domain::{
     reducer::{Action, Campaign, Rules},
     scripted,
@@ -79,10 +80,16 @@ pub fn tradeoff_text(index: usize) -> Option<(String, String)> {
 }
 /// A deliberate, migration-controlled behavior contract, not raw source text.
 /// Bump when P3 rules, parsing, adapters, scenario selection or model policy change.
-pub const RULES_VERSION: &str = "p4-england-education-rules-v10";
-type FrozenSource = Result<(String, String, [u32; 6]), String>;
+pub const RULES_VERSION: &str = "p4-england-education-rules-v11";
+/// What the frozen files fix for every campaign: their digests and the population of voters the scenario describes.
+struct Frozen {
+    pack: String,
+    scenario: String,
+    population: Population,
+}
+type FrozenSource = Result<Frozen, String>;
 static FROZEN: OnceLock<FrozenSource> = OnceLock::new();
-fn frozen() -> Result<&'static (String, String, [u32; 6]), String> {
+fn frozen() -> Result<&'static Frozen, String> {
     FROZEN
         .get_or_init(|| {
             let meta: Value = serde_json::from_str(MANIFEST).map_err(error)?;
@@ -96,21 +103,143 @@ fn frozen() -> Result<&'static (String, String, [u32; 6]), String> {
                 return Err("frozen P2 source hashes do not match manifest".into());
             }
             let scenario: Value = serde_json::from_str(SCENARIO).map_err(error)?;
-            let cells = scenario["population"]["variants"][0]["weights_ppm"]
-                .as_array()
-                .ok_or("missing authored population")?;
-            if cells.len() != 6 {
-                return Err("invalid cohort count".into());
-            }
-            let mut weights = [0u32; 6];
-            for (i, value) in cells.iter().enumerate() {
-                weights[i] =
-                    u32::try_from(value.as_u64().ok_or("invalid cohort weight")?).map_err(error)?;
-            }
-            Ok((pack.into(), scenario_hash.into(), weights))
+            Ok(Frozen {
+                pack: pack.into(),
+                scenario: scenario_hash.into(),
+                population: electorate(&scenario)?,
+            })
         })
         .as_ref()
         .map_err(Clone::clone)
+}
+/// The population of voters the scenario describes (decision 0015): its attributes and groups and kernel from `electorate`, and
+/// the share of each cell from the baseline of `population`, in the order `population.order` names.
+fn electorate(scenario: &Value) -> Result<Population, String> {
+    fn text(v: &Value, what: &str) -> Result<String, String> {
+        v.as_str()
+            .map(str::to_owned)
+            .ok_or_else(|| format!("electorate: {what} must be text"))
+    }
+    fn list<'a>(v: &'a Value, what: &str) -> Result<&'a Vec<Value>, String> {
+        v.as_array()
+            .ok_or_else(|| format!("electorate: {what} must be a list"))
+    }
+    fn selector(v: &Value, attributes: &[Attribute]) -> Result<Selector, String> {
+        if v.as_str() == Some("everyone") {
+            return Ok(Selector::Everyone);
+        }
+        let object = v
+            .as_object()
+            .filter(|o| o.len() == 1)
+            .ok_or("electorate: a selector is \"everyone\" or an object with one key")?;
+        let (key, inner) = object.iter().next().ok_or("electorate: empty selector")?;
+        match key.as_str() {
+            "is" => {
+                let attribute_id = text(&inner["attribute"], "selector attribute")?;
+                let level_id = text(&inner["level"], "selector level")?;
+                let attribute = attributes
+                    .iter()
+                    .position(|a| a.id == attribute_id)
+                    .ok_or_else(|| format!("electorate: unknown attribute {attribute_id}"))?;
+                let level = attributes[attribute]
+                    .levels
+                    .iter()
+                    .position(|l| l.id == level_id)
+                    .ok_or_else(|| format!("electorate: unknown level {level_id}"))?;
+                Ok(Selector::Is { attribute, level })
+            }
+            "all" | "any" => {
+                let parts = list(inner, "selector parts")?
+                    .iter()
+                    .map(|part| selector(part, attributes))
+                    .collect::<Result<Vec<_>, _>>()?;
+                Ok(if key == "all" {
+                    Selector::All(parts)
+                } else {
+                    Selector::Any(parts)
+                })
+            }
+            "not" => Ok(Selector::Not(Box::new(selector(inner, attributes)?))),
+            other => Err(format!("electorate: unknown selector {other}")),
+        }
+    }
+    fn channels(v: &Value, what: &str) -> Result<[i128; CHANNELS], String> {
+        let numbers = list(v, what)?
+            .iter()
+            .map(|n| n.as_i64().map(i128::from))
+            .collect::<Option<Vec<_>>>()
+            .ok_or_else(|| format!("electorate: {what} must be whole numbers"))?;
+        <[i128; CHANNELS]>::try_from(numbers)
+            .map_err(|_| format!("electorate: {what} needs {CHANNELS} numbers"))
+    }
+    let e = &scenario["electorate"];
+    let attributes = list(&e["attributes"], "attributes")?
+        .iter()
+        .map(|a| {
+            let levels = list(&a["levels"], "levels")?
+                .iter()
+                .map(|l| {
+                    Ok(Level {
+                        id: text(&l["id"], "level id")?,
+                        label: text(&l["label"], "level label")?,
+                    })
+                })
+                .collect::<Result<Vec<_>, String>>()?;
+            Ok(Attribute {
+                id: text(&a["id"], "attribute id")?,
+                levels,
+            })
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+    let declared = list(&e["groups"], "groups")?
+        .iter()
+        .map(|g| {
+            Ok(Group {
+                id: text(&g["id"], "group id")?,
+                label: text(&g["label"], "group label")?,
+                selector: selector(&g["select"], &attributes)?,
+            })
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+    let kernel = &e["kernel"];
+    let percent = attributes
+        .iter()
+        .map(|a| {
+            a.levels
+                .iter()
+                .map(|l| channels(&kernel["percent"][&a.id][&l.id], "kernel percent"))
+                .collect::<Result<Vec<_>, String>>()
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+    let kernel = Kernel {
+        base_ppm: channels(&kernel["base_ppm"], "kernel base")?,
+        percent,
+    };
+    let weights = list(
+        &scenario["population"]["variants"][0]["weights_ppm"],
+        "weights",
+    )?
+    .iter()
+    .map(|w| w.as_u64().and_then(|w| u32::try_from(w).ok()))
+    .collect::<Option<Vec<_>>>()
+    .ok_or("electorate: cell weights must be whole numbers")?;
+    let population = Population::new(attributes, weights, declared, kernel).map_err(error)?;
+    // The invented news names groups: the scenario must declare each, or a headline would silently do nothing.
+    d::news::check_decks(&population).map_err(error)?;
+    let order = list(&scenario["population"]["order"], "population order")?;
+    if order.len() != population.cells()
+        || order
+            .iter()
+            .enumerate()
+            .any(|(cell, id)| id.as_str() != population.cell_id(cell))
+    {
+        return Err("electorate: population.order does not name the cells in order".into());
+    }
+    Ok(population)
+}
+/// The population of voters every campaign has (decision 0015), read from the frozen scenario.
+pub fn population() -> Result<&'static Population, String> {
+    frozen().map(|f| &f.population)
 }
 fn encoded<T: Serialize>(x: &T) -> Result<Vec<u8>, String> {
     serde_json::to_vec(x).map_err(|e| e.to_string())
@@ -195,7 +324,8 @@ pub struct GameWorld {
     pub pack_sha256: String,
     pub scenario_sha256: String,
     pub rules_identity: String,
-    pub weights_ppm: [u32; 6],
+    /// The share of each cell of the population, in ppm; as many entries as the scenario's population has cells.
+    pub weights_ppm: Vec<u32>,
     pub source_cutoff_utc: String,
     pub synthetic_receipts: bool,
     pub stress_cohorts: Vec<StressCohortRecord>,
@@ -212,15 +342,15 @@ pub struct GameWorld {
 
 impl GameWorld {
     pub fn initial(campaign_id: &str) -> Result<Self, String> {
-        let (expected_pack, expected_scenario, weights) = frozen()?;
+        let frozen = frozen()?;
         let mut world = Self {
             schema_version: 1,
             campaign_id: campaign_id.into(),
             pack_id: "england-school-delivery-v1".into(),
-            pack_sha256: expected_pack.clone(),
-            scenario_sha256: expected_scenario.clone(),
+            pack_sha256: frozen.pack.clone(),
+            scenario_sha256: frozen.scenario.clone(),
             rules_identity: RULES_VERSION.into(),
-            weights_ppm: *weights,
+            weights_ppm: frozen.population.weights_ppm().to_vec(),
             source_cutoff_utc: "2026-10-29T23:59:59Z".into(),
             synthetic_receipts: false,
             stress_cohorts: vec![],
@@ -319,10 +449,10 @@ impl GameWorld {
         Ok(())
     }
     pub fn fold(&self) -> Result<Campaign, String> {
-        let (pack, scenario, weights) = frozen()?;
-        if &self.pack_sha256 != pack
-            || &self.scenario_sha256 != scenario
-            || self.weights_ppm != *weights
+        let frozen = frozen()?;
+        if self.pack_sha256 != frozen.pack
+            || self.scenario_sha256 != frozen.scenario
+            || self.weights_ppm.as_slice() != frozen.population.weights_ppm()
         {
             return Err("P2 source or authored scenario binding changed".into());
         }
@@ -342,10 +472,10 @@ impl GameWorld {
         {
             return Err("unsupported or oversized P4 world version".into());
         }
-        let mut campaign = Campaign::with_rules(
+        let mut campaign = Campaign::with_population(
             &self.campaign_id,
             &self.pack_id,
-            d::CohortWeights::new(self.weights_ppm).map_err(error)?,
+            frozen.population.clone(),
             self.rules(),
         )
         .map_err(error)?;
@@ -410,10 +540,10 @@ impl GameWorld {
                 .ok_or("frozen phase lacks boundary action")?;
             // Replay only the immutable prefix and hash only its actions;
             // never clone the entire 1,024-record world just to find the anchor.
-            let mut begin = Campaign::with_rules(
+            let mut begin = Campaign::with_population(
                 &self.campaign_id,
                 &self.pack_id,
-                d::CohortWeights::new(self.weights_ppm).map_err(error)?,
+                frozen()?.population.clone(),
                 self.rules(),
             )
             .map_err(error)?;
@@ -797,5 +927,29 @@ mod p7_period_authorization_tests {
                 .selected_player_command("skip-q1", json!({"kind":"defer"}))
                 .is_err()
         );
+    }
+}
+
+#[cfg(test)]
+mod electorate_tests {
+    use super::*;
+
+    #[test]
+    fn the_scenario_file_describes_exactly_the_populations_the_engine_defaults_to() {
+        // The engine's built-in pilot (used by its own tests) and the population read from the frozen scenario are one
+        // thing: attributes, cell shares, named groups and kernel. A change to either alone fails here.
+        assert_eq!(population().unwrap(), &Population::pilot().unwrap());
+    }
+
+    #[test]
+    fn a_new_world_carries_the_scenarios_cells_and_a_scenario_without_a_group_the_news_names_is_refused()
+     {
+        let world = GameWorld::initial("electorate-check").unwrap();
+        assert_eq!(world.weights_ppm.len(), population().unwrap().cells());
+        let mut scenario: Value = serde_json::from_str(SCENARIO).unwrap();
+        let groups = scenario["electorate"]["groups"].as_array_mut().unwrap();
+        groups.retain(|g| g["id"] != "middle_income");
+        let refused = electorate(&scenario).unwrap_err();
+        assert!(refused.contains("InvalidCondition"), "{refused}");
     }
 }

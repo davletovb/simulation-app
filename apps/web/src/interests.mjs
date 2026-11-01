@@ -4,8 +4,13 @@
  * access]`); this module only multiplies by the plan and puts the result in words. It is a rough picture of the whole plan once
  * delivered, before any news: work arrives over several quarters and each quarter's response is clipped by the engine.
  */
-/** `urban_low` as "urban low-income": short enough to list without confusing the commas in the full names. */
-export function shortGroup(id) {
+/**
+ * A cell in few words, short enough to list without confusing the commas in the full names: "Urban, low income" is "urban
+ * low-income". Made from the engine's label when there is one (any number of attributes), else from a pilot id.
+ */
+export function shortGroup(id, labels) {
+  const label = labels?.[id]
+  if (label) return label.toLowerCase().replace(/, /g, ' ').replace(/(\S+) income\b/g, '$1-income')
   const [place, income] = id.split('_')
   return income ? `${place} ${income}-income` : id
 }
@@ -34,10 +39,11 @@ function listWords(words) {
  * The plan in one or two sentences: who it helps and who it costs. Groups that move by less than half a point are not named.
  * @param {number[]} effectsPpm
  * @param {readonly string[]} groupIds
+ * @param {Readonly<Record<string, string>>} [labels] the engine's label for each group, by id
  */
-export function interestsText(effectsPpm, groupIds) {
-  const helped = groupIds.filter((_, i) => effectsPpm[i] >= MATERIAL_PPM).map(shortGroup)
-  const pays = groupIds.filter((_, i) => effectsPpm[i] <= -MATERIAL_PPM).map(shortGroup)
+export function interestsText(effectsPpm, groupIds, labels) {
+  const helped = groupIds.filter((_, i) => effectsPpm[i] >= MATERIAL_PPM).map(id => shortGroup(id, labels))
+  const pays = groupIds.filter((_, i) => effectsPpm[i] <= -MATERIAL_PPM).map(id => shortGroup(id, labels))
   if (helped.length === 0 && pays.length === 0) return 'No group moves by much.'
   if (pays.length === 0) return `It helps ${listWords(helped)} voters, and costs no group any support.`
   if (helped.length === 0) return `It costs ${listWords(pays)} voters support and helps no one.`

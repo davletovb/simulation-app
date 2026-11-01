@@ -405,6 +405,11 @@ impl Population {
             group("low_income", "All lower-income voters", 1, 0),
             group("middle_income", "All middle-income voters", 1, 1),
             group("high_income", "All higher-income voters", 1, 2),
+            Group {
+                id: "everyone".into(),
+                label: "All voters".into(),
+                selector: Selector::Everyone,
+            },
         ];
         let kernel = Kernel {
             base_ppm: crate::reducer::RESPONSE_BASE_PPM,
@@ -448,6 +453,11 @@ impl Population {
         let is = |attribute: usize, level: usize| Selector::Is { attribute, level };
         let declared = vec![
             Group {
+                id: "everyone".into(),
+                label: "All voters".into(),
+                selector: Selector::Everyone,
+            },
+            Group {
                 id: "urban".into(),
                 label: "All urban voters".into(),
                 selector: is(0, 0),
@@ -461,6 +471,11 @@ impl Population {
                 id: "low_income".into(),
                 label: "All lower-income voters".into(),
                 selector: is(1, 0),
+            },
+            Group {
+                id: "middle_income".into(),
+                label: "All middle-income voters".into(),
+                selector: is(1, 1),
             },
             Group {
                 id: "high_income".into(),
@@ -491,6 +506,17 @@ impl Population {
                 ]),
             },
         ];
+        // The pilot's six cells are still groups here, each now spanning both outlooks: the news deck is written in terms of them.
+        let mut declared = declared;
+        for (geography, place) in ["urban", "rural"].into_iter().enumerate() {
+            for (income, band) in ["low", "middle", "high"].into_iter().enumerate() {
+                declared.push(Group {
+                    id: format!("{place}_{band}"),
+                    label: format!("{place} {band}-income voters"),
+                    selector: Selector::All(vec![is(0, geography), is(1, income)]),
+                });
+            }
+        }
         let mut percent = pilot.kernel.percent.clone();
         // Progressive voters value staffing and access a little more and mind the cost less; traditional voters the reverse.
         percent.push(vec![[110, 90, 110, 80], [90, 110, 90, 125]]);
@@ -564,7 +590,7 @@ mod tests {
         assert_eq!(pilot.group_label(3), Some("Rural, low income"));
         assert_eq!(pilot.cell_levels(4), Some(&[1_usize, 1][..]));
         // Cells first, then the declared groups.
-        assert_eq!(pilot.group_count(), 6 + 5);
+        assert_eq!(pilot.group_count(), 6 + 6);
         assert_eq!(pilot.group_index("rural_high"), Some(5));
         assert_eq!(pilot.group_index("high_income"), Some(6 + 4));
         assert_eq!(
@@ -754,6 +780,10 @@ mod tests {
             90
         );
         assert_eq!(pilot.spread(&[], 100).unwrap(), [0; 6]);
+        assert_eq!(
+            pilot.spread(&[("everyone", 15_000)], 40_000).unwrap(),
+            [15_000; 6]
+        );
     }
 
     #[test]

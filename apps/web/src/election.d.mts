@@ -1,4 +1,9 @@
+/** The pilot's six cells in words: a fallback for a snapshot that carries no labels. */
 export const GROUP_LABELS: Readonly<Record<string, string>>
+/** The engine's label for every group, by id, from a snapshot's `support` (decision 0015). */
+export function groupLabels(support: { groups?: readonly { id: string; label: string }[] } | undefined): Record<string, string>
+/** A group's words: the engine's label if there is one, else the pilot's, else the id. */
+export function labelOf(id: string, labels?: Readonly<Record<string, string>>): string
 export const NARROW_DEFEAT_PPM: number
 /** Parts per million as a percentage, truncated (never rounded up) to one decimal. */
 export function pct(ppm: number): number
@@ -52,6 +57,7 @@ interface SnapshotLike {
     group_ppm: readonly number[]
     pending_delta_ppm: readonly number[]
     weight_ppm: readonly number[]
+    groups?: readonly { id: string; label: string }[]
   }
   election: ElectionLike
   treasury: {

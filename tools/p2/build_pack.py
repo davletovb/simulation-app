@@ -187,6 +187,65 @@ def source_bytes():
     return manifest, extracted
 
 
+def electorate_groups(authored):
+    """The cells and the groups of the authored electorate, from its attributes and selectors alone (an independent reading of
+    the same file the engine reads): cell ids in order, and for every group id the set of cell positions it selects."""
+    e = authored["electorate"]
+    attributes = e["attributes"]
+    need(1 <= len(attributes) <= 6, "electorate: between one and six attributes")
+    levels = [[lv["id"] for lv in a["levels"]] for a in attributes]
+    need(all(len(v) >= 2 for v in levels), "electorate: every attribute has at least two levels")
+    combos = [[]]
+    for options in levels:
+        combos = [c + [o] for c in combos for o in options]
+    need(len(combos) <= 64, "electorate: at most 64 cells")
+    ids = ["_".join(c) for c in combos]
+    ident = re.compile(r"^[a-z0-9]+$")
+    need(all(ident.match(x) for x in [a["id"] for a in attributes] + [o for v in levels for o in v]), "electorate: plain ids")
+
+    def holds(sel, cell):
+        if sel == "everyone":
+            return True
+        need(isinstance(sel, dict) and len(sel) == 1, "electorate: a selector is 'everyone' or an object with one key")
+        (key, inner), = sel.items()
+        if key == "is":
+            at = [a["id"] for a in attributes].index(inner["attribute"])
+            need(inner["level"] in levels[at], "electorate: a selector names a real level")
+            return combos[cell][at] == inner["level"]
+        if key == "all":
+            need(inner, "electorate: all of nothing")
+            return all(holds(x, cell) for x in inner)
+        if key == "any":
+            need(inner, "electorate: any of nothing")
+            return any(holds(x, cell) for x in inner)
+        need(key == "not", "electorate: unknown selector")
+        return not holds(inner, cell)
+
+    groups = {ident_: {i} for i, ident_ in enumerate(ids)}
+    for g in e["groups"]:
+        need(re.match(r"^[a-z0-9_]+$", g["id"]) and g["id"] not in groups, "electorate: group ids are plain and unique")
+        members = {i for i in range(len(combos)) if holds(g["select"], i)}
+        need(members, "electorate: a group selects at least one cell")
+        groups[g["id"]] = members
+    kernel = e["kernel"]
+    need(len(kernel["base_ppm"]) == len(kernel["channels"]) == 4, "electorate: four response channels")
+    for a in attributes:
+        for lv in a["levels"]:
+            row = kernel["percent"][a["id"]][lv["id"]]
+            need(len(row) == 4 and all(type(x) is int and 0 < x <= 1000 for x in row), "electorate: a kernel row per level")
+    return ids, groups
+
+
+def spread(entries, groups, cells, cap):
+    """Per-cell total of named entries, each cell capped, as the engine spreads a headline's targets."""
+    out = [0] * cells
+    for group, amount in entries.items():
+        need(group in groups, f"headline names an unknown group: {group}")
+        for cell in groups[group]:
+            out[cell] += amount
+    return [min(x, cap) for x in out]
+
+
 def authoring_checks(authored):
     need(authored["schema_version"] == 1, "scenario version")
     need(authored["pilot"]["credits"] == 100 and authored["pilot"]["GBP_conversion"] is None, "fake GBP conversion")
@@ -199,7 +258,12 @@ def authoring_checks(authored):
     need("min_blocs_ppm" not in election, "only overall support decides the election (decision 0009)")
     calendar = authored["news_calendar"]
     need(len(calendar["bad"]) >= 4 and len(calendar["good"]) >= 4, "a term needs four distinct headlines of either tone")
-    need(all(len(item.get("exposure_pct", item.get("gain_ppm", []))) == 6 for item in calendar["bad"] + calendar["good"]), "six groups per headline")
+    cell_ids, groups = electorate_groups(authored)
+    cells = len(cell_ids)
+    for item in calendar["bad"]:
+        need(any(x > 0 for x in spread(item["exposure_pct"], groups, cells, 100)), "bad news hurts someone")
+    for item in calendar["good"]:
+        need(isinstance(item["gain_ppm"], dict), "good news lists its gains by group")
     need("invented" in calendar["label"].lower(), "headlines must be labelled as invented")
     for item in calendar["bad"] + calendar["good"]:
         cut = item.get("disrupts")
@@ -218,13 +282,14 @@ def authoring_checks(authored):
         if credits is not None:
             need(item in calendar["good"], "only good news may bring credits")
             need(1 <= credits <= calendar["max_windfall_credits"], "a windfall is between one credit and the stated maximum")
-            need(all(x == 0 for x in item["gain_ppm"]), "a windfall brings credits, not mood")
+            need(not item["gain_ppm"], "a windfall brings credits, not mood")
     for item in calendar["mixed"]:
-        need(len(item["exposure_pct"]) == 6 and len(item["winners_ppm"]) == 6, "six groups per trade-off story")
-        need(any(x > 0 for x in item["exposure_pct"]) and any(x > 0 for x in item["winners_ppm"]),
-             "a trade-off story must hurt some group and help another")
-        need(all(e == 0 or w == 0 for e, w in zip(item["exposure_pct"], item["winners_ppm"])), "no group is both hurt and helped")
-        need(all(0 <= e <= 100 for e in item["exposure_pct"]) and all(0 <= w <= 40000 for w in item["winners_ppm"]), "trade-off numbers in range")
+        hurt = spread(item["exposure_pct"], groups, cells, 100)
+        helped = spread(item["winners_ppm"], groups, cells, 40000)
+        need(any(x > 0 for x in hurt) and any(x > 0 for x in helped), "a trade-off story must hurt some voters and help others")
+        need(all(e == 0 or w == 0 for e, w in zip(hurt, helped)), "no cell is both hurt and helped")
+        need(all(0 <= e <= 100 for e in item["exposure_pct"].values()) and all(0 <= w <= 40000 for w in item["winners_ppm"].values()),
+             "trade-off numbers in range")
     need(calendar["mixed_from_term"] >= 3, "trade-off stories begin after the first two terms, whose calendars stay as they were")
     need(calendar["mixed_one_in"] >= 2 and len(calendar["mixed"]) >= 4, "trade-off stories: a share of bad headlines and enough to not repeat")
     need(calendar["scrutiny"]["pct"] > 0 and calendar["scrutiny"]["step_pct"] >= 0 and calendar["scrutiny"]["cap_pct"] >= calendar["scrutiny"]["pct"],
@@ -243,6 +308,7 @@ def authoring_checks(authored):
     need(len(board["opening_statements"]) == 2, "expected fictional nonbinding statements")
     pop = authored["population"]
     need(pop["order"] == ORDER, "cell order drift")
+    need(pop["order"] == cell_ids, "population.order must name the electorate's cells in order")
     baseline = pop["variants"][0]["weights_ppm"]
     residence = (sum(baseline[:3]), sum(baseline[3:]))
     income = tuple(baseline[i] + baseline[i + 3] for i in range(3))

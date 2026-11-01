@@ -145,7 +145,8 @@ pub struct WorldParts {
     pub treasury: Treasury,
     pub scopes: Vec<FundedScope>,
     pub cohort_weights: CohortWeights,
-    pub support: [SupportPpm; 6],
+    /// One support figure per cell of the population, in the same order as `cohort_weights`.
+    pub support: Vec<SupportPpm>,
     pub organisations: [OrganisationAccount; 2],
     pub commitments: Vec<Commitment>,
     pub queued_responses: Vec<QueuedResponse>,
@@ -164,6 +165,7 @@ impl WorldSnapshot {
         pack_id: String,
         cohort_weights: CohortWeights,
     ) -> Result<Self, ContractError> {
+        let cells = cohort_weights.len();
         Self::from_parts(WorldParts {
             campaign_id,
             pack_id,
@@ -173,7 +175,7 @@ impl WorldSnapshot {
             treasury: Treasury::initial(),
             scopes: vec![],
             cohort_weights,
-            support: [SupportPpm::new(500_000)?; 6],
+            support: vec![SupportPpm::new(500_000)?; cells],
             organisations: [
                 OrganisationAccount::new(Organisation::SchoolWorkforceAssociation, 10)?,
                 OrganisationAccount::new(Organisation::CommunityAccessNetwork, 4)?,
@@ -197,8 +199,11 @@ impl WorldSnapshot {
         validate_identifier(&self.parts.campaign_id)?;
         validate_identifier(&self.parts.pack_id)?;
         self.parts.treasury.validate()?;
-        // Exact six cohort slots and a million ppm are enforced by fixed arrays
-        // and the domain CohortWeights/SupportPpm constructors.
+        // A million ppm of voters is enforced by CohortWeights and each support figure by SupportPpm; one support figure
+        // per cohort cell is enforced here, whatever the number of cells (decision 0015).
+        if self.parts.support.len() != self.parts.cohort_weights.len() {
+            return Err(ContractError::InvalidPopulationWeights);
+        }
         if self.parts.organisations[0].id() != Organisation::SchoolWorkforceAssociation
             || self.parts.organisations[1].id() != Organisation::CommunityAccessNetwork
         {
@@ -297,7 +302,7 @@ impl WorldSnapshot {
     pub fn cohort_weights(&self) -> &CohortWeights {
         &self.parts.cohort_weights
     }
-    pub fn support(&self) -> &[SupportPpm; 6] {
+    pub fn support(&self) -> &[SupportPpm] {
         &self.parts.support
     }
     pub fn organisations(&self) -> &[OrganisationAccount; 2] {

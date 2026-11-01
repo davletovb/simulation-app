@@ -373,8 +373,9 @@ pub struct PublicUpcoming {
     pub source: String,
     /// `bad` or `good`.
     pub tone: String,
-    /// What it would do to each group's support if it landed now, in ppm (negative takes support away).
-    pub effect_ppm: [i32; 6],
+    /// What it would do to each group's support if it landed now, in ppm (negative takes support away). One entry per group
+    /// of `support.group_ids`, in that order.
+    pub effect_ppm: Vec<i32>,
     /// The same, weighted by each group's share of the voters: the effect on overall support.
     pub overall_ppm: i32,
     /// `serious` (takes two points or more of overall support), `minor`, or `welcome` for good news.
@@ -428,7 +429,7 @@ pub struct PublicScrutiny {
     /// order staffing, repairs, access (zero for a kind that is not counted).
     pub owed_units: [u16; 3],
     /// The part of the loss that is the count, per group (already counted in `effect_ppm`).
-    pub effect_ppm: [i32; 6],
+    pub effect_ppm: Vec<i32>,
 }
 /// What a disruption would do to the work the player has promised.
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -441,7 +442,7 @@ pub struct PublicDisruption {
     /// Units that would be delivered after the term's election instead of before it.
     pub delayed_units: u16,
     /// The support those units would have earned by the election, per group, taken away (already counted in `effect_ppm`).
-    pub effect_ppm: [i32; 6],
+    pub effect_ppm: Vec<i32>,
 }
 /// A headline that has landed.
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -453,7 +454,7 @@ pub struct PublicLanded {
     pub source: String,
     pub tone: String,
     /// What it did to each group's support, after any response.
-    pub effect_ppm: [i32; 6],
+    pub effect_ppm: Vec<i32>,
     pub overall_ppm: i32,
     /// Nobody was told in advance.
     pub surprise: bool,
@@ -703,30 +704,41 @@ pub struct PublicEvidence {
     pub scope: String,
     pub indicators: Vec<PublicIndicator>,
 }
-/// The six groups, in the order used for every per-group array in the snapshot.
-const GROUP_IDS: [&str; 6] = [
-    "urban_low",
-    "urban_middle",
-    "urban_high",
-    "rural_low",
-    "rural_middle",
-    "rural_high",
-];
-/// How the public feels, group by group. Every array follows `group_ids`.
+/// How the public feels, cell by cell. A cell is one combination of the voters' attributes (for the pilot: urban or rural, by
+/// low, middle or high income); it is the finest group, and the voters in the cells are everyone, each counted once (decision
+/// 0015). Every array follows `group_ids`, one entry per cell.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct PublicSupport {
+    /// The cells, by id, in the order used for every per-cell array.
     pub group_ids: Vec<String>,
     /// Support as of the last resolved quarter, in parts per million (500,000 is 50%).
-    pub group_ppm: [u32; 6],
+    pub group_ppm: Vec<u32>,
     /// What is already queued to land: settled support minus current support. At most one quarter
     /// of delivery is ever pending, so this is next quarter's change of mood.
-    pub pending_delta_ppm: [i32; 6],
-    /// Each group's share of the voters, in parts per million. Sums to 1,000,000.
-    pub weight_ppm: [u32; 6],
-    /// What one delivered credit of each kind of work adds to each group's support, net of what it costs them, in parts per
-    /// million: `[group][staffing, repairs, access]`. A negative number is a group that pays more than it gains. A plan's
+    pub pending_delta_ppm: Vec<i32>,
+    /// Each cell's share of the voters, in parts per million. Sums to 1,000,000.
+    pub weight_ppm: Vec<u32>,
+    /// What one delivered credit of each kind of work adds to each cell's support, net of what it costs them, in parts per
+    /// million: `[cell][staffing, repairs, access]`. A negative number is a group that pays more than it gains. A plan's
     /// whole effect is the sum of its units times these, before news (decision 0014).
-    pub net_per_credit_ppm: [[i32; 3]; 6],
+    pub net_per_credit_ppm: Vec<[i32; 3]>,
+    /// Every group a headline or a screen can point at: each cell first, in order, then the groups the scenario names (urban,
+    /// rural, each income band, ...). Groups overlap, so their shares do not add up to the whole.
+    pub groups: Vec<PublicGroup>,
+}
+/// A named set of voters (decision 0015).
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct PublicGroup {
+    pub id: String,
+    pub label: String,
+    /// Its share of all the voters, in parts per million.
+    pub weight_ppm: u32,
+    /// The cells it contains, as positions in `group_ids`.
+    pub cells: Vec<u16>,
+    /// Its support now: its cells' support, weighted by their shares.
+    pub support_ppm: u32,
+    /// Its support once what is queued has landed, as for `pending_delta_ppm`: the change, in parts per million.
+    pub pending_delta_ppm: i32,
 }
 /// What an election returns. `projected` while a term is running (every queued response lands, nothing new
 /// is delivered); `won` or `lost` once the term has ended and the verdict is recorded.
@@ -738,14 +750,14 @@ pub struct PublicElection {
     /// True only for the election at the technical ceiling (the longest tenure the engine records): winning it
     /// ends the game instead of starting another term.
     pub ceiling: bool,
-    pub settled_group_ppm: [u32; 6],
+    pub settled_group_ppm: Vec<u32>,
     pub weighted_support_ppm: u32,
     pub blocs_held_ppm: u32,
     pub min_support_ppm: u32,
     pub held_above_ppm: u32,
 }
 impl PublicElection {
-    fn bars(status: &str, term: u8, settled: [u32; 6], weighted: u32, held: u32) -> Self {
+    fn bars(status: &str, term: u8, settled: Vec<u32>, weighted: u32, held: u32) -> Self {
         Self {
             status: status.into(),
             term,
@@ -948,18 +960,7 @@ fn capture(trial: &GameTrial) -> Result<PublicView, String> {
     {
         return Err("invalid public quarterly report sequence".into());
     }
-    let current: [u32; 6] = (*campaign.world().support()).map(|cell| cell.value());
-    let election = campaign
-        .election_projection()
-        .map_err(|reason| format!("election projection failed: {reason:?}"))?;
-    let mut pending_delta_ppm = [0_i32; 6];
-    for (delta, (settled, now)) in pending_delta_ppm
-        .iter_mut()
-        .zip(election.group_support_ppm.iter().zip(current.iter()))
-    {
-        *delta = i32::try_from(i64::from(*settled) - i64::from(*now))
-            .map_err(|_| "pending support change out of range".to_string())?;
-    }
+    let (support, election) = public_support(&campaign)?;
     // Once a term has ended the verdict is the one recorded on election night, not a projection.
     let quarter_now =
         d::Quarter::new(world.quarter).map_err(|e| format!("invalid quarter: {e:?}"))?;
@@ -984,15 +985,6 @@ fn capture(trial: &GameTrial) -> Result<PublicView, String> {
             blocs_held_ppm: record.projection.blocs_held_ppm,
         })
         .collect();
-    let support = PublicSupport {
-        group_ids: GROUP_IDS.iter().map(|id| (*id).to_owned()).collect(),
-        group_ppm: current,
-        pending_delta_ppm,
-        weight_ppm: *campaign.world().cohort_weights().parts_ppm(),
-        net_per_credit_ppm: campaign
-            .net_support_per_unit_ppm()
-            .map_err(|_| "support response unavailable")?,
-    };
     let election = PublicElection::bars(
         status,
         quarter_now.term(),
@@ -1054,6 +1046,94 @@ fn counted_families(families: [bool; 3]) -> Vec<String> {
         .map(|(name, _)| name.to_owned())
         .collect()
 }
+/// How the public feels, cell by cell and group by group, and the projection of the election that goes with it (decision 0015).
+fn public_support(
+    campaign: &myth_domain::reducer::Campaign,
+) -> Result<(PublicSupport, myth_domain::reducer::ElectionProjection), String> {
+    let population = campaign.population();
+    let current: Vec<u32> = campaign
+        .world()
+        .support()
+        .iter()
+        .map(|cell| cell.value())
+        .collect();
+    let election = campaign
+        .election_projection()
+        .map_err(|reason| format!("election projection failed: {reason:?}"))?;
+    let pending_delta_ppm = election
+        .group_support_ppm
+        .iter()
+        .zip(&current)
+        .map(|(settled, now)| {
+            i32::try_from(i64::from(*settled) - i64::from(*now))
+                .map_err(|_| "pending support change out of range".to_string())
+        })
+        .collect::<Result<Vec<i32>, String>>()?;
+    let groups = public_groups(population, &current, &election.group_support_ppm)?;
+    let support = PublicSupport {
+        group_ids: (0..population.cells())
+            .filter_map(|cell| population.cell_id(cell).map(str::to_owned))
+            .collect(),
+        group_ppm: current,
+        pending_delta_ppm,
+        weight_ppm: campaign.world().cohort_weights().parts_ppm().to_vec(),
+        net_per_credit_ppm: campaign
+            .net_support_per_unit_ppm()
+            .map_err(|_| "support response unavailable")?,
+        groups,
+    };
+    Ok((support, election))
+}
+/// Support with nothing in it, for a view that could not be verified: the scenario's cells, all at zero.
+fn blank_support() -> PublicSupport {
+    let population = myth_hiyal_adapter::population().ok();
+    let cells = population.map_or(0, |p| p.cells());
+    PublicSupport {
+        group_ids: (0..cells)
+            .filter_map(|cell| population.and_then(|p| p.cell_id(cell)).map(str::to_owned))
+            .collect(),
+        group_ppm: vec![0; cells],
+        pending_delta_ppm: vec![0; cells],
+        weight_ppm: vec![0; cells],
+        net_per_credit_ppm: vec![[0; 3]; cells],
+        groups: vec![],
+    }
+}
+/// Every group of the population with its share and its support now and once what is queued has landed (decision 0015).
+fn public_groups(
+    population: &d::population::Population,
+    now: &[u32],
+    settled: &[u32],
+) -> Result<Vec<PublicGroup>, String> {
+    let missing = || "group support unavailable".to_string();
+    (0..population.group_count())
+        .map(|group| {
+            let at = population
+                .group_support_ppm(group, now)
+                .ok_or_else(missing)?;
+            let later = population
+                .group_support_ppm(group, settled)
+                .ok_or_else(missing)?;
+            Ok(PublicGroup {
+                id: population.group_id(group).ok_or_else(missing)?.to_owned(),
+                label: population
+                    .group_label(group)
+                    .ok_or_else(missing)?
+                    .to_owned(),
+                weight_ppm: population.group_weight_ppm(group).ok_or_else(missing)?,
+                cells: population
+                    .members(group)
+                    .ok_or_else(missing)?
+                    .iter()
+                    .map(|cell| u16::try_from(*cell).map_err(|_| missing()))
+                    .collect::<Result<Vec<u16>, String>>()?,
+                support_ppm: at,
+                pending_delta_ppm: i32::try_from(i64::from(later) - i64::from(at))
+                    .map_err(|_| "pending support change out of range".to_string())?,
+            })
+        })
+        .collect()
+}
 /// Who publishes the real headlines, as the screen says it.
 const REAL_PUBLISHER: &str = "GOV.UK, Department for Education";
 fn family_name(family: PolicyFamily) -> &'static str {
@@ -1066,8 +1146,8 @@ fn family_name(family: PolicyFamily) -> &'static str {
 /// What the news calendar shows (decision 0010): headlines announced a quarter ahead with their price, and every headline
 /// that has landed. Words come from the frozen scenario file; the engine only knows numbers.
 fn public_calendar(campaign: &myth_domain::reducer::Campaign) -> Result<PublicCalendar, String> {
-    let weights = *campaign.world().cohort_weights().parts_ppm();
-    let overall = |shock: &[i32; 6]| -> Result<i32, String> {
+    let weights = campaign.world().cohort_weights().parts_ppm().to_vec();
+    let overall = |shock: &[i32]| -> Result<i32, String> {
         let weighted: i64 = shock
             .iter()
             .zip(weights.iter())
@@ -1178,7 +1258,7 @@ fn public_calendar(campaign: &myth_domain::reducer::Campaign) -> Result<PublicCa
             }
             .into(),
             tone: tone(landed.scheduled.tone),
-            effect_ppm: landed.shock,
+            effect_ppm: landed.shock.clone(),
             overall_ppm: overall(&landed.shock)?,
             surprise: landed.scheduled.surprise,
             responded: landed.responded,
@@ -1560,14 +1640,14 @@ fn schedule(owner: Arc<Owner>) {
                         },
                         decisions: vec![],
                         delivery_history: vec![],
-                        support: PublicSupport {
-                            group_ids: GROUP_IDS.iter().map(|id| (*id).to_owned()).collect(),
-                            group_ppm: [0; 6],
-                            pending_delta_ppm: [0; 6],
-                            weight_ppm: [0; 6],
-                            net_per_credit_ppm: [[0; 3]; 6],
-                        },
-                        election: PublicElection::bars("projected", 1, [0; 6], 0, 0),
+                        support: blank_support(),
+                        election: PublicElection::bars(
+                            "projected",
+                            1,
+                            vec![0; blank_support().group_ids.len()],
+                            0,
+                            0,
+                        ),
                         past_elections: vec![],
                         term: 1,
                         term_quarters: d::TERM_QUARTERS,
@@ -4468,5 +4548,188 @@ mod tests {
         assert_eq!(third.past_elections.len(), 2);
         assert!(third.past_elections.iter().all(|e| e.won));
         fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A campaign over `population` with a player who never makes a plan: quarters just turn over until `quarter`.
+    fn idle_campaign(
+        id: &str,
+        population: d::population::Population,
+        quarter: u8,
+    ) -> myth_domain::reducer::Campaign {
+        use myth_domain::reducer::{Action, Campaign, Rules};
+        let mut campaign = Campaign::with_population(
+            id,
+            "england-school-delivery-v1",
+            population,
+            Rules {
+                news_seed: Some(myth_hiyal_adapter::news_seed(id)),
+                ..Rules::default()
+            },
+        )
+        .unwrap();
+        let mut n = 0;
+        while campaign.world().quarter().value() < quarter {
+            let envelope = d::CommandEnvelope::new(
+                id.into(),
+                format!("idle-{n}"),
+                campaign.world().world_version(),
+                d::PlayerCommand::AdvanceQuarter,
+            )
+            .unwrap();
+            campaign.apply(Action::Player(envelope)).unwrap();
+            n += 1;
+        }
+        campaign
+    }
+    /// The parts of the public view that depend on how many cells the population has, as the browser receives them.
+    fn population_view(campaign: &myth_domain::reducer::Campaign) -> serde_json::Value {
+        let (support, projection) = public_support(campaign).unwrap();
+        let election = PublicElection::bars(
+            "projected",
+            campaign.world().quarter().term(),
+            projection.group_support_ppm,
+            projection.weighted_support_ppm,
+            projection.blocs_held_ppm,
+        );
+        serde_json::json!({
+            "quarter": campaign.world().quarter().value(),
+            "support": support,
+            "election": election,
+            "calendar": public_calendar(campaign).unwrap(),
+        })
+    }
+    /// The browser's validators are tested against these files (`apps/web/scripts/groups-regression.mjs`), so they are pinned here:
+    /// a change to what the engine sends fails this test until the files are regenerated with `UPDATE_WEB_FIXTURES=1`.
+    fn pinned_fixture(name: &str, view: &serde_json::Value) {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../apps/web/scripts/fixtures")
+            .join(name);
+        let text = serde_json::to_string_pretty(view).unwrap() + "\n";
+        if std::env::var_os("UPDATE_WEB_FIXTURES").is_some() {
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(&path, &text).unwrap();
+        }
+        assert_eq!(
+            fs::read_to_string(&path).unwrap_or_default(),
+            text,
+            "{name} is out of date: run with UPDATE_WEB_FIXTURES=1"
+        );
+    }
+    #[test]
+    fn the_public_view_follows_the_population_it_is_given_six_cells_or_twelve() {
+        // A calendar whose news has not treated every group alike by the fifth quarter, so the fixtures say something.
+        let id = (0..400)
+            .map(|n| format!("groups{n}"))
+            .find(|id| {
+                let view = population_view(&idle_campaign(
+                    id,
+                    d::population::Population::pilot().unwrap(),
+                    5,
+                ));
+                let moods = view["support"]["group_ppm"].as_array().unwrap().clone();
+                let upcoming = view["calendar"]["upcoming"].as_array().unwrap();
+                moods.iter().any(|m| *m != moods[0])
+                    && upcoming.iter().any(|u| {
+                        u["effect_ppm"]
+                            .as_array()
+                            .unwrap()
+                            .iter()
+                            .any(|e| *e != u["effect_ppm"][0])
+                    })
+            })
+            .expect("some calendar treats the groups differently by the fifth quarter");
+        // The pilot: six cells, and the named groups are plain sums of them.
+        let pilot = idle_campaign(&id, d::population::Population::pilot().unwrap(), 5);
+        let view = population_view(&pilot);
+        assert_eq!(view["support"]["group_ids"].as_array().unwrap().len(), 6);
+        let groups = view["support"]["groups"].as_array().unwrap();
+        assert_eq!(groups.len(), 12, "six cells then six named groups");
+        let rural = groups.iter().find(|g| g["id"] == "rural").unwrap();
+        assert_eq!(rural["cells"], serde_json::json!([3, 4, 5]));
+        assert_eq!(rural["weight_ppm"], 200_000);
+        pinned_fixture("pilot-view.json", &view);
+
+        // Twelve cells: everything is the same shape with twice the entries, and groups overlap.
+        let twelve = idle_campaign(
+            &id,
+            d::population::Population::demo_twelve_cells().unwrap(),
+            5,
+        );
+        let view = population_view(&twelve);
+        let support = &view["support"];
+        for key in [
+            "group_ids",
+            "group_ppm",
+            "pending_delta_ppm",
+            "weight_ppm",
+            "net_per_credit_ppm",
+        ] {
+            assert_eq!(support[key].as_array().unwrap().len(), 12, "{key}");
+        }
+        assert_eq!(
+            view["election"]["settled_group_ppm"]
+                .as_array()
+                .unwrap()
+                .len(),
+            12
+        );
+        let weights: u64 = support["weight_ppm"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|w| w.as_u64().unwrap())
+            .sum();
+        assert_eq!(weights, 1_000_000, "each voter counted once");
+        let groups = support["groups"].as_array().unwrap();
+        assert_eq!(
+            groups.len(),
+            12 + 16,
+            "twelve cells, then ten named groups and the pilot's six cells as groups of the finer population"
+        );
+        let find = |id: &str| groups.iter().find(|g| g["id"] == id).unwrap();
+        // The cells come first, in order, each a group of itself.
+        for (i, id) in support["group_ids"].as_array().unwrap().iter().enumerate() {
+            assert_eq!(groups[i]["id"], *id);
+            assert_eq!(groups[i]["cells"], serde_json::json!([i]));
+        }
+        // Rural traditional voters are a slice of rural voters and of traditional voters, so these groups overlap.
+        let cells = |id: &str| -> Vec<u64> {
+            find(id)["cells"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|c| c.as_u64().unwrap())
+                .collect()
+        };
+        let (rural, traditional, both) = (
+            cells("rural"),
+            cells("traditional"),
+            cells("rural_traditional"),
+        );
+        assert!(
+            both.iter()
+                .all(|c| rural.contains(c) && traditional.contains(c))
+        );
+        assert!(
+            rural.iter().any(|c| !traditional.contains(c))
+                && traditional.iter().any(|c| !rural.contains(c))
+        );
+        let sum_of = |id: &str| -> u64 {
+            cells(id)
+                .iter()
+                .map(|c| support["weight_ppm"][*c as usize].as_u64().unwrap())
+                .sum()
+        };
+        for id in [
+            "rural",
+            "traditional",
+            "rural_traditional",
+            "left_behind",
+            "everyone",
+        ] {
+            assert_eq!(find(id)["weight_ppm"].as_u64().unwrap(), sum_of(id), "{id}");
+        }
+        assert_eq!(find("everyone")["weight_ppm"], 1_000_000);
+        pinned_fixture("twelve-view.json", &view);
     }
 }

@@ -13,7 +13,8 @@
 //! kept yet (decision 0012); some good ones bring a few credits (a windfall, decision 0012).
 
 use crate::{
-    PolicyFamily, Quarter, TERM_QUARTERS, reducer::ELECTION_HELD_ABOVE_PPM, reducer::SHOCK_CAP_PPM,
+    ContractError, PolicyFamily, Quarter, TERM_QUARTERS, population::Population,
+    reducer::ELECTION_HELD_ABOVE_PPM, reducer::SHOCK_CAP_PPM,
 };
 
 /// Headlines in term 1: good news only, so the first election is a fair test of the opening plan.
@@ -86,160 +87,240 @@ pub struct Scrutiny {
     pub families: [bool; 3],
 }
 
-/// One kind of headline. For bad news `effect` is each group's exposure, in percent of the worst case; for good news it
-/// is each group's gain in ppm. Groups: urban low, middle, high income, then rural low, middle, high. A bad headline may also
-/// disrupt one kind of work or send inspectors; a good one may bring credits.
+/// One entry of a headline's reach (decision 0015): a group of voters, by identifier, and how much of the effect it gets. The
+/// group may be a single cell (`urban_low`) or any wider group the population names (`rural`, `high_income`, `everyone`, and later
+/// ideological or economic groups); a headline never says how many cells there are, so it works unchanged on any population.
+pub type Target = (&'static str, u32);
+
+/// One kind of headline. For bad news `effect` is each group's exposure, in percent of the worst case; for good news it is each
+/// group's gain in ppm. Entries that reach the same cell add up (never past the limit). A bad headline may also disrupt one kind
+/// of work, send inspectors or help some groups (a trade-off); a good one may bring credits.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Headline {
     pub id: &'static str,
-    pub effect: [u32; 6],
+    pub effect: &'static [Target],
     pub disrupts: Option<Disruption>,
     pub scrutiny: Option<Scrutiny>,
     /// Credits that arrive when this good news lands (a windfall); zero for everything else.
     pub grant: u16,
-    /// A bad headline that is a trade-off also gives these groups a flat gain, in ppm (decision 0014); none of the groups it
-    /// hurts, and zero for everything else.
-    pub winners: [u32; 6],
+    /// A bad headline that is a trade-off also gives these groups a flat gain, in ppm (decision 0014); none of the cells it
+    /// hurts, and empty for everything else.
+    pub winners: &'static [Target],
 }
 
-const fn story(id: &'static str, effect: [u32; 6]) -> Headline {
+/// What a headline does to each cell of a population, once its groups are spread over the cells (decision 0015). For bad news
+/// `exposure` is each cell's exposure in percent of the worst case; for good news it is each cell's gain in ppm. `winners` is the
+/// flat gain, in ppm, of a trade-off story, never in a cell that is also exposed.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct Effect {
+    pub exposure: Vec<u32>,
+    pub winners: Vec<u32>,
+}
+impl Effect {
+    /// Nothing happens to anyone: for a population of `cells` cells.
+    pub fn none(cells: usize) -> Self {
+        Self {
+            exposure: vec![0; cells],
+            winners: vec![0; cells],
+        }
+    }
+}
+impl Headline {
+    /// The effect on each cell of `population`. A group the population does not have is an error, not a silent zero.
+    pub fn resolve(&self, tone: Tone, population: &Population) -> Result<Effect, ContractError> {
+        resolve_entries(tone, self.effect, self.winners, population)
+    }
+}
+/// Whether every headline of the invented decks can be spread over `population`: it must declare every group they name, or a
+/// headline would silently do nothing (decision 0015). A campaign is not started over a population that fails this.
+pub fn check_decks(population: &Population) -> Result<(), ContractError> {
+    for (tone, deck) in [
+        (Tone::Bad, &BAD[..]),
+        (Tone::Good, &GOOD[..]),
+        (Tone::Bad, &MIXED[..]),
+    ] {
+        for headline in deck {
+            headline.resolve(tone, population)?;
+        }
+    }
+    Ok(())
+}
+/// Spread named entries onto cells for a headline of `tone`: exposure up to 100% (bad) or a gain up to the shock cap (good),
+/// winners up to the shock cap, and no cell both exposed and a winner.
+fn resolve_entries(
+    tone: Tone,
+    effect: &[Target],
+    winners: &[Target],
+    population: &Population,
+) -> Result<Effect, ContractError> {
+    let cap = match tone {
+        Tone::Bad => 100,
+        Tone::Good => SHOCK_CAP_PPM,
+    };
+    let exposure = population.spread(effect, cap)?;
+    let winners = population.spread(winners, SHOCK_CAP_PPM)?;
+    if tone == Tone::Good && winners.iter().any(|w| *w > 0) {
+        return Err(ContractError::InvalidCondition);
+    }
+    if exposure.iter().zip(&winners).any(|(e, w)| *e > 0 && *w > 0) {
+        return Err(ContractError::InvalidCondition);
+    }
+    Ok(Effect { exposure, winners })
+}
+
+const fn headline(id: &'static str, effect: &'static [Target]) -> Headline {
     Headline {
         id,
         effect,
         disrupts: None,
         scrutiny: None,
         grant: 0,
-        winners: [0; 6],
+        winners: &[],
     }
 }
-const fn audit(id: &'static str, effect: [u32; 6], families: [bool; 3]) -> Headline {
+const fn story(id: &'static str, effect: &'static [Target]) -> Headline {
+    headline(id, effect)
+}
+const fn audit(id: &'static str, effect: &'static [Target], families: [bool; 3]) -> Headline {
     Headline {
-        id,
-        effect,
-        disrupts: None,
         scrutiny: Some(Scrutiny { families }),
-        grant: 0,
-        winners: [0; 6],
+        ..headline(id, effect)
     }
 }
 /// A trade-off story: `effect` is who it hurts (exposure, as for any bad news) and `winners` who it helps (a flat gain, in ppm).
-const fn tradeoff(id: &'static str, effect: [u32; 6], winners: [u32; 6]) -> Headline {
+const fn tradeoff(
+    id: &'static str,
+    effect: &'static [Target],
+    winners: &'static [Target],
+) -> Headline {
     Headline {
-        id,
-        effect,
-        disrupts: None,
-        scrutiny: None,
-        grant: 0,
         winners,
+        ..headline(id, effect)
     }
 }
 const fn windfall(id: &'static str, credits: u16) -> Headline {
     Headline {
-        id,
-        effect: [0; 6],
-        disrupts: None,
-        scrutiny: None,
         grant: credits,
-        winners: [0; 6],
+        ..headline(id, &[])
     }
 }
 const fn stoppage(
     id: &'static str,
-    effect: [u32; 6],
+    effect: &'static [Target],
     family: PolicyFamily,
     keep_pct: u32,
     quarters: u8,
 ) -> Headline {
     Headline {
-        id,
-        effect,
         disrupts: Some(Disruption {
             family,
             keep_pct,
             quarters,
         }),
-        scrutiny: None,
-        grant: 0,
-        winners: [0; 6],
+        ..headline(id, effect)
     }
 }
 
 pub const BAD: [Headline; 15] = [
     stoppage(
         "teacher_shortage",
-        [50, 50, 50, 25, 25, 25],
+        &[("urban", 50), ("rural", 25)],
         PolicyFamily::Staffing,
         50,
         1,
     ),
     stoppage(
         "roof_scare",
-        [25, 25, 25, 75, 75, 75],
+        &[("urban", 25), ("rural", 75)],
         PolicyFamily::Repairs,
         50,
         1,
     ),
-    story("funding_row", [50, 50, 50, 50, 50, 50]),
-    story("rural_bus_cuts", [0, 0, 0, 100, 100, 100]),
-    story("cost_of_living", [75, 40, 0, 75, 40, 0]),
-    story("exam_results_row", [0, 60, 75, 0, 40, 50]),
-    story("agency_scandal", [60, 60, 30, 30, 30, 15]),
+    story("funding_row", &[("everyone", 50)]),
+    story("rural_bus_cuts", &[("rural", 100)]),
+    story(
+        "cost_of_living",
+        &[("low_income", 75), ("middle_income", 40)],
+    ),
+    story(
+        "exam_results_row",
+        &[
+            ("urban_middle", 60),
+            ("urban_high", 75),
+            ("rural_middle", 40),
+            ("rural_high", 50),
+        ],
+    ),
+    story(
+        "agency_scandal",
+        &[
+            ("urban_low", 60),
+            ("urban_middle", 60),
+            ("urban_high", 30),
+            ("rural_low", 30),
+            ("rural_middle", 30),
+            ("rural_high", 15),
+        ],
+    ),
     stoppage(
         "broadband_outage",
-        [10, 10, 10, 80, 80, 80],
+        &[("urban", 10), ("rural", 80)],
         PolicyFamily::Access,
         50,
         1,
     ),
     stoppage(
         "strike_ballot",
-        [20, 20, 20, 10, 10, 10],
+        &[("urban", 20), ("rural", 10)],
         PolicyFamily::Staffing,
         0,
         2,
     ),
     stoppage(
         "flooding_halts_repairs",
-        [10, 10, 10, 30, 30, 30],
+        &[("urban", 10), ("rural", 30)],
         PolicyFamily::Repairs,
         0,
         2,
     ),
     stoppage(
         "volunteers_stretched",
-        [0, 0, 0, 20, 20, 20],
+        &[("rural", 20)],
         PolicyFamily::Access,
         25,
         2,
     ),
     stoppage(
         "materials_shortage",
-        [15, 15, 15, 15, 15, 15],
+        &[("everyone", 15)],
         PolicyFamily::Repairs,
         50,
         2,
     ),
     audit(
         "teacher_promises_audit",
-        [30, 30, 30, 20, 20, 20],
+        &[("urban", 30), ("rural", 20)],
         [true, false, false],
     ),
     audit(
         "building_promises_audit",
-        [20, 20, 20, 30, 30, 30],
+        &[("urban", 20), ("rural", 30)],
         [false, true, false],
     ),
     audit(
         "spot_check_on_every_promise",
-        [25, 25, 25, 25, 25, 25],
+        &[("everyone", 25)],
         [true, true, true],
     ),
 ];
 pub const GOOD: [Headline; 6] = [
-    story("inspectorate_praise", [15_000; 6]),
-    story("volunteer_surge", [0, 0, 0, 25_000, 25_000, 25_000]),
-    story("attendance_rises", [20_000, 10_000, 0, 20_000, 10_000, 0]),
-    story("recruitment_up", [12_000; 6]),
+    story("inspectorate_praise", &[("everyone", 15000)]),
+    story("volunteer_surge", &[("rural", 25000)]),
+    story(
+        "attendance_rises",
+        &[("low_income", 20000), ("middle_income", 10000)],
+    ),
+    story("recruitment_up", &[("everyone", 12000)]),
     windfall("education_grant", 15),
     windfall("charity_donation", 10),
 ];
@@ -250,23 +331,23 @@ pub const GOOD: [Headline; 6] = [
 pub const MIXED: [Headline; 4] = [
     tradeoff(
         "funding_formula_shift",
-        [40, 40, 40, 0, 0, 0],
-        [0, 0, 0, 20_000, 20_000, 20_000],
+        &[("urban", 40)],
+        &[("rural", 20000)],
     ),
     tradeoff(
         "school_costs_tax_rise",
-        [0, 0, 60, 0, 0, 60],
-        [10_000, 10_000, 0, 10_000, 10_000, 0],
+        &[("high_income", 60)],
+        &[("low_income", 10000), ("middle_income", 10000)],
     ),
     tradeoff(
         "free_meals_widened",
-        [0, 0, 30, 0, 0, 30],
-        [25_000, 10_000, 0, 25_000, 10_000, 0],
+        &[("high_income", 30)],
+        &[("low_income", 25000), ("middle_income", 10000)],
     ),
     tradeoff(
         "small_schools_merged",
-        [0, 0, 0, 70, 70, 40],
-        [0, 8_000, 12_000, 0, 0, 0],
+        &[("rural_low", 70), ("rural_middle", 70), ("rural_high", 40)],
+        &[("urban_middle", 8000), ("urban_high", 12000)],
     ),
 ];
 
@@ -277,21 +358,44 @@ pub const fn deck(tone: Tone) -> &'static [Headline] {
     }
 }
 
-/// What a real headline does, in numbers (decision 0013). The words, the link and the rule that chose these numbers are kept
-/// with the campaign; the rules of the game only ever see this. For bad news `effect` is each group's exposure in percent of the
-/// worst case, as for an invented headline; for good news it is each group's gain in ppm.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+/// What a real headline does, in numbers (decision 0013): who it touches, by group name, and how much. The words, the link and the
+/// rule that chose these numbers are kept with the campaign. For bad news `effect` is each group's exposure in percent of the
+/// worst case, as for an invented headline; for good news it is each group's gain in ppm. `winners` is, for bad news that is
+/// also a trade-off, the groups it helps with a flat gain in ppm (decision 0014); empty otherwise.
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RealEffect {
     pub tone: Tone,
-    pub effect: [u32; 6],
-    /// For bad news that is also a trade-off: the groups it helps, a flat gain in ppm (decision 0014). Zero otherwise.
-    pub winners: [u32; 6],
+    pub effect: Vec<(String, u32)>,
+    pub winners: Vec<(String, u32)>,
 }
-/// A real headline waiting to take a slot: which item of the term's import it is, and what it does.
+impl RealEffect {
+    /// The effect on each cell of `population`; a group it does not have, or a cell both hurt and helped, is an error.
+    pub fn resolve(&self, population: &Population) -> Result<Effect, ContractError> {
+        fn borrow(v: &[(String, u32)]) -> Vec<(&str, u32)> {
+            v.iter().map(|(g, n)| (g.as_str(), *n)).collect()
+        }
+        let (effect, winners) = (borrow(&self.effect), borrow(&self.winners));
+        let cap = match self.tone {
+            Tone::Bad => 100,
+            Tone::Good => SHOCK_CAP_PPM,
+        };
+        let exposure = population.spread(&effect, cap)?;
+        let winners = population.spread(&winners, SHOCK_CAP_PPM)?;
+        if self.tone == Tone::Good && winners.iter().any(|w| *w > 0) {
+            return Err(ContractError::InvalidCondition);
+        }
+        if exposure.iter().zip(&winners).any(|(e, w)| *e > 0 && *w > 0) {
+            return Err(ContractError::InvalidCondition);
+        }
+        Ok(Effect { exposure, winners })
+    }
+}
+/// A real headline waiting to take a slot: which item of the term's import it is, and whether it is good or bad news. What it does
+/// is looked up from the campaign's record of the item, so a slot stays small and copyable.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct RealSlot {
     pub item: u8,
-    pub effect: RealEffect,
+    pub tone: Tone,
 }
 /// The real headlines each term has imported, by term (decision 0013).
 pub type RealCalendar = std::collections::BTreeMap<u8, Vec<RealSlot>>;
@@ -333,10 +437,20 @@ fn plain_date(s: &str) -> bool {
         && matches!(s[5..7].parse::<u8>(), Ok(1..=12))
         && matches!(s[8..10].parse::<u8>(), Ok(1..=31))
 }
+/// A group name in a real rule's reach: lower-case letters, digits and underscores, as in the scenario data.
+fn plain_group(s: &str) -> bool {
+    !s.is_empty()
+        && s.len() <= 64
+        && s.chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
+}
 impl RealItem {
     /// Whether this is a well-formed record: bounded text, a real-looking link and date, and numbers inside the same limits
-    /// as an invented headline.
+    /// as an invented headline. Whether the groups it names exist is the population's to say (see `valid_import_for`).
     pub fn is_valid(&self) -> bool {
+        let entries_ok = |v: &[(String, u32)], limit: u32| {
+            v.len() <= 8 && v.iter().all(|(g, n)| plain_group(g) && *n <= limit)
+        };
         let rule_ok = self.rule.as_ref().is_none_or(|r| {
             plain_text(&r.id, 48)
                 && r.id
@@ -344,19 +458,17 @@ impl RealItem {
                     .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
                 && plain_text(&r.label, 80)
                 && match r.effect.tone {
-                    // Bad news may also help some groups, but never the ones it hurts (decision 0014).
+                    // Bad news may also help some groups (decision 0014); that no cell is on both sides is checked once the
+                    // groups are spread over the cells.
                     Tone::Bad => {
-                        r.effect.effect.iter().all(|e| *e <= 100)
-                            && r.effect.winners.iter().all(|w| *w <= SHOCK_CAP_PPM)
-                            && r.effect
-                                .effect
-                                .iter()
-                                .zip(r.effect.winners)
-                                .all(|(loses, gains)| *loses == 0 || gains == 0)
+                        !r.effect.effect.is_empty()
+                            && entries_ok(&r.effect.effect, 100)
+                            && entries_ok(&r.effect.winners, SHOCK_CAP_PPM)
                     }
                     Tone::Good => {
-                        r.effect.effect.iter().all(|e| *e <= SHOCK_CAP_PPM)
-                            && r.effect.winners == [0; 6]
+                        !r.effect.effect.is_empty()
+                            && entries_ok(&r.effect.effect, SHOCK_CAP_PPM)
+                            && r.effect.winners.is_empty()
                     }
                 }
         });
@@ -381,6 +493,15 @@ pub fn valid_import(items: &[RealItem]) -> bool {
         && items.iter().filter(|i| i.rule.is_some()).count() <= MAX_REAL_PER_TERM
         && urls.len() == items.len()
 }
+/// A batch is acceptable for a population when it is well formed and every rule's groups exist there and leave no cell both hurt
+/// and helped.
+pub fn valid_import_for(items: &[RealItem], population: &Population) -> bool {
+    valid_import(items)
+        && items
+            .iter()
+            .filter_map(|i| i.rule.as_ref())
+            .all(|r| r.effect.resolve(population).is_ok())
+}
 
 /// A headline placed on a quarter.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -402,14 +523,7 @@ impl Scheduled {
     /// stops work, sends inspectors or brings credits).
     pub fn headline(&self) -> Headline {
         match self.real {
-            Some(slot) => Headline {
-                id: "real_news",
-                effect: slot.effect.effect,
-                disrupts: None,
-                scrutiny: None,
-                grant: 0,
-                winners: slot.effect.winners,
-            },
+            Some(_) => headline("real_news", &[]),
             None if self.mixed => MIXED[self.index],
             None => deck(self.tone)[self.index],
         }
@@ -417,11 +531,11 @@ impl Scheduled {
 }
 
 /// A headline that has landed, kept for the news list.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Landed {
     pub scheduled: Scheduled,
-    /// What it did to each group's support, after any response.
-    pub shock: [i32; 6],
+    /// What it did to each cell's support, after any response.
+    pub shock: Vec<i32>,
     pub responded: bool,
     /// For an inspection, the units promised and not yet delivered that it counted, per kind of work; zero otherwise.
     pub owed: [u16; 3],
@@ -466,7 +580,7 @@ pub fn schedule_with(seed: u64, term: u8, real: &[RealSlot]) -> Vec<Scheduled> {
     for slot in real.iter().take(MAX_REAL_PER_TERM) {
         if let Some(target) = out
             .iter_mut()
-            .find(|s| s.real.is_none() && s.tone == slot.effect.tone)
+            .find(|s| s.real.is_none() && s.tone == slot.tone)
         {
             target.real = Some(*slot);
             target.surprise = false;
@@ -565,31 +679,30 @@ pub fn severity(term: u8) -> (u32, u32) {
     )
 }
 
-/// What a headline would do to each group's support if nothing were done, given where support stands now.
-pub fn landing_shock(s: &Scheduled, term: u8, support: &[u32; 6]) -> [i32; 6] {
-    let effect = s.headline().effect;
-    let mut out = [0_i32; 6];
-    match s.tone {
-        Tone::Good => {
-            for (o, gain) in out.iter_mut().zip(effect) {
-                *o = i32::try_from(gain.min(SHOCK_CAP_PPM)).unwrap_or(0);
-            }
-        }
+/// What a headline of `tone` and `effect` would do to each cell's support if nothing were done, given where support stands
+/// now (`support`, one number per cell). Bad news takes from each cell its exposure times a base plus a share of the cell's
+/// lead; a trade-off story also gives its winners a flat gain; good news is a flat gift.
+pub fn landing_shock(tone: Tone, effect: &Effect, term: u8, support: &[u32]) -> Vec<i32> {
+    let gift = |g: u32| i32::try_from(g.min(SHOCK_CAP_PPM)).unwrap_or(0);
+    match tone {
+        Tone::Good => effect.exposure.iter().map(|g| gift(*g)).collect(),
         Tone::Bad => {
             let (base, share) = severity(term);
-            for ((o, exposure), now) in out.iter_mut().zip(effect).zip(support) {
-                let lead = u64::from(now.saturating_sub(ELECTION_HELD_ABOVE_PPM));
-                let inner = u64::from(base) + lead * u64::from(share) / 100;
-                let hit = (u64::from(exposure) * inner / 100).min(u64::from(SHOCK_CAP_PPM));
-                *o = -i32::try_from(hit).unwrap_or(0);
-            }
-            // A trade-off story also gives some groups a flat gain (decision 0014).
-            for (o, gain) in out.iter_mut().zip(s.headline().winners) {
-                *o = o.saturating_add(i32::try_from(gain.min(SHOCK_CAP_PPM)).unwrap_or(0));
-            }
+            effect
+                .exposure
+                .iter()
+                .zip(support)
+                .zip(&effect.winners)
+                .map(|((exposure, now), winner)| {
+                    let lead = u64::from(now.saturating_sub(ELECTION_HELD_ABOVE_PPM));
+                    let inner = u64::from(base) + lead * u64::from(share) / 100;
+                    let hit = (u64::from(*exposure) * inner / 100).min(u64::from(SHOCK_CAP_PPM));
+                    // A trade-off story also gives some cells a flat gain (decision 0014).
+                    gift(*winner).saturating_sub(i32::try_from(hit).unwrap_or(0))
+                })
+                .collect()
         }
     }
-    out
 }
 
 /// How much of what unfinished work would have earned them inspectors take, in a given term, in percent.
@@ -600,23 +713,29 @@ pub fn scrutiny_pct(term: u8) -> u32 {
 
 /// What inspectors take from each group, given what the promised-and-undelivered work would have earned it (`earned`, in
 /// ppm, as the delivery rules compute it). A group that the work would have cost more than it gave loses nothing.
-pub fn scrutiny_shock(earned: &[i32; 6], term: u8) -> [i32; 6] {
+pub fn scrutiny_shock(earned: &[i32], term: u8) -> Vec<i32> {
     let pct = i64::from(scrutiny_pct(term));
-    earned.map(|e| {
-        let take = (i64::from(e.max(0)) * pct / 100).min(i64::from(SHOCK_CAP_PPM));
-        -i32::try_from(take).unwrap_or(0)
-    })
+    earned
+        .iter()
+        .map(|e| {
+            let take = (i64::from((*e).max(0)) * pct / 100).min(i64::from(SHOCK_CAP_PPM));
+            -i32::try_from(take).unwrap_or(0)
+        })
+        .collect()
 }
 
 /// A response takes this much off every loss (toward zero).
-pub fn soften(shock: [i32; 6]) -> [i32; 6] {
-    shock.map(|x| {
-        if x < 0 {
-            x * (100 - RELIEF_CUT_PCT) / 100
-        } else {
-            x
-        }
-    })
+pub fn soften(shock: &[i32]) -> Vec<i32> {
+    shock
+        .iter()
+        .map(|x| {
+            if *x < 0 {
+                x * (100 - RELIEF_CUT_PCT) / 100
+            } else {
+                *x
+            }
+        })
+        .collect()
 }
 
 /// How much of its usual capacity each kind of work (staffing, repairs, access) delivers in `quarter`, in percent, given the
@@ -668,7 +787,7 @@ pub const fn family_slot(family: PolicyFamily) -> usize {
 }
 
 /// Support lost overall, in ppm, if every group took `shock`: the groups' losses weighted by their share of the voters.
-pub fn overall_loss_ppm(shock: &[i32; 6], weights_ppm: &[u32; 6]) -> u64 {
+pub fn overall_loss_ppm(shock: &[i32], weights_ppm: &[u32]) -> u64 {
     shock
         .iter()
         .zip(weights_ppm)
@@ -680,7 +799,7 @@ pub fn overall_loss_ppm(shock: &[i32; 6], weights_ppm: &[u32; 6]) -> u64 {
 
 /// What a response costs: credits in proportion to the damage it was expected to do, so protecting votes is a real trade
 /// against delivering work. At least one credit.
-pub fn relief_cost(shock: &[i32; 6], weights_ppm: &[u32; 6]) -> u16 {
+pub fn relief_cost(shock: &[i32], weights_ppm: &[u32]) -> u16 {
     let lost = overall_loss_ppm(shock, weights_ppm);
     let credits = (lost * u64::from(RELIEF_CREDITS_PER_POINT))
         .div_ceil(10_000)
@@ -693,6 +812,15 @@ mod tests {
     use super::*;
 
     const WEIGHTS: [u32; 6] = [260_000, 320_000, 220_000, 70_000, 80_000, 50_000];
+
+    fn pilot() -> Population {
+        Population::pilot().unwrap()
+    }
+    /// What `s` does to each of the pilot's six cells when they stand at `support`, as the engine lands it.
+    fn shock(s: &Scheduled, term: u8, support: &[u32]) -> Vec<i32> {
+        let effect = s.headline().resolve(s.tone, &pilot()).unwrap();
+        landing_shock(s.tone, &effect, term, support)
+    }
 
     #[test]
     fn a_term_has_the_headlines_the_rules_promise() {
@@ -846,10 +974,10 @@ mod tests {
             real: None,
             mixed: false,
         };
-        let flat = landing_shock(&bad, 2, &[500_000; 6]);
+        let flat = shock(&bad, 2, &[500_000; 6]);
         assert_eq!(flat, [0, 0, 0, -5_000, -5_000, -5_000]);
         // The same headline costs a group that stands high far more than one that stands lower: the lead is taxed.
-        let high = landing_shock(
+        let high = shock(
             &bad,
             2,
             &[500_000, 500_000, 500_000, 560_000, 520_000, 500_000],
@@ -859,7 +987,7 @@ mod tests {
         assert_eq!(high[5], -5_000); // no lead, base only
         assert!(high[3] < high[4] && high[4] < high[5]);
         // Never more than one headline may take from one group (the engine's shock cap).
-        let capped = landing_shock(&bad, 10, &[1_000_000; 6]);
+        let capped = shock(&bad, 10, &[1_000_000; 6]);
         assert!(capped.iter().all(|s| s.unsigned_abs() <= SHOCK_CAP_PPM));
         assert_eq!(capped[5], -(SHOCK_CAP_PPM as i32));
         // Good news is a flat gift, whatever the lead.
@@ -872,7 +1000,7 @@ mod tests {
             mixed: false,
         };
         assert_eq!(
-            landing_shock(&good, 1, &[900_000; 6]),
+            shock(&good, 1, &[900_000; 6]),
             [0, 0, 0, 25_000, 25_000, 25_000]
         );
     }
@@ -1018,7 +1146,7 @@ mod tests {
             assert!(h.disrupts.is_none() && h.scrutiny.is_none(), "{}", h.id);
             assert!(h.grant <= MAX_WINDFALL_CREDITS, "{}", h.id);
             if h.grant > 0 {
-                assert_eq!(h.effect, [0; 6], "a windfall brings credits, not mood");
+                assert!(h.effect.is_empty(), "a windfall brings credits, not mood");
             }
         }
         assert_eq!(
@@ -1082,26 +1210,50 @@ mod tests {
         );
     }
     #[test]
+    fn every_deck_headline_fits_a_population_that_names_its_groups_and_none_fits_one_that_does_not()
+    {
+        check_decks(&pilot()).unwrap();
+        // The twelve-cell fixture declares the groups the decks use, in terms of its finer cells.
+        check_decks(&Population::demo_twelve_cells().unwrap()).unwrap();
+        // A population without the middle-income group cannot take the deck: a headline would silently do nothing.
+        let mut attributes = pilot().attributes().to_vec();
+        attributes[1].levels.truncate(2);
+        let two_incomes = Population::new(
+            attributes,
+            vec![300_000, 300_000, 200_000, 200_000],
+            vec![],
+            crate::population::Kernel {
+                base_ppm: [3200, 2800, 3000, 2000],
+                percent: vec![vec![[100; 4]; 2], vec![[100; 4]; 2]],
+            },
+        )
+        .unwrap();
+        assert!(check_decks(&two_incomes).is_err());
+    }
+
+    #[test]
     fn a_trade_off_hurts_some_groups_as_bad_news_does_and_gives_others_a_flat_gift() {
+        let population = pilot();
         for (index, story) in MIXED.iter().enumerate() {
-            // No group is both hurt and helped, and every story does both.
+            // Spread over the cells, no cell is both hurt and helped, and every story does both.
+            let effect = story.resolve(Tone::Bad, &population).unwrap();
             assert!(
-                story.effect.iter().any(|e| *e > 0) && story.winners.iter().any(|w| *w > 0),
+                effect.exposure.iter().any(|e| *e > 0) && effect.winners.iter().any(|w| *w > 0),
                 "{}",
                 story.id
             );
             assert!(
-                story
-                    .effect
+                effect
+                    .exposure
                     .iter()
-                    .zip(story.winners)
-                    .all(|(l, g)| *l == 0 || g == 0),
+                    .zip(&effect.winners)
+                    .all(|(l, g)| *l == 0 || *g == 0),
                 "{}",
                 story.id
             );
             assert!(
-                story.effect.iter().all(|e| *e <= 100)
-                    && story.winners.iter().all(|w| *w <= SHOCK_CAP_PPM)
+                effect.exposure.iter().all(|e| *e <= 100)
+                    && effect.winners.iter().all(|w| *w <= SHOCK_CAP_PPM)
             );
             assert_eq!(
                 (story.disrupts, story.scrutiny, story.grant),
@@ -1115,29 +1267,29 @@ mod tests {
                 real: None,
                 mixed: true,
             };
-            let shock = landing_shock(&s, 3, &[500_000; 6]);
-            for (g, got) in shock.iter().enumerate() {
-                if story.winners[g] > 0 {
+            let landed = shock(&s, 3, &[500_000; 6]);
+            for (g, got) in landed.iter().enumerate() {
+                if effect.winners[g] > 0 {
                     assert_eq!(
                         *got,
-                        i32::try_from(story.winners[g]).unwrap(),
+                        i32::try_from(effect.winners[g]).unwrap(),
                         "a flat gift, whatever the lead"
                     );
-                } else if story.effect[g] > 0 {
+                } else if effect.exposure[g] > 0 {
                     assert!(*got < 0);
                 }
             }
             // A response takes 60% off what is lost and leaves what is gained alone.
-            let softened = soften(shock);
+            let softened = soften(&landed);
             for g in 0..6 {
-                if shock[g] > 0 {
-                    assert_eq!(softened[g], shock[g]);
+                if landed[g] > 0 {
+                    assert_eq!(softened[g], landed[g]);
                 } else {
-                    assert_eq!(softened[g], shock[g] * 40 / 100);
+                    assert_eq!(softened[g], landed[g] * 40 / 100);
                 }
             }
             // The weighted overall effect is a trade: the stories are not all losses or all gains.
-            let overall: i64 = shock
+            let overall: i64 = landed
                 .iter()
                 .zip(WEIGHTS)
                 .map(|(s, w)| i64::from(*s) * i64::from(w))
@@ -1153,23 +1305,20 @@ mod tests {
             real: None,
             mixed: true,
         };
-        let shock = landing_shock(&story, 3, &[500_000; 6]);
-        let only_losses = shock.map(|x| x.min(0));
+        let landed = shock(&story, 3, &[500_000; 6]);
+        let only_losses: Vec<i32> = landed.iter().map(|x| (*x).min(0)).collect();
         assert_eq!(
-            overall_loss_ppm(&shock, &WEIGHTS),
+            overall_loss_ppm(&landed, &WEIGHTS),
             overall_loss_ppm(&only_losses, &WEIGHTS)
         );
     }
 
-    fn real_slot(item: u8, tone: Tone, effect: [u32; 6]) -> RealSlot {
-        RealSlot {
-            item,
-            effect: RealEffect {
-                tone,
-                effect,
-                winners: [0; 6],
-            },
-        }
+    fn real_slot(item: u8, tone: Tone) -> RealSlot {
+        RealSlot { item, tone }
+    }
+    /// Group entries as a real rule holds them.
+    fn entries(list: &[(&str, u32)]) -> Vec<(String, u32)> {
+        list.iter().map(|(g, n)| ((*g).to_string(), *n)).collect()
     }
     #[test]
     fn real_headlines_take_the_first_free_quarter_of_their_tone_and_nothing_else_moves() {
@@ -1181,10 +1330,7 @@ mod tests {
             // Term 2 has bad headlines; two real bad ones take the first two bad quarters, in order, announced.
             let plain = schedule(seed, 2);
             let bad: Vec<_> = plain.iter().filter(|s| s.tone == Tone::Bad).collect();
-            let real = [
-                real_slot(0, Tone::Bad, [50; 6]),
-                real_slot(3, Tone::Bad, [20; 6]),
-            ];
+            let real = [real_slot(0, Tone::Bad), real_slot(3, Tone::Bad)];
             let with = schedule_with(seed, 2, &real);
             assert_eq!(with.len(), plain.len());
             for (a, b) in with.iter().zip(&plain) {
@@ -1202,7 +1348,10 @@ mod tests {
                     "the first free quarter of that tone"
                 );
                 assert!(!s.surprise, "a real headline is already news");
-                assert_eq!(s.headline().effect, s.real.unwrap().effect.effect);
+                assert!(
+                    s.headline().effect.is_empty(),
+                    "what it does comes from the record of the item"
+                );
                 assert_eq!(
                     (
                         s.headline().disrupts,
@@ -1217,7 +1366,7 @@ mod tests {
                 assert_eq!(a, b);
             }
             // A third real headline of the same tone finds no room: at most two a term.
-            let three = [real[0], real[1], real_slot(9, Tone::Bad, [10; 6])];
+            let three = [real[0], real[1], real_slot(9, Tone::Bad)];
             assert_eq!(
                 schedule_with(seed, 2, &three)
                     .iter()
@@ -1227,11 +1376,11 @@ mod tests {
             );
             // Term 1 has good news only, so a bad real headline has nowhere to go and a good one replaces a good one.
             assert!(
-                schedule_with(seed, 1, &[real_slot(0, Tone::Bad, [50; 6])])
+                schedule_with(seed, 1, &[real_slot(0, Tone::Bad)])
                     .iter()
                     .all(|s| s.real.is_none())
             );
-            let good = schedule_with(seed, 1, &[real_slot(2, Tone::Good, [9_000; 6])]);
+            let good = schedule_with(seed, 1, &[real_slot(2, Tone::Good)]);
             assert_eq!(good.iter().filter(|s| s.real.is_some()).count(), 1);
             assert_eq!(good[0].real.unwrap().item, 2);
         }
@@ -1246,14 +1395,14 @@ mod tests {
             rule,
         }
     }
-    fn rule(tone: Tone, effect: [u32; 6]) -> Option<RealRule> {
+    fn rule(tone: Tone, effect: &[(&str, u32)]) -> Option<RealRule> {
         Some(RealRule {
             id: "teacher_workforce_good".into(),
             label: "Teacher pay and recruitment".into(),
             effect: RealEffect {
                 tone,
-                effect,
-                winners: [0; 6],
+                effect: entries(effect),
+                winners: Vec::new(),
             },
         })
     }
@@ -1262,7 +1411,7 @@ mod tests {
         let good = || {
             item(
                 "https://www.gov.uk/government/news/a",
-                rule(Tone::Good, [12_000; 6]),
+                rule(Tone::Good, &[("everyone", 12_000)]),
             )
         };
         assert!(valid_import(&[good()]));
@@ -1277,7 +1426,7 @@ mod tests {
             .map(|i| {
                 item(
                     &format!("https://www.gov.uk/r{i}"),
-                    rule(Tone::Good, [1; 6]),
+                    rule(Tone::Good, &[("everyone", 1)]),
                 )
             })
             .collect();
@@ -1299,7 +1448,7 @@ mod tests {
         bad.title = "line\nbreak".into();
         assert!(!valid_import(&[bad]));
         // A real story may be a trade-off, helping some groups while it hurts others, but never the same group twice.
-        let with_winners = |effect: [u32; 6], winners: [u32; 6]| {
+        let with_winners = |effect: &[(&str, u32)], winners: &[(&str, u32)]| {
             item(
                 "https://www.gov.uk/x",
                 Some(RealRule {
@@ -1307,49 +1456,64 @@ mod tests {
                     label: "Money moves".into(),
                     effect: RealEffect {
                         tone: Tone::Bad,
-                        effect,
-                        winners,
+                        effect: entries(effect),
+                        winners: entries(winners),
                     },
                 }),
             )
         };
-        assert!(valid_import(&[with_winners(
-            [40, 40, 40, 0, 0, 0],
-            [0, 0, 0, 20_000, 20_000, 20_000]
-        )]));
+        let fits = |effect: &[(&str, u32)], winners: &[(&str, u32)]| {
+            valid_import_for(&[with_winners(effect, winners)], &pilot())
+        };
+        assert!(fits(&[("urban", 40)], &[("rural", 20_000)]));
         assert!(
-            !valid_import(&[with_winners(
-                [40, 40, 40, 0, 0, 0],
-                [1_000, 0, 0, 20_000, 0, 0]
-            )]),
+            !fits(&[("urban", 40)], &[("urban_low", 1_000), ("rural", 20_000)]),
             "a group both hurt and helped"
         );
         assert!(
+            !fits(&[("urban", 40)], &[("everyone", 20_000)]),
+            "a cell both hurt and helped, through a group that overlaps both"
+        );
+        assert!(
             !valid_import(&[with_winners(
-                [40, 0, 0, 0, 0, 0],
-                [0, 0, 0, 0, 0, SHOCK_CAP_PPM + 1]
+                &[("urban_low", 40)],
+                &[("rural_high", SHOCK_CAP_PPM + 1)]
             )]),
             "a gift beyond the cap"
         );
+        assert!(
+            !fits(&[("urban", 40)], &[("coastal", 20_000)]),
+            "a group the population does not have"
+        );
         // Good news is a gift already and has no winners to add.
-        let mut good = rule(Tone::Good, [1_000; 6]).unwrap();
-        good.effect.winners = [1; 6];
+        let mut good = rule(Tone::Good, &[("everyone", 1_000)]).unwrap();
+        good.effect.winners = entries(&[("rural", 1)]);
         assert!(!valid_import(&[item("https://www.gov.uk/x", Some(good))]));
         // Numbers stay inside the limits an invented headline keeps to.
         assert!(!valid_import(&[item(
             "https://www.gov.uk/x",
-            rule(Tone::Bad, [101; 6])
+            rule(Tone::Bad, &[("everyone", 101)])
         )]));
         assert!(!valid_import(&[item(
             "https://www.gov.uk/x",
-            rule(Tone::Good, [SHOCK_CAP_PPM + 1; 6])
+            rule(Tone::Good, &[("everyone", SHOCK_CAP_PPM + 1)])
+        )]));
+        // Group names are plain, and few.
+        assert!(!valid_import(&[item(
+            "https://www.gov.uk/x",
+            rule(Tone::Bad, &[("Urban", 10)])
+        )]));
+        let nine: Vec<(&str, u32)> = vec![("urban", 1); 9];
+        assert!(!valid_import(&[item(
+            "https://www.gov.uk/x",
+            rule(Tone::Bad, &nine)
         )]));
     }
 
     #[test]
     fn a_response_cuts_every_loss_by_sixty_percent_and_costs_credits_in_proportion_to_the_damage() {
         let shock = [-10_000, -20_000, 0, -30_000, 0, 5_000];
-        assert_eq!(soften(shock), [-4_000, -8_000, 0, -12_000, 0, 5_000]);
+        assert_eq!(soften(&shock), [-4_000, -8_000, 0, -12_000, 0, 5_000]);
         // Weighted loss: 10,000*.26 + 20,000*.32 + 30,000*.07 = 2,600 + 6,400 + 2,100 = 11,100 ppm = 1.11 points,
         // ten credits a point, rounded up: 12.
         assert_eq!(overall_loss_ppm(&shock, &WEIGHTS), 11_100);

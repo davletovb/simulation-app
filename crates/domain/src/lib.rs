@@ -222,18 +222,30 @@ pub const COHORT_ORDER: [CohortId; 6] = [
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CohortWeights {
-    parts_ppm: [u32; 6],
+    parts_ppm: Vec<u32>,
 }
 impl CohortWeights {
-    pub fn new(parts_ppm: [u32; 6]) -> Result<Self, ContractError> {
+    /// The voters' shares of each cell of the population, in ppm: any number of cells from one to `MAX_CELLS`, summing to a million.
+    pub fn new(parts_ppm: impl Into<Vec<u32>>) -> Result<Self, ContractError> {
+        let parts_ppm = parts_ppm.into();
         let total: u64 = parts_ppm.iter().map(|v| u64::from(*v)).sum();
-        if total != u64::from(SHARE_DENOMINATOR) {
+        if parts_ppm.is_empty()
+            || parts_ppm.len() > population::MAX_CELLS
+            || total != u64::from(SHARE_DENOMINATOR)
+        {
             return Err(ContractError::InvalidPopulationWeights);
         }
         Ok(Self { parts_ppm })
     }
-    pub const fn parts_ppm(&self) -> &[u32; 6] {
+    pub fn parts_ppm(&self) -> &[u32] {
         &self.parts_ppm
+    }
+    /// How many cells the voters are divided into.
+    pub fn len(&self) -> usize {
+        self.parts_ppm.len()
+    }
+    pub fn is_empty(&self) -> bool {
+        self.parts_ppm.is_empty()
     }
 }
 

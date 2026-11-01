@@ -17,6 +17,20 @@ export interface Vote {
   stage: string
   position: string
 }
+/** A named set of voters (decision 0015): a cell, or a group such as "all rural voters" that spans several. */
+export interface SupportGroup {
+  id: string
+  label: string
+  /** Its share of all the voters, in ppm. Groups overlap, so the shares of several groups do not add up to the whole. */
+  weight_ppm: number
+  /** The cells it contains, as positions in `support.group_ids`. */
+  cells: number[]
+  /** Its support now, in ppm: its cells' support weighted by their shares. */
+  support_ppm: number
+  /** The change already queued to land, in ppm. */
+  pending_delta_ppm: number
+}
+
 export interface Snapshot {
   schema_version: number
   campaign_id: string
@@ -49,7 +63,11 @@ export interface Snapshot {
     quarter: number; outcome: string; allocation: { staff: number; repairs: number; access: number } | null
     final_support: number; final_votes: number
   }[]
-  /** How the public feels, group by group. Every array follows `group_ids` (urban low, middle, high, then rural). */
+  /**
+   * How the public feels, cell by cell. A cell is one combination of the voters' attributes (for the pilot: urban or rural, by
+   * low, middle or high income), the finest group. Every array follows `group_ids`, one entry per cell, however many the
+   * campaign's population has (decision 0015).
+   */
   support: {
     group_ids: string[]
     /** As of the last resolved quarter; 500,000 is 50%. */
@@ -60,6 +78,8 @@ export interface Snapshot {
     weight_ppm: number[]
     /** What one delivered credit of each kind of work adds to each group's support, net of its cost to them: [group][staffing, repairs, access]. */
     net_per_credit_ppm: number[][]
+    /** Every group a headline or screen can point at: each cell first, in order, then the named groups. They overlap. */
+    groups: SupportGroup[]
   }
   /** The term being played, from 1. Each term is six quarters and ends with an election; a win starts another. */
   term: number

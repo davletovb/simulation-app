@@ -3,17 +3,18 @@
  * The engine decides what a headline does; this module only describes it, and decides whether the Respond button may be
  * offered (the server stays the authority).
  *
- * Every per-group array follows `support.group_ids`: urban low, middle, high, then rural.
+ * Every per-cell array follows `support.group_ids`, whatever the number of cells (decision 0015). `labels` is an optional map from
+ * group id to the engine's label (`groupLabels(snapshot.support)`).
  */
-import { GROUP_LABELS, pointsText } from './election.mjs'
+import { labelOf, pointsText } from './election.mjs'
 
 /** Which groups a headline moves most: those taking at least half as much as the hardest hit (or the biggest gain). */
-export function whoItHits(effectPpm, groupIds) {
+export function whoItHits(effectPpm, groupIds, labels) {
   const size = effectPpm.map(Math.abs)
   const biggest = Math.max(...size)
   if (biggest === 0) return 'Nobody much'
   const named = groupIds.filter((_, i) => size[i] * 2 >= biggest)
-  return named.length === groupIds.length ? 'Every group' : named.map(id => GROUP_LABELS[id] ?? id).join('; ')
+  return named.length === groupIds.length ? 'Every group' : named.map(id => labelOf(id, labels)).join('; ')
 }
 
 /** A trade-off story (decision 0014): it helps some groups and hurts others at once. */
@@ -22,8 +23,8 @@ export function isTradeOff(effectPpm) {
 }
 
 /** Which groups a story helps and which it hurts, in words, from the signs of what it does to each. */
-export function whoGainsAndLoses(effectPpm, groupIds) {
-  const names = pick => groupIds.filter((_, i) => pick(effectPpm[i])).map(id => GROUP_LABELS[id] ?? id).join('; ')
+export function whoGainsAndLoses(effectPpm, groupIds, labels) {
+  const names = pick => groupIds.filter((_, i) => pick(effectPpm[i])).map(id => labelOf(id, labels)).join('; ')
   return { helps: names(x => x > 0), hurts: names(x => x < 0) }
 }
 

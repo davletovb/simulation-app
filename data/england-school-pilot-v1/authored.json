@@ -38,14 +38,10 @@
         "id": "teacher_shortage",
         "title": "Teacher shortage hits the headlines",
         "summary": "Schools report empty posts and cancelled lessons. Families in towns and cities worry most.",
-        "exposure_pct": [
-          50,
-          50,
-          50,
-          25,
-          25,
-          25
-        ],
+        "exposure_pct": {
+          "urban": 50,
+          "rural": 25
+        },
         "disrupts": {
           "family": "staffing",
           "keep_pct": 50,
@@ -56,14 +52,10 @@
         "id": "roof_scare",
         "title": "Roof scare closes classrooms",
         "summary": "Surveyors find unsafe ceilings. Older rural school buildings are hit hardest.",
-        "exposure_pct": [
-          25,
-          25,
-          25,
-          75,
-          75,
-          75
-        ],
+        "exposure_pct": {
+          "urban": 25,
+          "rural": 75
+        },
         "disrupts": {
           "family": "repairs",
           "keep_pct": 50,
@@ -74,79 +66,59 @@
         "id": "funding_row",
         "title": "Funding row in Parliament",
         "summary": "A public argument over school budgets leaves every group less sure of the pilot.",
-        "exposure_pct": [
-          50,
-          50,
-          50,
-          50,
-          50,
-          50
-        ]
+        "exposure_pct": {
+          "everyone": 50
+        }
       },
       {
         "id": "rural_bus_cuts",
         "title": "Rural school bus routes cut",
         "summary": "Villages lose their morning services, and families blame the pilot.",
-        "exposure_pct": [
-          0,
-          0,
-          0,
-          100,
-          100,
-          100
-        ]
+        "exposure_pct": {
+          "rural": 100
+        }
       },
       {
         "id": "cost_of_living",
         "title": "Cost-of-living squeeze",
         "summary": "Rising bills make lower-income households less patient with delays.",
-        "exposure_pct": [
-          75,
-          40,
-          0,
-          75,
-          40,
-          0
-        ]
+        "exposure_pct": {
+          "low_income": 75,
+          "middle_income": 40
+        }
       },
       {
         "id": "exam_results_row",
         "title": "Exam results row",
         "summary": "A marking dispute dents confidence among families whose children are about to sit exams.",
-        "exposure_pct": [
-          0,
-          60,
-          75,
-          0,
-          40,
-          50
-        ]
+        "exposure_pct": {
+          "urban_middle": 60,
+          "urban_high": 75,
+          "rural_middle": 40,
+          "rural_high": 50
+        }
       },
       {
         "id": "agency_scandal",
         "title": "Supply-agency scandal",
         "summary": "Reports of overcharging by staffing agencies reflect badly on school spending.",
-        "exposure_pct": [
-          60,
-          60,
-          30,
-          30,
-          30,
-          15
-        ]
+        "exposure_pct": {
+          "urban_low": 60,
+          "urban_middle": 60,
+          "urban_high": 30,
+          "rural_low": 30,
+          "rural_middle": 30,
+          "rural_high": 15
+        }
       },
       {
         "id": "broadband_outage",
         "title": "Broadband outage hits remote lessons",
         "summary": "Rural pupils lose online lessons for days.",
-        "exposure_pct": [
-          10,
-          10,
-          10,
-          80,
-          80,
-          80
-        ],
+        "exposure_pct": {
+          "urban": 10,
+          "rural": 80
+        },
         "disrupts": {
           "family": "access",
           "keep_pct": 50,
@@ -157,14 +129,10 @@
         "id": "strike_ballot",
         "title": "Staff union ballots on strike action",
         "summary": "Teachers vote on walking out. Even the threat slows classrooms and unsettles families.",
-        "exposure_pct": [
-          20,
-          20,
-          20,
-          10,
-          10,
-          10
-        ],
+        "exposure_pct": {
+          "urban": 20,
+          "rural": 10
+        },
         "disrupts": {
           "family": "staffing",
           "keep_pct": 0,
@@ -175,14 +143,10 @@
         "id": "flooding_halts_repairs",
         "title": "Flooding halts repair crews",
         "summary": "Heavy rain and rising rivers stop building work for weeks.",
-        "exposure_pct": [
-          10,
-          10,
-          10,
-          30,
-          30,
-          30
-        ],
+        "exposure_pct": {
+          "urban": 10,
+          "rural": 30
+        },
         "disrupts": {
           "family": "repairs",
           "keep_pct": 0,
@@ -193,14 +157,9 @@
         "id": "volunteers_stretched",
         "title": "Volunteer groups stretched thin",
         "summary": "Fewer volunteers can give their time, and local access support slows.",
-        "exposure_pct": [
-          0,
-          0,
-          0,
-          20,
-          20,
-          20
-        ],
+        "exposure_pct": {
+          "rural": 20
+        },
         "disrupts": {
           "family": "access",
           "keep_pct": 25,
@@ -211,14 +170,9 @@
         "id": "materials_shortage",
         "title": "Building materials shortage slows work",
         "summary": "Suppliers run short and repair jobs wait for deliveries.",
-        "exposure_pct": [
-          15,
-          15,
-          15,
-          15,
-          15,
-          15
-        ],
+        "exposure_pct": {
+          "everyone": 15
+        },
         "disrupts": {
           "family": "repairs",
           "keep_pct": 50,
@@ -229,14 +183,10 @@
         "id": "teacher_promises_audit",
         "title": "Watchdog audits teacher promises",
         "summary": "Inspectors ask how many of the promised teaching posts have actually been filled.",
-        "exposure_pct": [
-          30,
-          30,
-          30,
-          20,
-          20,
-          20
-        ],
+        "exposure_pct": {
+          "urban": 30,
+          "rural": 20
+        },
         "scrutiny": {
           "families": [
             "staffing"
@@ -247,14 +197,10 @@
         "id": "building_promises_audit",
         "title": "Watchdog checks school building promises",
         "summary": "Inspectors tour the sites where repairs were promised and count what has been finished.",
-        "exposure_pct": [
-          20,
-          20,
-          20,
-          30,
-          30,
-          30
-        ],
+        "exposure_pct": {
+          "urban": 20,
+          "rural": 30
+        },
         "scrutiny": {
           "families": [
             "repairs"
@@ -265,14 +211,9 @@
         "id": "spot_check_on_every_promise",
         "title": "Inspectors announce a spot check on every promise",
         "summary": "Every promise made to schools is checked against what has actually been delivered.",
-        "exposure_pct": [
-          25,
-          25,
-          25,
-          25,
-          25,
-          25
-        ],
+        "exposure_pct": {
+          "everyone": 25
+        },
         "scrutiny": {
           "families": [
             "staffing",
@@ -287,80 +228,47 @@
         "id": "inspectorate_praise",
         "title": "Inspectorate praises the pilot",
         "summary": "A glowing visit report lifts confidence everywhere.",
-        "gain_ppm": [
-          15000,
-          15000,
-          15000,
-          15000,
-          15000,
-          15000
-        ]
+        "gain_ppm": {
+          "everyone": 15000
+        }
       },
       {
         "id": "volunteer_surge",
         "title": "Volunteers rally to local schools",
         "summary": "Community groups in rural areas offer their time, and word spreads.",
-        "gain_ppm": [
-          0,
-          0,
-          0,
-          25000,
-          25000,
-          25000
-        ]
+        "gain_ppm": {
+          "rural": 25000
+        }
       },
       {
         "id": "attendance_rises",
         "title": "Attendance rises",
         "summary": "Fewer missed days in lower-income areas make good local news.",
-        "gain_ppm": [
-          20000,
-          10000,
-          0,
-          20000,
-          10000,
-          0
-        ]
+        "gain_ppm": {
+          "low_income": 20000,
+          "middle_income": 10000
+        }
       },
       {
         "id": "recruitment_up",
         "title": "Teacher recruitment picks up",
         "summary": "More graduates apply, and the mood improves across the board.",
-        "gain_ppm": [
-          12000,
-          12000,
-          12000,
-          12000,
-          12000,
-          12000
-        ]
+        "gain_ppm": {
+          "everyone": 12000
+        }
       },
       {
         "id": "education_grant",
         "title": "Government releases an education grant",
         "summary": "Extra funds arrive for schools, to spend as you choose.",
-        "gain_ppm": [
-          0,
-          0,
-          0,
-          0,
-          0,
-          0
-        ],
+        "gain_ppm": {},
         "grant_credits": 15
       },
       {
         "id": "charity_donation",
         "title": "Charity donates to the school fund",
         "summary": "A donation adds a little more to spend on schools.",
-        "gain_ppm": [
-          0,
-          0,
-          0,
-          0,
-          0,
-          0
-        ],
+        "gain_ppm": {},
         "grant_credits": 10
       }
     ],
@@ -376,85 +284,50 @@
         "id": "funding_formula_shift",
         "title": "Funding formula shifts money to village schools",
         "summary": "Ministers change how school money is shared: rural schools gain, and city schools lose out.",
-        "exposure_pct": [
-          40,
-          40,
-          40,
-          0,
-          0,
-          0
-        ],
-        "winners_ppm": [
-          0,
-          0,
-          0,
-          20000,
-          20000,
-          20000
-        ]
+        "exposure_pct": {
+          "urban": 40
+        },
+        "winners_ppm": {
+          "rural": 20000
+        }
       },
       {
         "id": "school_costs_tax_rise",
         "title": "Tax rise to pay for schools",
         "summary": "Lower and middle earners welcome the money; the highest earners are unhappy at the bill.",
-        "exposure_pct": [
-          0,
-          0,
-          60,
-          0,
-          0,
-          60
-        ],
-        "winners_ppm": [
-          10000,
-          10000,
-          0,
-          10000,
-          10000,
-          0
-        ]
+        "exposure_pct": {
+          "high_income": 60
+        },
+        "winners_ppm": {
+          "low_income": 10000,
+          "middle_income": 10000
+        }
       },
       {
         "id": "free_meals_widened",
         "title": "Free school meals widened to more families",
         "summary": "Families on lower incomes gain; higher earners resent who pays.",
-        "exposure_pct": [
-          0,
-          0,
-          30,
-          0,
-          0,
-          30
-        ],
-        "winners_ppm": [
-          25000,
-          10000,
-          0,
-          25000,
-          10000,
-          0
-        ]
+        "exposure_pct": {
+          "high_income": 30
+        },
+        "winners_ppm": {
+          "low_income": 25000,
+          "middle_income": 10000
+        }
       },
       {
         "id": "small_schools_merged",
         "title": "Small village schools to be merged",
         "summary": "Villages lose their local school, while the savings please town and city voters.",
-        "exposure_pct": [
-          0,
-          0,
-          0,
-          70,
-          70,
-          40
-        ],
-        "winners_ppm": [
-          0,
-          8000,
-          12000,
-          0,
-          0,
-          0
-        ]
+        "exposure_pct": {
+          "rural_low": 70,
+          "rural_middle": 70,
+          "rural_high": 40
+        },
+        "winners_ppm": {
+          "urban_middle": 8000,
+          "urban_high": 12000
+        }
       }
     ],
     "mixed_from_term": 3
@@ -626,6 +499,148 @@
     },
     "marginal_evidence_status": "not observed: these are held fixed only to isolate joint association sensitivity",
     "membership_accounting": "Within each cell: teacher-only=3%, parent-only=23%, both=2%, neither=72% (all authored); teacher/parent affiliations overlap but do not increase beneficiary count."
+  },
+  "electorate": {
+    "note": "Who the voters are, for the engine: the ways they differ (attributes), the named groups a headline or a screen can point at (selectors; they may overlap and nest), and how each kind of voter responds to delivered work (kernel). A cell is one combination of levels, first attribute varying slowest; the cell weights are population.variants[0].weights_ppm in population.order. Authored, not observed.",
+    "attributes": [
+      {
+        "id": "geography",
+        "levels": [
+          {
+            "id": "urban",
+            "label": "Urban"
+          },
+          {
+            "id": "rural",
+            "label": "Rural"
+          }
+        ]
+      },
+      {
+        "id": "income",
+        "levels": [
+          {
+            "id": "low",
+            "label": "low income"
+          },
+          {
+            "id": "middle",
+            "label": "middle income"
+          },
+          {
+            "id": "high",
+            "label": "high income"
+          }
+        ]
+      }
+    ],
+    "groups": [
+      {
+        "id": "urban",
+        "label": "All urban voters",
+        "select": {
+          "is": {
+            "attribute": "geography",
+            "level": "urban"
+          }
+        }
+      },
+      {
+        "id": "rural",
+        "label": "All rural voters",
+        "select": {
+          "is": {
+            "attribute": "geography",
+            "level": "rural"
+          }
+        }
+      },
+      {
+        "id": "low_income",
+        "label": "All lower-income voters",
+        "select": {
+          "is": {
+            "attribute": "income",
+            "level": "low"
+          }
+        }
+      },
+      {
+        "id": "middle_income",
+        "label": "All middle-income voters",
+        "select": {
+          "is": {
+            "attribute": "income",
+            "level": "middle"
+          }
+        }
+      },
+      {
+        "id": "high_income",
+        "label": "All higher-income voters",
+        "select": {
+          "is": {
+            "attribute": "income",
+            "level": "high"
+          }
+        }
+      },
+      {
+        "id": "everyone",
+        "label": "All voters",
+        "select": "everyone"
+      }
+    ],
+    "kernel": {
+      "channels": [
+        "staffing",
+        "repairs",
+        "access",
+        "cost"
+      ],
+      "base_ppm": [
+        3200,
+        2800,
+        3000,
+        2000
+      ],
+      "percent": {
+        "geography": {
+          "urban": [
+            100,
+            100,
+            100,
+            100
+          ],
+          "rural": [
+            80,
+            130,
+            140,
+            100
+          ]
+        },
+        "income": {
+          "low": [
+            120,
+            90,
+            130,
+            130
+          ],
+          "middle": [
+            100,
+            100,
+            100,
+            100
+          ],
+          "high": [
+            80,
+            110,
+            70,
+            150
+          ]
+        }
+      }
+    }
   },
   "board": {
     "name": "Fictional Education Delivery Board",

@@ -48,7 +48,7 @@ change nothing about how the game evolves, and they add **no** journal entry, so
 - A closed campaign's `won` or `lost` is recomputed from its journal each time it is read. If the bars are re-tuned,
   a finished campaign can change verdict. That is harmless today. **Once a second term exists (0005), the verdict
   must be recorded when the successor is created**, so a re-tune cannot rewrite history.
-- The browser validates the new fields (six groups, voter shares summing to a million, status consistent with
+- The browser validates the new fields (one entry per cell of the population, six for the pilot (see [0015](0015-a-population-of-cells-and-groups.md)), voter shares summing to a million, status consistent with
   `closed`, `pending` equal to settled minus current) and still accepts the zeroed integrity-failure frame.
 - Nothing in the UI shows them yet. The bloc map, the "mood to come" panel and election night are the next stage.
 

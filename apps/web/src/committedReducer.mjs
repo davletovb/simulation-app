@@ -42,24 +42,57 @@ export function validCommittedCursor(value) {
   return typeof value === 'string' && /^[0-9]+$/.exec(value)?.[0] === value
 }
 
-const GROUPS = 6
+/** The most cells (the finest groups of voters) and the most named groups the engine allows (decision 0015). */
+const MAX_CELLS = 64
+const MAX_NAMED_GROUPS = 128
 const ppm = n => Number.isInteger(n) && n >= 0 && n <= 1000000
-const sixOf = (list, ok) => Array.isArray(list) && list.length === GROUPS && list.every(ok)
+/** A list with exactly one entry per cell, each passing `ok`. The number of cells is whatever the campaign's population has. */
+const perCell = (cells, list, ok) => Array.isArray(list) && list.length === cells && list.every(ok)
+/** How many cells a snapshot says there are: the length of its list of cell ids, within the engine's bounds, else 0. */
+const cellCount = support => Array.isArray(support?.group_ids) && support.group_ids.length >= 1 && support.group_ids.length <= MAX_CELLS
+  ? support.group_ids.length : 0
 
 /**
- * Public mood of the six groups. The voters' shares sum to a million; the only frame allowed to carry
+ * Every group a headline or a screen can point at (decision 0015): each cell first, in order, then the groups the scenario
+ * names. A group is a set of cells, so its share is the sum of theirs and its support lies between the lowest and highest of
+ * theirs. The zeroed integrity-failure frame carries none.
+ */
+function validGroups(groups, support, cells, integrityFailure) {
+  if (!Array.isArray(groups) || groups.length > MAX_CELLS + MAX_NAMED_GROUPS) return false
+  if (integrityFailure) return groups.length === 0
+  if (groups.length < cells) return false
+  const ids = new Set()
+  return groups.every((g, i) => {
+    if (!g || typeof g !== 'object' || typeof g.id !== 'string' || !/^[a-z0-9_]+$/.test(g.id) || ids.has(g.id)) return false
+    ids.add(g.id)
+    if (typeof g.label !== 'string' || g.label.length === 0 || !ppm(g.weight_ppm) || !ppm(g.support_ppm) ||
+      !Number.isInteger(g.pending_delta_ppm) || Math.abs(g.pending_delta_ppm) > 1000000) return false
+    if (!Array.isArray(g.cells) || g.cells.length === 0 || new Set(g.cells).size !== g.cells.length ||
+      !g.cells.every(c => Number.isInteger(c) && c >= 0 && c < cells)) return false
+    // The first entries are the cells themselves, in order.
+    if (i < cells && (g.id !== support.group_ids[i] || g.cells.length !== 1 || g.cells[0] !== i)) return false
+    const share = g.cells.reduce((sum, c) => sum + support.weight_ppm[c], 0)
+    const mood = g.cells.map(c => support.group_ppm[c])
+    return g.weight_ppm === share && g.support_ppm >= Math.min(...mood) && g.support_ppm <= Math.max(...mood)
+  })
+}
+
+/**
+ * Public mood of the cells. The voters' shares sum to a million; the only frame allowed to carry
  * zero shares is the zeroed integrity-failure frame, which is never played from.
  */
-function validSupport(support, integrityFailure) {
-  if (!support) return false
+function validSupport(support, cells, integrityFailure) {
+  if (!support || cells === 0) return false
   const shares = Array.isArray(support.weight_ppm) ? support.weight_ppm.reduce((a, b) => a + b, 0) : NaN
-  return sixOf(support.group_ids, id => typeof id === 'string' && id.length > 0) &&
-    sixOf(support.group_ppm, ppm) &&
-    sixOf(support.pending_delta_ppm, n => Number.isInteger(n) && Math.abs(n) <= 1000000) &&
-    sixOf(support.weight_ppm, ppm) &&
-    // What one credit of each kind of work does to each group (decision 0014): six groups, three kinds of work, small integers.
-    sixOf(support.net_per_credit_ppm, row => Array.isArray(row) && row.length === 3 && row.every(n => Number.isInteger(n) && Math.abs(n) <= 40000)) &&
-    (shares === 1000000 || (integrityFailure && shares === 0))
+  return perCell(cells, support.group_ids, id => typeof id === 'string' && /^[a-z0-9_]+$/.test(id)) &&
+    new Set(support.group_ids).size === cells &&
+    perCell(cells, support.group_ppm, ppm) &&
+    perCell(cells, support.pending_delta_ppm, n => Number.isInteger(n) && Math.abs(n) <= 1000000) &&
+    perCell(cells, support.weight_ppm, ppm) &&
+    // What one credit of each kind of work does to each cell (decision 0014): three kinds of work, small integers.
+    perCell(cells, support.net_per_credit_ppm, row => Array.isArray(row) && row.length === 3 && row.every(n => Number.isInteger(n) && Math.abs(n) <= 40000)) &&
+    (shares === 1000000 || (integrityFailure && shares === 0)) &&
+    validGroups(support.groups, support, cells, integrityFailure)
 }
 
 // Terms go on for as long as the player keeps winning. Only the engine's technical ceiling bounds them, and the
@@ -76,12 +109,12 @@ const MAX_CREDITS = 100 * MAX_TERMS + MAX_WINDFALL * (2 + 4 * (MAX_TERMS - 1))
  * The election. It is a projection while a term runs and a verdict once the term has ended: either the
  * game is over (`closed`) or a win is waiting on election night for the next term to begin.
  */
-function validElection(election, held) {
+function validElection(election, held, cells) {
   return !!election && ['projected', 'won', 'lost'].includes(election.status) &&
     (election.status === 'projected') === !held &&
     Number.isInteger(election.term) && election.term >= 1 && election.term <= MAX_TERMS &&
     election.ceiling === (election.term === MAX_TERMS) &&
-    sixOf(election.settled_group_ppm, ppm) &&
+    perCell(cells, election.settled_group_ppm, ppm) &&
     ppm(election.weighted_support_ppm) && ppm(election.blocs_held_ppm) &&
     ppm(election.min_support_ppm) && ppm(election.held_above_ppm)
 }
@@ -128,20 +161,20 @@ const realNewsOk = (list, quarter) => Array.isArray(list) && list.length <= 40 &
   (n.quarter === null || (Number.isInteger(n.quarter) && n.quarter >= 2 && n.quarter <= MAX_QUARTERS && n.rule_label !== null)))
 const keepOk = d => !!d && typeof d === 'object' && FAMILIES.includes(d.family) && Number.isInteger(d.keep_pct) && d.keep_pct >= 0 && d.keep_pct <= 100 &&
   (d.quarters === 1 || d.quarters === 2)
-const effectOk = e => sixOf(e, n => Number.isInteger(n) && Math.abs(n) <= 40000)
+const effectOk = (cells, e) => perCell(cells, e, n => Number.isInteger(n) && Math.abs(n) <= 40000)
 /**
  * What an announced headline is quoted to do to one group. A story takes at most 40,000 ppm (the engine's cap on one
  * headline) and a disruption adds what the delayed work would have earned, at most another 40,000, which is not capped
  * again: so a quote can reach twice the cap. A quote beyond that is nonsense. (Refusing a real quote froze the screen on
  * "Saving…", because the update that would have ended it was rejected.)
  */
-const quoteOk = e => sixOf(e, n => Number.isInteger(n) && Math.abs(n) <= 80000)
+const quoteOk = (cells, e) => perCell(cells, e, n => Number.isInteger(n) && Math.abs(n) <= 80000)
 const unitsOk = u => Array.isArray(u) && u.length === 3 && u.every(n => Number.isInteger(n) && n >= 0 && n <= MAX_CREDITS)
 /** Which kinds of work an inspection counts: at least one, each once. */
 const countedOk = f => Array.isArray(f) && f.length >= 1 && f.length <= 3 && f.every(x => FAMILIES.includes(x)) && new Set(f).size === f.length
 /** What an inspection says it counts (and, before it lands, how much of that it expects to take). A missing field fails. */
-const inspectionOk = (s, expected) => !!s && typeof s === 'object' && countedOk(s.families) && unitsOk(s.owed_units) &&
-  (!expected || effectOk(s.effect_ppm))
+const inspectionOk = (cells, s, expected) => !!s && typeof s === 'object' && countedOk(s.families) && unitsOk(s.owed_units) &&
+  (!expected || effectOk(cells, s.effect_ppm))
 /** A windfall's credits: a whole number, at least one and at most the largest windfall. */
 const grantOk = g => g === null || (Number.isInteger(g) && g >= 1 && g <= MAX_WINDFALL)
 const wordsOk = h => typeof h.id === 'string' && h.id.length > 0 && typeof h.title === 'string' && h.title.length > 0 &&
@@ -151,19 +184,19 @@ const wordsOk = h => typeof h.id === 'string' && h.id.length > 0 && typeof h.tit
  * The news calendar. Upcoming headlines are only ever the ones announced, never a surprise, and are at most the two
  * nearest quarters; a bad one carries a price unless it has been answered. Landed headlines are in order.
  */
-function validCalendar(calendar, quarter) {
+function validCalendar(calendar, quarter, cells) {
   if (!calendar || !Array.isArray(calendar.upcoming) || !Array.isArray(calendar.recent)) return false
   if (calendar.upcoming.length > 2 || calendar.recent.length > MAX_QUARTERS) return false
-  const upcomingOk = calendar.upcoming.every(h => wordsOk(h) && realOk(h) && tone(h.tone) && quoteOk(h.effect_ppm) &&
+  const upcomingOk = calendar.upcoming.every(h => wordsOk(h) && realOk(h) && tone(h.tone) && quoteOk(cells, h.effect_ppm) &&
     Number.isInteger(h.quarter) && h.quarter >= quarter && h.quarter <= quarter + 1 &&
     Number.isInteger(h.overall_ppm) && ['serious', 'minor', 'welcome'].includes(h.severity) &&
     h.relief_cut_pct >= 0 && h.relief_cut_pct <= 100 &&
     // Only bad news can stop work, and a stoppage says how much work it delays and what that costs, per group.
     (h.disruption === null || (h.tone === 'bad' && keepOk(h.disruption) &&
       Number.isInteger(h.disruption.delayed_units) && h.disruption.delayed_units >= 0 && h.disruption.delayed_units <= MAX_CREDITS &&
-      effectOk(h.disruption.effect_ppm))) &&
+      effectOk(cells, h.disruption.effect_ppm))) &&
     // Only bad news sends inspectors, and an inspection says which work it counts and how much of it would still be owed.
-    (h.scrutiny === null || (h.tone === 'bad' && h.disruption === null && inspectionOk(h.scrutiny, true))) &&
+    (h.scrutiny === null || (h.tone === 'bad' && h.disruption === null && inspectionOk(cells, h.scrutiny, true))) &&
     // Only good news brings credits.
     grantOk(h.grant_credits) && (h.grant_credits === null || h.tone === 'good') &&
     (h.tone === 'good' ? h.relief_cost === null && h.paid === null
@@ -171,11 +204,11 @@ function validCalendar(calendar, quarter) {
         (h.relief_cost === null || h.paid === null) &&
         (h.relief_cost === null || (Number.isInteger(h.relief_cost) && h.relief_cost >= 1 && h.relief_cost <= MAX_CREDITS)) &&
         (h.paid === null || (Number.isInteger(h.paid) && h.paid >= 1 && h.paid <= MAX_CREDITS))))
-  const landedOk = calendar.recent.every((h, i, all) => wordsOk(h) && realOk(h) && tone(h.tone) && effectOk(h.effect_ppm) &&
+  const landedOk = calendar.recent.every((h, i, all) => wordsOk(h) && realOk(h) && tone(h.tone) && effectOk(cells, h.effect_ppm) &&
     Number.isInteger(h.quarter) && h.quarter >= 1 && h.quarter <= MAX_QUARTERS && Number.isInteger(h.overall_ppm) &&
     typeof h.surprise === 'boolean' && typeof h.responded === 'boolean' &&
     (h.disruption === null || (h.tone === 'bad' && keepOk(h.disruption))) &&
-    (h.scrutiny === null || (h.tone === 'bad' && h.disruption === null && inspectionOk(h.scrutiny, false))) &&
+    (h.scrutiny === null || (h.tone === 'bad' && h.disruption === null && inspectionOk(cells, h.scrutiny, false))) &&
     grantOk(h.grant_credits) && (h.grant_credits === null || h.tone === 'good') &&
     (h.tone === 'bad' || !h.responded) && (i === 0 || all[i - 1].quarter < h.quarter))
   return upcomingOk && landedOk && realNewsOk(calendar.real_news, quarter)
@@ -226,9 +259,9 @@ export function validSnapshot(raw, campaignId) {
     s.evidence.indicators.every(item=>typeof item.variable_id==='string' &&
       typeof item.display_value==='string' && typeof item.source_url==='string' &&
       item.source_url.startsWith('https://') && Array.isArray(item.quality_flags)) &&
-    validSupport(s.support, s.comparison.mode==='verification_failed') &&
-    validCalendar(s.calendar, s.quarter) &&
-    validElection(s.election, s.closed || s.phase==='ElectionNight') &&
+    validSupport(s.support, cellCount(s.support), s.comparison.mode==='verification_failed') &&
+    validCalendar(s.calendar, s.quarter, cellCount(s.support)) &&
+    validElection(s.election, s.closed || s.phase==='ElectionNight', cellCount(s.support)) &&
     validTerms(s, s.closed || s.phase==='ElectionNight') &&
     // What is queued to land is exactly settled support minus current support.
     s.support.pending_delta_ppm.every((d,i)=>d===s.election.settled_group_ppm[i]-s.support.group_ppm[i]) &&

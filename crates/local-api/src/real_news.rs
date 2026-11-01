@@ -12,7 +12,7 @@
 use myth_contracts::{RealItemWire, RealRuleWire, RealToneWire};
 use myth_domain as d;
 use serde::Deserialize;
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 use std::sync::OnceLock;
 use std::time::Duration;
@@ -34,10 +34,12 @@ struct RuleFile {
     label: String,
     tone: String,
     any: Vec<String>,
-    exposure_pct: Option<[u32; 6]>,
-    gain_ppm: Option<[u32; 6]>,
+    /// Group id to exposure, in percent of the worst case (bad news).
+    exposure_pct: Option<BTreeMap<String, u32>>,
+    /// Group id to gain, in ppm (good news).
+    gain_ppm: Option<BTreeMap<String, u32>>,
     /// A bad rule may also help some groups (a trade-off story).
-    winners_ppm: Option<[u32; 6]>,
+    winners_ppm: Option<BTreeMap<String, u32>>,
 }
 #[derive(Deserialize)]
 struct RulesFile {
@@ -51,8 +53,9 @@ pub struct Rule {
     pub id: String,
     pub label: String,
     pub tone: RealToneWire,
-    pub effect: [u32; 6],
-    pub winners: [u32; 6],
+    /// Group id to number: exposure in percent for bad news, gain in ppm for good news.
+    pub effect: BTreeMap<String, u32>,
+    pub winners: BTreeMap<String, u32>,
     phrases: Vec<String>,
 }
 pub struct Rules {
@@ -116,7 +119,7 @@ impl Rules {
                 label: r.label,
                 tone,
                 effect,
-                winners: r.winners_ppm.unwrap_or([0; 6]),
+                winners: r.winners_ppm.unwrap_or_default(),
                 phrases,
             });
         }
@@ -131,13 +134,22 @@ impl Rules {
         if !d::news::RealItem::from(probe.clone()).is_valid() || rules.is_empty() {
             return Err("real news rules out of bounds".into());
         }
+        let population = myth_hiyal_adapter::population()?;
         for r in &rules {
             let item = RealItemWire {
                 rule: Some(wire_rule(r)),
                 ..probe.clone()
             };
-            if !d::news::RealItem::from(item).is_valid() {
+            let item = d::news::RealItem::from(item);
+            if !item.is_valid() {
                 return Err(format!("real news rule {} is out of bounds", r.id));
+            }
+            // Every group a rule names must exist in the scenario's population, and no voters may be both hurt and helped.
+            if !d::news::valid_import_for(&[item], population) {
+                return Err(format!(
+                    "real news rule {} does not fit the population",
+                    r.id
+                ));
             }
         }
         Ok(Rules {
@@ -161,8 +173,8 @@ fn wire_rule(r: &Rule) -> RealRuleWire {
         id: r.id.clone(),
         label: r.label.clone(),
         tone: r.tone,
-        effect: r.effect,
-        winners: r.winners,
+        effect: r.effect.clone(),
+        winners: r.winners.clone(),
     }
 }
 /// One entry of an Atom feed, as published.
@@ -487,6 +499,23 @@ impl NewsSource {
 pub(crate) mod tests {
     use super::*;
 
+    /// What a rule does to each cell of the scenario's population.
+    fn rule_effect(rule: &Rule) -> d::news::Effect {
+        let wire = wire_rule(rule);
+        let item = d::news::RealItem::from(RealItemWire {
+            title: "t".into(),
+            summary: "s".into(),
+            url: "https://www.gov.uk/x".into(),
+            published: "2026-01-01".into(),
+            rule: Some(wire),
+        });
+        item.rule
+            .unwrap()
+            .effect
+            .resolve(myth_hiyal_adapter::population().unwrap())
+            .unwrap()
+    }
+
     /// A feed written by hand for these tests, in the Atom layout GOV.UK's finders use (title, updated, an alternate link, an
     /// HTML summary). It is NOT a capture of the real feed and says nothing about real events: the headlines are made up so
     /// that each rule, and the cases around the rules, can be exercised.
@@ -614,13 +643,15 @@ pub(crate) mod tests {
             "Small schools to be merged",
         ] {
             let rule = rules.classify(title).unwrap();
-            assert!(rule.effect.iter().any(|e| *e > 0) && rule.winners.iter().any(|w| *w > 0));
+            let cells = rule_effect(rule);
+            assert!(cells.exposure.iter().any(|e| *e > 0) && cells.winners.iter().any(|w| *w > 0));
             assert!(
-                rule.effect
+                cells
+                    .exposure
                     .iter()
-                    .zip(rule.winners)
-                    .all(|(loses, gains)| *loses == 0 || gains == 0),
-                "no group is both hurt and helped"
+                    .zip(&cells.winners)
+                    .all(|(loses, gains)| *loses == 0 || *gains == 0),
+                "no voters are both hurt and helped"
             );
         }
         // Whole words: "strikes" is not "strike", and a phrase inside a longer word does not count.

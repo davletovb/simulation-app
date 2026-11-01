@@ -1,0 +1,275 @@
+{
+  "calendar": {
+    "real_news": [],
+    "recent": [
+      {
+        "disruption": null,
+        "effect_ppm": [
+          0,
+          0,
+          0,
+          25000,
+          25000,
+          25000
+        ],
+        "grant_credits": null,
+        "id": "volunteer_surge",
+        "overall_ppm": 5000,
+        "quarter": 2,
+        "real": null,
+        "responded": false,
+        "scrutiny": null,
+        "source": "invented",
+        "summary": "Community groups in rural areas offer their time, and word spreads.",
+        "surprise": true,
+        "title": "Volunteers rally to local schools",
+        "tone": "good"
+      }
+    ],
+    "upcoming": [
+      {
+        "disruption": null,
+        "effect_ppm": [
+          20000,
+          10000,
+          0,
+          20000,
+          10000,
+          0
+        ],
+        "grant_credits": null,
+        "id": "attendance_rises",
+        "overall_ppm": 10600,
+        "paid": null,
+        "quarter": 5,
+        "real": null,
+        "relief_cost": null,
+        "relief_cut_pct": 60,
+        "scrutiny": null,
+        "severity": "welcome",
+        "source": "invented",
+        "summary": "Fewer missed days in lower-income areas make good local news.",
+        "title": "Attendance rises",
+        "tone": "good"
+      }
+    ]
+  },
+  "election": {
+    "blocs_held_ppm": 200000,
+    "ceiling": false,
+    "held_above_ppm": 500000,
+    "min_support_ppm": 550000,
+    "settled_group_ppm": [
+      500000,
+      500000,
+      500000,
+      525000,
+      525000,
+      525000
+    ],
+    "status": "projected",
+    "term": 1,
+    "weighted_support_ppm": 505000
+  },
+  "quarter": 5,
+  "support": {
+    "group_ids": [
+      "urban_low",
+      "urban_middle",
+      "urban_high",
+      "rural_low",
+      "rural_middle",
+      "rural_high"
+    ],
+    "group_ppm": [
+      500000,
+      500000,
+      500000,
+      525000,
+      525000,
+      525000
+    ],
+    "groups": [
+      {
+        "cells": [
+          0
+        ],
+        "id": "urban_low",
+        "label": "Urban, low income",
+        "pending_delta_ppm": 0,
+        "support_ppm": 500000,
+        "weight_ppm": 260000
+      },
+      {
+        "cells": [
+          1
+        ],
+        "id": "urban_middle",
+        "label": "Urban, middle income",
+        "pending_delta_ppm": 0,
+        "support_ppm": 500000,
+        "weight_ppm": 320000
+      },
+      {
+        "cells": [
+          2
+        ],
+        "id": "urban_high",
+        "label": "Urban, high income",
+        "pending_delta_ppm": 0,
+        "support_ppm": 500000,
+        "weight_ppm": 220000
+      },
+      {
+        "cells": [
+          3
+        ],
+        "id": "rural_low",
+        "label": "Rural, low income",
+        "pending_delta_ppm": 0,
+        "support_ppm": 525000,
+        "weight_ppm": 70000
+      },
+      {
+        "cells": [
+          4
+        ],
+        "id": "rural_middle",
+        "label": "Rural, middle income",
+        "pending_delta_ppm": 0,
+        "support_ppm": 525000,
+        "weight_ppm": 80000
+      },
+      {
+        "cells": [
+          5
+        ],
+        "id": "rural_high",
+        "label": "Rural, high income",
+        "pending_delta_ppm": 0,
+        "support_ppm": 525000,
+        "weight_ppm": 50000
+      },
+      {
+        "cells": [
+          0,
+          1,
+          2
+        ],
+        "id": "urban",
+        "label": "All urban voters",
+        "pending_delta_ppm": 0,
+        "support_ppm": 500000,
+        "weight_ppm": 800000
+      },
+      {
+        "cells": [
+          3,
+          4,
+          5
+        ],
+        "id": "rural",
+        "label": "All rural voters",
+        "pending_delta_ppm": 0,
+        "support_ppm": 525000,
+        "weight_ppm": 200000
+      },
+      {
+        "cells": [
+          0,
+          3
+        ],
+        "id": "low_income",
+        "label": "All lower-income voters",
+        "pending_delta_ppm": 0,
+        "support_ppm": 505303,
+        "weight_ppm": 330000
+      },
+      {
+        "cells": [
+          1,
+          4
+        ],
+        "id": "middle_income",
+        "label": "All middle-income voters",
+        "pending_delta_ppm": 0,
+        "support_ppm": 505000,
+        "weight_ppm": 400000
+      },
+      {
+        "cells": [
+          2,
+          5
+        ],
+        "id": "high_income",
+        "label": "All higher-income voters",
+        "pending_delta_ppm": 0,
+        "support_ppm": 504629,
+        "weight_ppm": 270000
+      },
+      {
+        "cells": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5
+        ],
+        "id": "everyone",
+        "label": "All voters",
+        "pending_delta_ppm": 0,
+        "support_ppm": 505000,
+        "weight_ppm": 1000000
+      }
+    ],
+    "net_per_credit_ppm": [
+      [
+        1240,
+        -80,
+        1300
+      ],
+      [
+        1200,
+        800,
+        1000
+      ],
+      [
+        -440,
+        80,
+        -900
+      ],
+      [
+        472,
+        676,
+        2860
+      ],
+      [
+        560,
+        1640,
+        2200
+      ],
+      [
+        -952,
+        1004,
+        -60
+      ]
+    ],
+    "pending_delta_ppm": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "weight_ppm": [
+      260000,
+      320000,
+      220000,
+      70000,
+      80000,
+      50000
+    ]
+  }
+}

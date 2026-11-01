@@ -1,8 +1,19 @@
 import { pctText, pointsText, type GroupView } from '../election.mjs'
 
+/** Cells in rows by the first part of their id (the level of the first attribute), in the order they come. */
+function rowsOf(groups: GroupView[]): GroupView[][] {
+  const rows = new Map<string, GroupView[]>()
+  for (const g of groups) {
+    const key = g.id.split('_')[0] ?? g.id
+    rows.set(key, [...(rows.get(key) ?? []), g])
+  }
+  return [...rows.values()]
+}
+
 /**
- * The six groups of voters as a map. Each tile is sized by the group's share of the voters (urban on top,
- * rural below) and says in words whether the group backs you, so colour is never the only signal.
+ * The cells of the electorate as a map, whatever their number. Each tile is sized by its share of the voters and says in words
+ * whether the group backs you, so colour is never the only signal. A row is the cells that share the first part of their id (for
+ * the pilot, urban on top and rural below).
  * `showMood` adds the change already queued to land next quarter.
  */
 export function BlocMap({ groups, showMood = false, moodWhen = 'next quarter' }: {
@@ -11,7 +22,7 @@ export function BlocMap({ groups, showMood = false, moodWhen = 'next quarter' }:
   /** When the queued change lands: "next quarter" while the campaign runs, "on election night" once it has closed. */
   moodWhen?: string
 }) {
-  const rows = [groups.filter(g => g.id.startsWith('urban')), groups.filter(g => g.id.startsWith('rural'))]
+  const rows = rowsOf(groups)
   return (
     <div className="bloc-map" role="list" aria-label="How each group of voters feels">
       {rows.map((row, r) => (

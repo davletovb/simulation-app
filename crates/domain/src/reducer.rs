@@ -3,7 +3,8 @@
 //! campaign, treasury, funded scopes, phases or private minister effort.
 //! P4 will own replay serialization; P5 may only supply typed role actions.
 use crate::audit::{BeliefLedger, BeliefReceipt, DeliveryAudit};
-use crate::news::{self, Landed, Response, Scheduled, Tone};
+use crate::news::{self, Effect, Landed, Response, Scheduled, Tone};
+use crate::population::Population;
 use crate::world::{
     LedgerReceipt, MeetingPhase, Organisation, OrganisationAccount, QueuedResponse, SupportPpm,
     WorldSnapshot,
@@ -49,8 +50,8 @@ pub const ELECTION_HELD_ABOVE_PPM: u32 = 500_000;
 /// changing it invalidates saved games (decision 0007, which reverses 0006 on this point).
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ElectionProjection {
-    /// Support per group once every queued response has landed (urban low, middle, high, then rural).
-    pub group_support_ppm: [u32; 6],
+    /// Support per cell of the population once every queued response has landed (for the pilot: urban low, middle, high, then rural).
+    pub group_support_ppm: Vec<u32>,
     /// Overall support: the groups' support weighted by their share of the voters.
     pub weighted_support_ppm: u32,
     /// Share of the voters (ppm) that sit in groups backing the player, above [`ELECTION_HELD_ABOVE_PPM`].
@@ -66,12 +67,15 @@ impl ElectionProjection {
         self.meets_support_bar()
     }
 }
-/// The election rule as a pure function of the six groups' support and their voter shares.
+/// The election rule as a pure function of each cell's support and its share of the voters.
 pub fn evaluate_election(
-    group_support_ppm: [u32; 6],
+    group_support_ppm: Vec<u32>,
     weights: &CohortWeights,
 ) -> Result<ElectionProjection, Rejection> {
     let shares = weights.parts_ppm();
+    if group_support_ppm.len() != shares.len() {
+        return Err(Rejection::InvalidCondition);
+    }
     let mut weighted = 0_u128;
     let mut held = 0_u32;
     for (support, share) in group_support_ppm.iter().zip(shares.iter()) {
@@ -94,7 +98,7 @@ pub struct UpcomingHeadline {
     pub scheduled: Scheduled,
     /// What it would do to each group's support if it landed now, with no response: the mood it takes plus, for a
     /// disruption, the support lost because work is delayed past the election.
-    pub expected: [i32; 6],
+    pub expected: Vec<i32>,
     /// What a disruption would do to delivery, if this headline is one.
     pub delivery: Option<DeliveryQuote>,
     /// What an inspection would count and take, if this headline is one.
@@ -109,7 +113,7 @@ pub struct UpcomingHeadline {
 }
 
 /// How a disruption would hit the work the player has promised.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DeliveryQuote {
     pub family: PolicyFamily,
     /// How much of its usual capacity that kind of work keeps, in percent, and for how many quarters.
@@ -117,23 +121,23 @@ pub struct DeliveryQuote {
     pub quarters: u8,
     /// Units that would be delivered after the term's election instead of before it.
     pub delayed_units: u16,
-    /// The support those units would have earned by the election, per group, taken away.
-    pub effect: [i32; 6],
+    /// The support those units would have earned by the election, per cell, taken away.
+    pub effect: Vec<i32>,
 }
 
 /// How an inspection would hit the promises the player has made (decision 0012).
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ScrutinyQuote {
     /// Which kinds of work are counted: staffing, repairs, access.
     pub families: [bool; 3],
     /// Units promised in those kinds of work and still undelivered when the inspectors arrive, as things stand.
     pub owed: [u16; 3],
-    /// The part of the loss that is the count (already inside `expected`), per group.
-    pub effect: [i32; 6],
+    /// The part of the loss that is the count (already inside `expected`), per cell.
+    pub effect: Vec<i32>,
 }
 
 struct Quote {
-    total: [i32; 6],
+    total: Vec<i32>,
     delivery: Option<DeliveryQuote>,
     scrutiny: Option<ScrutinyQuote>,
     cost: Option<u16>,
@@ -157,7 +161,8 @@ pub struct Rules {
     pub magnitude_percent: u16,
     pub delivery_extra_lag: u16,
     pub response_lag: u16,
-    pub shocks: [[i32; 6]; MAX_QUARTERS as usize],
+    /// Frozen exogenous shocks: a quarter and one shock per cell. None in play; the fixed-action runs set none either.
+    pub shocks: Vec<(u8, Vec<i32>)>,
     pub q2_repair_cap: Option<u16>,
     /// The news calendar (decision 0010) runs when there is a seed. Without one (the fixed-action sensitivity runs, most
     /// unit tests) no headline ever lands.
@@ -169,7 +174,7 @@ impl Default for Rules {
             magnitude_percent: 100,
             delivery_extra_lag: 0,
             response_lag: 1,
-            shocks: [[0; 6]; MAX_QUARTERS as usize],
+            shocks: vec![],
             q2_repair_cap: None,
             news_seed: None,
         }
@@ -184,7 +189,7 @@ impl Rules {
             || self
                 .shocks
                 .iter()
-                .flatten()
+                .flat_map(|(_, v)| v)
                 .any(|v| v.unsigned_abs() > SHOCK_CAP_PPM)
         {
             return Err(Rejection::InvalidCondition);
@@ -294,6 +299,8 @@ struct ConditionProgress {
 #[derive(Clone)]
 pub struct Campaign {
     world: WorldSnapshot,
+    /// Who the voters are: its cells, groups and response (decision 0015).
+    population: Population,
     meeting: Option<Meeting>,
     meeting_used: bool,
     used_meeting_ids: BTreeSet<String>,
@@ -346,15 +353,33 @@ impl Campaign {
     ) -> Result<Self, Rejection> {
         Self::with_rules(campaign_id, pack_id, weights, Rules::default())
     }
+    /// A campaign over the pilot's six groups, with these shares of the voters.
     pub fn with_rules(
         campaign_id: &str,
         pack_id: &str,
         weights: CohortWeights,
         rules: Rules,
     ) -> Result<Self, Rejection> {
+        let shares: [u32; 6] = weights
+            .parts_ppm()
+            .try_into()
+            .map_err(|_| Rejection::InvalidCondition)?;
+        Self::with_population(campaign_id, pack_id, Population::pilot_with(shares)?, rules)
+    }
+    /// A campaign over any population: however many cells it has, and whatever groups it names.
+    pub fn with_population(
+        campaign_id: &str,
+        pack_id: &str,
+        population: Population,
+        rules: Rules,
+    ) -> Result<Self, Rejection> {
         rules.validate()?;
+        // The invented news names groups; a population that lacks one would leave a headline doing nothing, so it is refused.
+        news::check_decks(&population)?;
+        let weights = CohortWeights::new(population.weights_ppm().to_vec())?;
         Ok(Self {
             world: WorldSnapshot::initial(campaign_id.into(), pack_id.into(), weights)?,
+            population,
             meeting: None,
             meeting_used: false,
             used_meeting_ids: BTreeSet::new(),
@@ -391,17 +416,21 @@ impl Campaign {
     /// in ppm: `[group][staffing, repairs, access]`. It is the engine's own response to a single unit, so it can never drift from
     /// what delivery really does; a plan's whole effect is the sum of its units times these, before news and before the
     /// per-quarter clip (decision 0014). A negative number is a group that pays more than it gains.
-    pub fn net_support_per_unit_ppm(&self) -> Result<[[i32; 3]; 6], Rejection> {
-        let mut out = [[0_i32; 3]; 6];
+    pub fn net_support_per_unit_ppm(&self) -> Result<Vec<[i32; 3]>, Rejection> {
+        let mut out = vec![[0_i32; 3]; self.population.cells()];
         for (ix, row) in out.iter_mut().enumerate() {
             for (family, cell) in row.iter_mut().enumerate() {
                 let mut one = [0_u16; 3];
                 one[family] = 1;
-                let gain = cohort_response_scaled(ix, one, self.rules.magnitude_percent)?;
+                let gain = self.response(ix, one)?;
                 *cell = i32::try_from(gain).map_err(|_| Rejection::Arithmetic)?;
             }
         }
         Ok(out)
+    }
+    /// Who the voters are.
+    pub fn population(&self) -> &Population {
+        &self.population
     }
     /// The real headlines imported for a term, in the order they were imported (decision 0013).
     pub fn real_items(&self, term: u8) -> &[news::RealItem] {
@@ -422,13 +451,43 @@ impl Campaign {
                     .filter_map(|(i, item)| {
                         Some(news::RealSlot {
                             item: u8::try_from(i).ok()?,
-                            effect: item.rule.as_ref()?.effect,
+                            tone: item.rule.as_ref()?.effect.tone,
                         })
                     })
                     .collect();
                 (*term, slots)
             })
             .collect()
+    }
+    /// What a scheduled headline does to each cell of the population: a deck headline from its group entries, a real one from the
+    /// rule that matched it. A real headline whose rule no longer fits the population does nothing, never something else.
+    fn effect_of(&self, scheduled: &Scheduled) -> Effect {
+        let cells = self.population.cells();
+        let resolved = match scheduled.real {
+            Some(slot) => self
+                .real
+                .get(&scheduled.quarter.term())
+                .and_then(|items| items.get(usize::from(slot.item)))
+                .and_then(|item| item.rule.as_ref())
+                .map(|rule| rule.effect.resolve(&self.population)),
+            None => Some(
+                scheduled
+                    .headline()
+                    .resolve(scheduled.tone, &self.population),
+            ),
+        };
+        resolved
+            .and_then(Result::ok)
+            .unwrap_or_else(|| Effect::none(cells))
+    }
+    /// What delivering `delivered` units adds to one cell's support in one quarter: the population's own response, clipped.
+    fn response(&self, cell: usize, delivered: [u16; 3]) -> Result<i64, Rejection> {
+        Ok(self.population.response_ppm(
+            cell,
+            delivered,
+            self.rules.magnitude_percent,
+            RESPONSE_CLIP_PPM,
+        )?)
     }
     /// The quarter an imported item will land in, if a quarter of its tone was free for it.
     pub fn real_quarter(&self, term: u8, item: usize) -> Option<Quarter> {
@@ -535,10 +594,15 @@ impl Campaign {
     /// disruption, the support lost because work is delayed past the election (decision 0011).
     fn quote(&self, scheduled: &Scheduled, answered: bool) -> Result<Quote, Rejection> {
         let support = self.support_values();
-        let weights = *self.world.cohort_weights().parts_ppm();
-        let mut total = news::landing_shock(scheduled, scheduled.quarter.term(), &support);
+        let weights = self.world.cohort_weights().parts_ppm().to_vec();
+        let mut total = news::landing_shock(
+            scheduled.tone,
+            &self.effect_of(scheduled),
+            scheduled.quarter.term(),
+            &support,
+        );
         if answered {
-            total = news::soften(total);
+            total = news::soften(&total);
         }
         let mut delivery = None;
         if scheduled.tone == Tone::Bad
@@ -558,11 +622,11 @@ impl Campaign {
             let delayed = usual.saturating_sub(cut);
             let mut lost = [0_u16; 3];
             lost[news::family_slot(d.family)] = delayed;
-            let mut effect = [0_i32; 6];
+            let mut effect = vec![0_i32; self.population.cells()];
             for (ix, e) in effect.iter_mut().enumerate() {
                 // The support those units would have earned by the election, taken away (or, where the work would have
                 // cost a group more than it gave, given back).
-                let earned = cohort_response_scaled(ix, lost, self.rules.magnitude_percent)?;
+                let earned = self.response(ix, lost)?;
                 *e = i32::try_from(-earned).map_err(|_| Rejection::Arithmetic)?;
                 total[ix] = total[ix].saturating_add(*e);
             }
@@ -595,8 +659,8 @@ impl Campaign {
                 }
             }
             let effect = self.inspection_shock(owed, scheduled.quarter.term(), answered)?;
-            for (t, e) in total.iter_mut().zip(effect) {
-                *t = t.saturating_add(e).max(-(SHOCK_CAP_PPM as i32));
+            for (t, e) in total.iter_mut().zip(&effect) {
+                *t = t.saturating_add(*e).max(-(SHOCK_CAP_PPM as i32));
             }
             scrutiny = Some(ScrutinyQuote {
                 families: inspection.families,
@@ -622,14 +686,18 @@ impl Campaign {
         owed: [u16; 3],
         term: u8,
         answered: bool,
-    ) -> Result<[i32; 6], Rejection> {
-        let mut earned = [0_i32; 6];
+    ) -> Result<Vec<i32>, Rejection> {
+        let mut earned = vec![0_i32; self.population.cells()];
         for (ix, e) in earned.iter_mut().enumerate() {
-            let gain = cohort_response_scaled(ix, owed, self.rules.magnitude_percent)?;
+            let gain = self.response(ix, owed)?;
             *e = i32::try_from(gain).map_err(|_| Rejection::Arithmetic)?;
         }
         let shock = news::scrutiny_shock(&earned, term);
-        Ok(if answered { news::soften(shock) } else { shock })
+        Ok(if answered {
+            news::soften(&shock)
+        } else {
+            shock
+        })
     }
     /// Units of `family` that would be delivered from now through quarter `through`, at full effort and with nothing
     /// changed in the plan, if the family could deliver only `keep(q)` percent of its usual capacity in quarter `q`.
@@ -672,12 +740,8 @@ impl Campaign {
         }
         Ok(total)
     }
-    fn support_values(&self) -> [u32; 6] {
-        let mut out = [0_u32; 6];
-        for (o, cell) in out.iter_mut().zip(self.world.support()) {
-            *o = cell.value();
-        }
-        out
+    fn support_values(&self) -> Vec<u32> {
+        self.world.support().iter().map(|c| c.value()).collect()
     }
     pub fn world(&self) -> &WorldSnapshot {
         &self.world
@@ -685,11 +749,8 @@ impl Campaign {
     /// Counterfactual *reporting* projection only. Q6's authoritative score is
     /// unchanged; apply already-queued responses through their fixed due dates
     /// without inventing future deliveries or charging additional credits.
-    pub(crate) fn settle_pending_support(&self) -> Result<([u32; 6], usize), Rejection> {
-        let mut cells = [0_u32; 6];
-        for (ix, cell) in cells.iter_mut().enumerate() {
-            *cell = self.world.support()[ix].value();
-        }
+    pub(crate) fn settle_pending_support(&self) -> Result<(Vec<u32>, usize), Rejection> {
+        let mut cells = self.support_values();
         let mut pending = self.world.queued_responses().to_vec();
         pending.sort_by(|a, b| {
             a.due_quarter()
@@ -698,8 +759,7 @@ impl Campaign {
         });
         for event in &pending {
             for (ix, cell) in cells.iter_mut().enumerate() {
-                let delta =
-                    cohort_response_scaled(ix, event.delivered(), self.rules.magnitude_percent)?;
+                let delta = self.response(ix, event.delivered())?;
                 *cell = u32::try_from((i64::from(*cell) + delta).clamp(0, 1_000_000))
                     .map_err(|_| Rejection::Arithmetic)?;
             }
@@ -735,9 +795,13 @@ impl Campaign {
         let observation = self.role_observation(ministry)?;
         let latest = self.player_reports().into_iter().last();
         let mut weighted = 0_u128;
-        for ix in 0..6 {
-            weighted += u128::from(self.world.support()[ix].value())
-                * u128::from(self.world.cohort_weights().parts_ppm()[ix]);
+        for (support, share) in self
+            .world
+            .support()
+            .iter()
+            .zip(self.world.cohort_weights().parts_ppm())
+        {
+            weighted += u128::from(support.value()) * u128::from(*share);
         }
         Ok(RoleView {
             observation,
@@ -1619,18 +1683,20 @@ impl Campaign {
         }
         // The news calendar: a headline due this quarter lands now, before the queued responses (decision 0010). What it
         // takes depends on where each group stands, a response softens it, and good news is a flat gift.
-        let mut headline_shock = [0_i32; 6];
+        let mut headline_shock = vec![0_i32; self.population.cells()];
         if let Some(seed) = self.rules.news_seed
             && let Some(scheduled) = self
                 .schedule_of(seed, q.term())
                 .into_iter()
                 .find(|s| s.quarter == q)
         {
-            let mut support = [0_u32; 6];
-            for (now, cell) in support.iter_mut().zip(parts.support.iter()) {
-                *now = cell.value();
-            }
-            let mut shock = news::landing_shock(&scheduled, q.term(), &support);
+            let support: Vec<u32> = parts.support.iter().map(|cell| cell.value()).collect();
+            let mut shock = news::landing_shock(
+                scheduled.tone,
+                &self.effect_of(&scheduled),
+                q.term(),
+                &support,
+            );
             let responded = scheduled.tone == Tone::Bad
                 && self.responses.iter().any(|r| r.headline_quarter == q);
             // Inspectors count the promises still unkept after this quarter's delivery and take a share of what that work
@@ -1651,7 +1717,7 @@ impl Campaign {
                 }
             }
             if responded {
-                shock = news::soften(shock);
+                shock = news::soften(&shock);
             }
             // A windfall brings credits that can be planned or spent on answering later headlines.
             let mut granted = 0_u16;
@@ -1668,7 +1734,7 @@ impl Campaign {
                     granted = credits;
                 }
             }
-            headline_shock = shock;
+            headline_shock = shock.clone();
             self.landed.push(Landed {
                 scheduled,
                 shock,
@@ -1678,9 +1744,15 @@ impl Campaign {
             });
         }
         // Frozen exogenous shocks precede previously queued cohort responses.
+        let frozen: Option<&Vec<i32>> = self
+            .rules
+            .shocks
+            .iter()
+            .find(|(quarter, _)| *quarter == q.value())
+            .map(|(_, shocks)| shocks);
         for (ix, headline) in headline_shock.iter().enumerate() {
             let candidate = (i64::from(parts.support[ix].value())
-                + i64::from(self.rules.shocks[usize::from(q.value() - 1)][ix])
+                + frozen.and_then(|s| s.get(ix)).map_or(0, |s| i64::from(*s))
                 + i64::from(*headline))
             .clamp(0, 1_000_000);
             parts.support[ix] =
@@ -1698,9 +1770,8 @@ impl Campaign {
             }
         });
         for response in &due {
-            for ix in 0..6 {
-                let delta =
-                    cohort_response_scaled(ix, response.delivered(), self.rules.magnitude_percent)?;
+            for ix in 0..parts.support.len() {
+                let delta = self.response(ix, response.delivered())?;
                 let previous = i64::from(parts.support[ix].value());
                 let updated = (previous + delta).clamp(0, 1_000_000);
                 parts.support[ix] =
@@ -1761,9 +1832,8 @@ impl Campaign {
         self.slowdown_due = next_slowdown;
         self.bonus_due = next_bonus;
         let mut weighted = 0_u128;
-        for ix in 0..6 {
-            weighted += u128::from(parts.support[ix].value())
-                * u128::from(parts.cohort_weights.parts_ppm()[ix]);
+        for (support, share) in parts.support.iter().zip(parts.cohort_weights.parts_ppm()) {
+            weighted += u128::from(support.value()) * u128::from(*share);
         }
         let aggregate = u32::try_from(weighted / 1_000_000).map_err(|_| Rejection::Arithmetic)?;
         let reported = [
@@ -1857,6 +1927,7 @@ const fn role_index(m: Ministry) -> usize {
 fn cohort_response(ix: usize, delivered: [u16; 3]) -> Result<i64, Rejection> {
     cohort_response_scaled(ix, delivered, 100)
 }
+#[cfg(test)]
 pub(crate) fn cohort_response_scaled(
     ix: usize,
     delivered: [u16; 3],
@@ -2850,30 +2921,36 @@ mod tests {
     fn overall_support_alone_decides_the_election() {
         let w = voters();
         // Nobody moved: 50% overall, no group backs the player. Loses.
-        let flat = evaluate_election([500_000; 6], &w).unwrap();
+        let flat = evaluate_election(vec![500_000; 6], &w).unwrap();
         assert_eq!(flat.weighted_support_ppm, 500_000);
         assert_eq!(flat.blocs_held_ppm, 0);
         assert!(!flat.is_win());
         // Everyone just above the bar wins.
-        let broad = evaluate_election([551_000; 6], &w).unwrap();
+        let broad = evaluate_election(vec![551_000; 6], &w).unwrap();
         assert_eq!(broad.weighted_support_ppm, 551_000);
         assert_eq!(broad.blocs_held_ppm, 1_000_000);
         assert!(broad.is_win());
         // Broad but lukewarm: every group backs the player, yet 52% overall is below the bar.
-        let lukewarm = evaluate_election([520_000; 6], &w).unwrap();
+        let lukewarm = evaluate_election(vec![520_000; 6], &w).unwrap();
         assert_eq!(lukewarm.blocs_held_ppm, 1_000_000);
         assert!(!lukewarm.is_win());
         // Warm but narrow: urban middle and high at 70% lift overall support to 56.2%, and those two groups are
         // only 54% of the voters. That used to lose on a second, coalition bar; it now wins, because a player who
         // changes course and wins different groups is judged by the overall result (decision 0009).
-        let narrow =
-            evaluate_election([400_000, 700_000, 700_000, 400_000, 400_000, 400_000], &w).unwrap();
+        let narrow = evaluate_election(
+            vec![400_000, 700_000, 700_000, 400_000, 400_000, 400_000],
+            &w,
+        )
+        .unwrap();
         assert_eq!(narrow.weighted_support_ppm, 562_000);
         assert_eq!(narrow.blocs_held_ppm, 540_000);
         assert!(narrow.is_win());
         // Which groups carry the result is irrelevant: any spread with a high enough total wins.
-        let other_groups =
-            evaluate_election([700_000, 700_000, 400_000, 400_000, 400_000, 400_000], &w).unwrap();
+        let other_groups = evaluate_election(
+            vec![700_000, 700_000, 400_000, 400_000, 400_000, 400_000],
+            &w,
+        )
+        .unwrap();
         assert_eq!(other_groups.weighted_support_ppm, 574_000);
         assert_eq!(other_groups.blocs_held_ppm, 580_000);
         assert!(other_groups.is_win());
@@ -2881,10 +2958,16 @@ mod tests {
     #[test]
     fn a_group_is_held_only_when_strictly_above_fifty_percent() {
         let w = voters();
-        let at =
-            evaluate_election([500_000, 600_000, 600_000, 600_000, 600_000, 600_000], &w).unwrap();
-        let above =
-            evaluate_election([500_001, 600_000, 600_000, 600_000, 600_000, 600_000], &w).unwrap();
+        let at = evaluate_election(
+            vec![500_000, 600_000, 600_000, 600_000, 600_000, 600_000],
+            &w,
+        )
+        .unwrap();
+        let above = evaluate_election(
+            vec![500_001, 600_000, 600_000, 600_000, 600_000, 600_000],
+            &w,
+        )
+        .unwrap();
         // Urban low holds 260,000 of the voters; exactly 50% does not count, one ppm more does.
         assert_eq!(at.blocs_held_ppm, 740_000);
         assert_eq!(above.blocs_held_ppm, 1_000_000);
@@ -2976,7 +3059,7 @@ mod tests {
             Some(Rejection::InvalidPhase)
         );
         let before_service = c.world().treasury().service_spent();
-        let support_before = *c.world().support();
+        let support_before = c.world().support().to_vec();
         let receipt = c
             .apply(player(&c, "begin", PlayerCommand::BeginTerm))
             .unwrap();
@@ -3258,11 +3341,12 @@ mod tests {
                 );
             }
             coast_to(&mut c, bad.quarter.value() + 1, "past-");
-            let landed = *c
+            let landed = c
                 .landed_headlines()
                 .iter()
                 .find(|l| l.scheduled.quarter == bad.quarter)
-                .unwrap();
+                .unwrap()
+                .clone();
             c.world().validate().unwrap();
             (landed, paid)
         };
@@ -3438,7 +3522,10 @@ mod tests {
                 .into_iter()
                 .find(|u| u.scheduled.quarter == visit.quarter)
                 .expect("announced a quarter ahead");
-            let count = quote.scrutiny.expect("an inspection says what it counts");
+            let count = quote
+                .scrutiny
+                .clone()
+                .expect("an inspection says what it counts");
             assert_eq!(count.families, counted);
             if answer {
                 respond_cmd(&mut c, "answer", visit.quarter).unwrap();
@@ -3447,7 +3534,7 @@ mod tests {
             coast_to(&mut c, visit.quarter.value(), "near-");
             let support = c.support_values();
             advance(&mut c, "visit").unwrap();
-            let landed = *c.landed_headlines().last().unwrap();
+            let landed = c.landed_headlines().last().unwrap().clone();
             assert_eq!(landed.scheduled.quarter, visit.quarter);
             (c, quote, count, landed, support)
         };
@@ -3477,12 +3564,15 @@ mod tests {
             count.effect, count_shock,
             "the quote's count is the landing's count"
         );
-        let mood = news::landing_shock(&visit, 2, &support);
-        let expected: [i32; 6] =
-            std::array::from_fn(|ix| (mood[ix] + count_shock[ix]).max(-(SHOCK_CAP_PPM as i32)));
+        let mood = news::landing_shock(visit.tone, &c.effect_of(&visit), 2, &support);
+        let expected: Vec<i32> = mood
+            .iter()
+            .zip(&count_shock)
+            .map(|(m, k)| (m + k).max(-(SHOCK_CAP_PPM as i32)))
+            .collect();
         assert_eq!(landed.shock, expected);
         assert!(
-            landed.shock.iter().zip(mood).any(|(s, m)| *s < m),
+            landed.shock.iter().zip(&mood).any(|(s, m)| s < m),
             "the count took something beyond the story"
         );
         assert!(quote.relief_cost.is_some());
@@ -3490,7 +3580,7 @@ mod tests {
         let (c2, quote2, count2, landed2, support2) = play(true);
         assert_eq!(support2, support, "nothing else differs before the visit");
         assert!(landed2.responded);
-        assert_eq!(landed2.shock, news::soften(expected));
+        assert_eq!(landed2.shock, news::soften(&expected));
         assert_eq!(count2.owed, count.owed);
         assert_eq!(
             c2.world().treasury().relief_spent(),
@@ -3533,7 +3623,7 @@ mod tests {
                 advance(&mut c, &format!("q{n}")).unwrap();
             }
             for landed in c.landed_headlines() {
-                for e in landed.shock {
+                for e in &landed.shock {
                     assert!(e.abs() <= cap, "seed {seed}: a landing of {e}");
                 }
             }
@@ -3545,7 +3635,7 @@ mod tests {
         );
     }
     // ---- real news (decision 0013) ----
-    fn real_item(url: &str, rule: Option<(Tone, [u32; 6])>) -> news::RealItem {
+    fn real_item(url: &str, rule: Option<(Tone, &[(&str, u32)])>) -> news::RealItem {
         news::RealItem {
             title: format!("Real headline {url}"),
             summary: "A short summary of the real story.".into(),
@@ -3556,11 +3646,15 @@ mod tests {
                 label: "Teacher pay and recruitment".into(),
                 effect: news::RealEffect {
                     tone,
-                    effect,
-                    winners: [0; 6],
+                    effect: entries(effect),
+                    winners: Vec::new(),
                 },
             }),
         }
+    }
+    /// Group entries as a real rule holds them.
+    fn entries(list: &[(&str, u32)]) -> Vec<(String, u32)> {
+        list.iter().map(|(g, n)| ((*g).to_string(), *n)).collect()
     }
     fn import(c: &mut Campaign, id: &str, items: Vec<news::RealItem>) -> Result<(), Rejection> {
         c.apply(player(c, id, PlayerCommand::ImportNews(items)))
@@ -3583,7 +3677,7 @@ mod tests {
         assert!(envelope(vec![]).is_err());
         assert!(envelope(vec![real_item("same", None), real_item("same", None)]).is_err());
         assert!(envelope(vec![real_item("ok", None)]).is_ok());
-        let good = real_item("a", Some((Tone::Good, [9_000; 6])));
+        let good = real_item("a", Some((Tone::Good, &[("everyone", 9_000)])));
         let note = real_item("b", None);
         import(&mut c, "import-1", vec![good.clone(), note.clone()]).unwrap();
         assert_eq!(c.real_items(1), [good.clone(), note]);
@@ -3635,7 +3729,7 @@ mod tests {
             "import-1",
             vec![real_item(
                 "pay-award",
-                Some((Tone::Good, gain.map(i32::unsigned_abs))),
+                Some((Tone::Good, &[("urban", 9_000)])),
             )],
         )
         .unwrap();
@@ -3679,7 +3773,7 @@ mod tests {
             .into_iter()
             .find(|s| s.tone == Tone::Bad)
             .unwrap();
-        let exposure = [20, 20, 20, 40, 40, 40];
+        let exposure: &[(&str, u32)] = &[("urban", 20), ("rural", 40)];
         let play = |answer: bool| {
             let mut c = with_calendar(seed);
             ratify_balanced_q1(&mut c);
@@ -3709,20 +3803,22 @@ mod tests {
             coast_to(&mut c, first_bad.quarter.value(), "near-");
             let support = c.support_values();
             advance(&mut c, "land").unwrap();
-            (c.landed_headlines().last().copied().unwrap(), support)
+            let landed = c.landed_headlines().last().unwrap().clone();
+            let effect = c.effect_of(&landed.scheduled);
+            (landed, support, effect)
         };
-        let (landed, support) = play(false);
+        let (landed, support, effect) = play(false);
         assert_eq!(landed.scheduled.quarter, first_bad.quarter);
         assert!(landed.scheduled.real.is_some());
         // Exactly what an invented headline with these exposures would take, from where support stood.
         assert_eq!(
             landed.shock,
-            news::landing_shock(&landed.scheduled, 2, &support)
+            news::landing_shock(landed.scheduled.tone, &effect, 2, &support)
         );
         assert!(landed.shock[3] < 0 && landed.shock[0] < 0);
-        let (answered, _) = play(true);
+        let (answered, _, _) = play(true);
         assert!(answered.responded);
-        assert_eq!(answered.shock, news::soften(landed.shock));
+        assert_eq!(answered.shock, news::soften(&landed.shock));
     }
     #[test]
     fn the_per_unit_table_is_the_engines_own_response_and_the_groups_really_are_opposed() {
@@ -3748,7 +3844,7 @@ mod tests {
         // The Staffing, Repairs and Access columns: groups are pulled in different directions by the same work. Urban low and
         // middle income gain from staff; the two high-income groups pay more than they get from Staffing and Access; every
         // group but urban low income gains from Repairs; the rural groups gain most from Access.
-        let column = |f: usize| net.map(|row| row[f]);
+        let column = |f: usize| net.iter().map(|row| row[f]).collect::<Vec<_>>();
         assert!(
             column(0).iter().any(|x| *x > 0) && column(0).iter().any(|x| *x < 0),
             "staffing"
@@ -3794,8 +3890,8 @@ mod tests {
                 label: "Money moves between city and country schools".into(),
                 effect: news::RealEffect {
                     tone: Tone::Bad,
-                    effect: [40, 40, 40, 0, 0, 0],
-                    winners: [0, 0, 0, 20_000, 20_000, 20_000],
+                    effect: entries(&[("urban", 40)]),
+                    winners: entries(&[("rural", 20_000)]),
                 },
             }),
         };
@@ -3813,10 +3909,15 @@ mod tests {
         coast_to(&mut c, first_bad.quarter.value(), "near-");
         let support = c.support_values();
         advance(&mut c, "land").unwrap();
-        let landed = *c.landed_headlines().last().unwrap();
+        let landed = c.landed_headlines().last().unwrap().clone();
         assert_eq!(
             landed.shock,
-            news::landing_shock(&landed.scheduled, 2, &support)
+            news::landing_shock(
+                landed.scheduled.tone,
+                &c.effect_of(&landed.scheduled),
+                2,
+                &support
+            )
         );
         assert!(landed.shock[..3].iter().all(|e| *e < 0) && landed.shock[3..] == [20_000; 3]);
         c.world().validate().unwrap();
@@ -3845,7 +3946,7 @@ mod tests {
         import(
             &mut with,
             "import-2",
-            vec![real_item("story", Some((Tone::Bad, [30; 6])))],
+            vec![real_item("story", Some((Tone::Bad, &[("everyone", 30)])))],
         )
         .unwrap();
         // The real story took the quarter, so the stoppage that was drawn for it is gone: no ghost disruption.
@@ -3889,7 +3990,7 @@ mod tests {
         coast_to(&mut c, grant.quarter.value(), "before-");
         assert_eq!(c.world().treasury().granted(), 100);
         advance(&mut c, "windfall").unwrap();
-        let landed = *c.landed_headlines().last().unwrap();
+        let landed = c.landed_headlines().last().unwrap().clone();
         assert_eq!(
             (landed.scheduled.quarter, landed.granted),
             (grant.quarter, credits)

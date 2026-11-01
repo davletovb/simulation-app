@@ -8,14 +8,15 @@
       "type": "string"
     },
     "cohort_weights_ppm": {
+      "description": "One entry per cell of the population (decision 0015); the same number of entries as `support_ppm`.",
       "type": "array",
       "items": {
         "type": "integer",
         "format": "uint32",
         "minimum": 0
       },
-      "maxItems": 6,
-      "minItems": 6
+      "maxItems": 64,
+      "minItems": 1
     },
     "commitments": {
       "type": "array",
@@ -71,8 +72,8 @@
         "format": "uint32",
         "minimum": 0
       },
-      "maxItems": 6,
-      "minItems": 6
+      "maxItems": 64,
+      "minItems": 1
     },
     "treasury": {
       "$ref": "#/$defs/Treasury"

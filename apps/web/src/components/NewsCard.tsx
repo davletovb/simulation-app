@@ -1,5 +1,6 @@
 import { useCampaign, type Landed, type Snapshot, type Upcoming } from '../campaign'
 import { quarterLabel } from '../game'
+import { groupLabels } from '../election.mjs'
 import { canRespond, disruptionText, inspectionText, isTradeOff, justIn, landsText, overallText, realSourceText, reliefText, whoGainsAndLoses, whoItHits, windfallText } from '../news.mjs'
 import { ActionButton } from './ConnectedControls'
 import { Icon } from './Icon'
@@ -23,7 +24,7 @@ function Announced({ headline, snapshot, step }: { headline: Upcoming; snapshot:
   const answer = canRespond(headline, { available: snapshot.treasury.available_credits, step, busy: saving })
   const labelId = `news-${headline.quarter}-${headline.id}`
   const trade = isTradeOff(headline.effect_ppm)
-  const sides = trade ? whoGainsAndLoses(headline.effect_ppm, snapshot.support.group_ids) : null
+  const sides = trade ? whoGainsAndLoses(headline.effect_ppm, snapshot.support.group_ids, groupLabels(snapshot.support)) : null
   return (
     <li className={`headline is-${headline.tone}`} aria-labelledby={labelId}>
       <div className="headline-head">
@@ -41,7 +42,7 @@ function Announced({ headline, snapshot, step }: { headline: Upcoming; snapshot:
         <p className="headline-facts">
           Lands {landsText(headline.quarter, snapshot.quarter)} ({quarterLabel(headline.quarter).label}).{' '}
           {sides ? <>Helps: {sides.helps}. Hurts: {sides.hurts}. Net: </>
-            : <>{headline.tone === 'bad' ? 'Hits' : 'Helps'}: {whoItHits(headline.effect_ppm, snapshot.support.group_ids)}.{' '}</>}
+            : <>{headline.tone === 'bad' ? 'Hits' : 'Helps'}: {whoItHits(headline.effect_ppm, snapshot.support.group_ids, groupLabels(snapshot.support))}.{' '}</>}
           <strong>{overallText(headline.overall_ppm, { approximate: true })}</strong>.
         </p>
       )}
@@ -68,8 +69,8 @@ function Announced({ headline, snapshot, step }: { headline: Upcoming; snapshot:
   )
 }
 
-function Landed({ headline, groupIds }: { headline: Landed; groupIds: readonly string[] }) {
-  const sides = isTradeOff(headline.effect_ppm) ? whoGainsAndLoses(headline.effect_ppm, groupIds) : null
+function Landed({ headline, groupIds, labels }: { headline: Landed; groupIds: readonly string[]; labels: Readonly<Record<string, string>> }) {
+  const sides = isTradeOff(headline.effect_ppm) ? whoGainsAndLoses(headline.effect_ppm, groupIds, labels) : null
   return (
     <li className={`headline is-${headline.tone} is-landed`}>
       <div className="headline-head">
@@ -119,7 +120,7 @@ export function NewsCard({ snapshot, step }: { snapshot: Snapshot; step: string 
       {lately.length > 0 && (
         <>
           <h3 className="news-sub">Just in</h3>
-          <ul className="headlines">{lately.map(h => <Landed key={h.quarter} headline={h} groupIds={snapshot.support.group_ids} />)}</ul>
+          <ul className="headlines">{lately.map(h => <Landed key={h.quarter} headline={h} groupIds={snapshot.support.group_ids} labels={groupLabels(snapshot.support)} />)}</ul>
         </>
       )}
       <p className="hint">Headlines marked “Real news” are real stories from GOV.UK. All the others are invented, for the game.</p>
