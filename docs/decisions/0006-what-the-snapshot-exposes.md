@@ -25,7 +25,8 @@ change nothing about how the game evolves, and they add **no** journal entry, so
   change of mood**. At most one quarter of delivery is ever pending, because the response lag is one quarter.
 - `election.status` is `projected` while the campaign runs (every queued response lands, nothing new is
   delivered) and `won` or `lost` once it has closed. The last quarter's work counts.
-- **Win = overall support at least 55% and groups above 50% worth at least 60% of the voters** (decision 0004,
+- **Win = overall support at least 55%.** (As first built it also needed groups above 50% worth at least 60% of the voters; that second bar and
+  the `min_blocs_ppm` field were removed by [0009](0009-overall-support-is-the-only-bar.md).) (decision 0004,
   provisional). Both must hold: either one can fail alone (tested).
 
 ## Choices recorded

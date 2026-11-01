@@ -3,7 +3,7 @@
 **Status (2026-11-01): decided and built. See [`decisions/`](decisions/README.md).** The goal is
 accepted (0001), the election rule is accepted (0002), the **engine recalibration (0003, rules v2), stage B
 (per-group support and the election result in the snapshot, 0006), the election night screen, and open-ended terms
-(0005, 0007, 0008, rules v4) are done**, and the 55% / 60% win bar is accepted (0004). Every win starts another term with a
+(0005, 0007, 0008, rules v5) are done**, and the win bar is accepted: 55% overall support, nothing else (0004, 0009). Every win starts another term with a
 fresh 100 credits added to anything unspent, and every term ends with its own election: the game goes on for as long as the player
 keeps winning (there is only a technical ceiling of ten terms). **Known weak point:** nothing erodes support yet, so after the first
 win a player can do nothing and keep winning (0007, 0008).
@@ -54,7 +54,8 @@ delivery (correlation +0.90 to +0.99) and still leave some groups behind. The on
 
 > Benefit per delivered unit: Staffing **800**, Repairs **700**, Access **750** (ppm, before group multipliers).
 > Cost per unit: **500**. Scale **400%**, clamp **±40,000**. Response lag 1. Election after Q6 resolves.
-> **Win = overall support ≥ 55% and hold blocs worth ≥ 60% of voters.**
+> **Win = overall support ≥ 55%.** (Originally also "and hold blocs worth ≥ 60% of voters"; that second bar never decided a result
+> and was removed, see decision 0009.)
 
 Its correlation with work delivered is **+0.99** (today: +0.30), and the results are in the table below.
 
@@ -84,8 +85,8 @@ What this gives a player:
 
 ## The goal and the end screen
 
-> **Win the election.** Six quarters from now the public votes. Hold at least 55% overall support
-> and blocs worth 60% of the voters, while the people who were promised work are still waiting for it.
+> **Win the election.** Six quarters from now the public votes. Hold at least 55% overall support, whichever groups it comes
+> from, while the people who were promised work are still waiting for it.
 
 Election night, as the end screen, in this order: the result (**Re-elected**, **Narrow defeat** at
 52% or more, **Heavy defeat** below that), a map of the six blocs sized by how many voters they hold
@@ -150,7 +151,8 @@ Asked on 2026-11-01 and answered by the owner (full records in [`decisions/`](de
    [0005](decisions/0005-a-win-starts-a-second-term.md))
 3. **Change the frozen engine numbers and regenerate the pinned report in the same change:** yes, and done.
    ([0003](decisions/0003-recalibrate-the-support-model.md))
-4. **The win bar:** 55% overall and 60% of voters, accepted by the owner. ([0004](decisions/0004-election-win-bar.md))
+4. **The win bar:** 55% overall support and nothing else: the owner accepted 55%, and dropped the second "60% of voters" bar
+   after seeing it never decided anything. ([0004](decisions/0004-election-win-bar.md), [0009](decisions/0009-overall-support-is-the-only-bar.md))
 5. **Terms continue for as long as the player keeps winning, each ending with its own election; the free audit resets each
    term.** Built as one campaign that grows. ([0007](decisions/0007-two-terms-in-one-campaign.md),
    [0008](decisions/0008-terms-continue-while-the-player-wins.md))

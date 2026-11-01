@@ -66,9 +66,10 @@ should not have to.
 
 ## Elections and further terms
 
-After the sixth quarter of every term the public votes. You win if **both** hold: overall
-support is at least **55%**, and the groups that back you (above 50%) hold at least **60% of
-the voters**.
+After the sixth quarter of every term the public votes. You win with **at least 55% overall
+support**. It does not matter which groups it comes from, so you can change course halfway and
+win a different set of groups. The screen also says which groups back you (above 50%), as
+information only; at the very start every group is exactly at 50% and none has taken a side.
 
 - **Win:** the screen stops on **election night**. Beginning the next term is always your own
   move (the **Begin term N** button; the game never starts it for you). You get a fresh 100

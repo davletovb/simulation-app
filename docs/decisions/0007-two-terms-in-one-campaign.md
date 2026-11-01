@@ -16,7 +16,7 @@
    There is no third term.
 2. **The free audit resets each term.** One free audit per term, available from the third quarter of that term;
    later audits in the same term cost 2 credits.
-3. **The bar is accepted:** 55% overall support **and** groups above 50% holding 60% of the voters ([0004](0004-election-win-bar.md)
+3. **The bar is accepted:** 55% overall support (and, at the time, groups above 50% holding 60% of the voters: dropped by [0009](0009-overall-support-is-the-only-bar.md)) ([0004](0004-election-win-bar.md)
    is no longer provisional).
 4. **R3 budget** (from 0005): each term begins with a fresh 100 credits **added** to anything unspent.
 

@@ -9,11 +9,12 @@ old one is marked **Superseded by NNNN**.
 | [0001](0001-goal-stay-in-power.md) | The goal is to stay in power; delivery is the second line (Legacy) | Accepted (design) |
 | [0002](0002-single-election-win-continues-loss-ends.md) | One election at the end; a win continues, a loss ends the game | Accepted |
 | [0003](0003-recalibrate-the-support-model.md) | Recalibrate the public-support model (engine rules v2) | **Implemented** |
-| [0004](0004-election-win-bar.md) | The election win bar (55% overall, 60% of voters) | **Accepted** (owner, 2026-11-01), implemented |
+| [0004](0004-election-win-bar.md) | The election win bar (55% overall; its second bar, 60% of voters, was dropped by 0009) | **Accepted** (owner, 2026-11-01), implemented |
 | [0005](0005-a-win-starts-a-second-term.md) | A win starts another term of six quarters (option A); **R3**: a new allocation each term, added to anything unspent | Accepted; **implemented** by 0007 and 0008 (build recommendation superseded) |
 | [0006](0006-what-the-snapshot-exposes.md) | The snapshot exposes true per-group support and an election result; ~~the bars live in code~~ | **Implemented**; bars choice superseded by 0007 |
 | [0007](0007-two-terms-in-one-campaign.md) | Terms in one campaign; explicit `begin_term`; the bars join the hashed scenario; audit resets per term. (Its "exactly two terms" part was a misreading.) | **Implemented**; two-term part superseded by 0008 |
 | [0008](0008-terms-continue-while-the-player-wins.md) | Terms continue for as long as the player keeps winning; nothing announces a number of terms; technical ceiling of 10 | **Implemented** (rules v4); known weakness: winning needs no effort after the first win |
+| [0009](0009-overall-support-is-the-only-bar.md) | Overall support is the only election bar; the groups behind you are shown as information | **Implemented** (rules v5); evidence: the second bar never decided a result |
 
 Each record has: the decision and who made it, the evidence, the consequences, and how to revert or change it.
 Statuses: *Accepted*, *Provisional*, *Implemented*, *Superseded*, *Reverted*.

@@ -1,6 +1,7 @@
 # 0004. The election win bar
 
-- **Status:** **Accepted** by the owner on 2026-11-01 (*"your recommended 55% / 60% bar is ok"*) and implemented. It was provisional
+- **Status:** **The second bar (60% of voters in groups above 50%) was removed by [0009](0009-overall-support-is-the-only-bar.md); the first bar (55% overall support) stands.**
+  Originally **accepted** by the owner on 2026-11-01 (*"your recommended 55% / 60% bar is ok"*) and implemented. It was provisional
   before that; the original wording is kept below. The bars are now part of the hashed scenario (see [0007](0007-two-terms-in-one-campaign.md)).
 - **Date:** 2026-11-01
 - **Decided by:** the project owner, in conversation: *"On 4: i am not sure about."* Recorded by Claude,
@@ -43,10 +44,10 @@ does not (52.98%). 48 of the 72 accepted variants clear 55%; all 72 clear 52% an
 
 ## To change
 
-The bars are named constants in `crates/domain/src/reducer.rs` (`ELECTION_MIN_SUPPORT_PPM = 550_000`,
-`ELECTION_MIN_BLOCS_PPM = 600_000`, `ELECTION_HELD_ABOVE_PPM = 500_000`), mirrored in
-`tools/support-model/support_model.py` (`BAR_SUPPORT_PCT`, `BAR_BLOCS_PCT`) and, since [0007](0007-two-terms-in-one-campaign.md),
-**in the hashed `authored.json`** (`election.min_weighted_support_ppm`, `min_blocs_ppm`, `bloc_held_above_ppm`), because the
+The bar is a named constant in `crates/domain/src/reducer.rs` (`ELECTION_MIN_SUPPORT_PPM = 550_000`; `ELECTION_MIN_BLOCS_PPM`
+was removed by 0009, and `ELECTION_HELD_ABOVE_PPM = 500_000` now only says which groups back you), mirrored in
+`tools/support-model/support_model.py` (`BAR_SUPPORT_PCT`) and, since [0007](0007-two-terms-in-one-campaign.md),
+**in the hashed `authored.json`** (`election.min_weighted_support_ppm`, `bloc_held_above_ppm`), because the
 verdict decides whether the game continues. A test fails if the file and the constants disagree, and **changing a bar
 invalidates saved games**: bump `RULES_VERSION` and regenerate the manifest (`tools/p2/build_pack.py --write`).
 
