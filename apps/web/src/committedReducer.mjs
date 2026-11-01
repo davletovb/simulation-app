@@ -105,7 +105,10 @@ function validTerms(s, held) {
     (s.closed ? (e.status === 'lost' || e.ceiling) : (s.phase === 'ElectionNight' && e.status === 'won'))
 }
 
+const FAMILIES = ['staffing', 'repairs', 'access']
 const tone = t => t === 'bad' || t === 'good'
+const keepOk = d => !!d && typeof d === 'object' && FAMILIES.includes(d.family) && Number.isInteger(d.keep_pct) && d.keep_pct >= 0 && d.keep_pct <= 100 &&
+  (d.quarters === 1 || d.quarters === 2)
 const effectOk = e => sixOf(e, n => Number.isInteger(n) && Math.abs(n) <= 40000)
 const wordsOk = h => typeof h.id === 'string' && h.id.length > 0 && typeof h.title === 'string' && h.title.length > 0 &&
   typeof h.summary === 'string' && ['invented', 'real'].includes(h.source)
@@ -121,13 +124,19 @@ function validCalendar(calendar, quarter) {
     Number.isInteger(h.quarter) && h.quarter >= quarter && h.quarter <= quarter + 1 &&
     Number.isInteger(h.overall_ppm) && ['serious', 'minor', 'welcome'].includes(h.severity) &&
     h.relief_cut_pct >= 0 && h.relief_cut_pct <= 100 &&
+    // Only bad news can stop work, and a stoppage says how much work it delays and what that costs, per group.
+    (h.disruption === null || (h.tone === 'bad' && keepOk(h.disruption) &&
+      Number.isInteger(h.disruption.delayed_units) && h.disruption.delayed_units >= 0 && h.disruption.delayed_units <= MAX_CREDITS &&
+      effectOk(h.disruption.effect_ppm))) &&
     (h.tone === 'good' ? h.relief_cost === null && h.paid === null
-      : (h.relief_cost === null) !== (h.paid === null) &&
+      : // Answerable (a price), answered (a payment), or neither because it would cost this player nothing; never both.
+        (h.relief_cost === null || h.paid === null) &&
         (h.relief_cost === null || (Number.isInteger(h.relief_cost) && h.relief_cost >= 1 && h.relief_cost <= MAX_CREDITS)) &&
         (h.paid === null || (Number.isInteger(h.paid) && h.paid >= 1 && h.paid <= MAX_CREDITS))))
   const landedOk = calendar.recent.every((h, i, all) => wordsOk(h) && tone(h.tone) && effectOk(h.effect_ppm) &&
     Number.isInteger(h.quarter) && h.quarter >= 1 && h.quarter <= MAX_QUARTERS && Number.isInteger(h.overall_ppm) &&
     typeof h.surprise === 'boolean' && typeof h.responded === 'boolean' &&
+    (h.disruption === null || (h.tone === 'bad' && keepOk(h.disruption))) &&
     (h.tone === 'bad' || !h.responded) && (i === 0 || all[i - 1].quarter < h.quarter))
   return upcomingOk && landedOk
 }

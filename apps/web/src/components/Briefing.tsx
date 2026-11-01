@@ -66,7 +66,8 @@ export function Briefing({ open, onClose }: { open: boolean; onClose: () => void
           <Icon name="spark" size={20} />
           <p><strong>The news will test you.</strong>{' '}
             Each term brings a few invented headlines. Good ones lift support; bad ones take some of it back, and the
-            higher you stand, the more they take. Most are announced a quarter ahead, and at the start of a quarter you can
+            higher you stand, the more they take. Some also slow or stop one kind of work for a quarter or two, which can
+            push work you have promised past the election. Most are announced a quarter ahead, and at the start of a quarter you can
             pay credits to take 60% off a bad one: credits that will not become delivered work. A few arrive unannounced.
             The first term brings good news only.</p>
         </div>

@@ -1042,6 +1042,30 @@ mod p2_frozen_pack_tests {
                     .collect();
                 let engine: Vec<u64> = headline.effect.iter().map(|v| u64::from(*v)).collect();
                 assert_eq!(effect, engine, "news effect drift: {}", headline.id);
+                // A bad headline may also stop one kind of work (decision 0011); the file and the engine agree on which.
+                let engine_cut = headline.disrupts.map(|d| {
+                    (
+                        match d.family {
+                            myth_domain::PolicyFamily::Staffing => "staffing",
+                            myth_domain::PolicyFamily::Repairs => "repairs",
+                            myth_domain::PolicyFamily::Access => "access",
+                        },
+                        u64::from(d.keep_pct),
+                        u64::from(d.quarters),
+                    )
+                });
+                let file_cut = entry.get("disrupts").map(|d| {
+                    (
+                        d["family"].as_str().unwrap(),
+                        d["keep_pct"].as_u64().unwrap(),
+                        d["quarters"].as_u64().unwrap(),
+                    )
+                });
+                assert_eq!(
+                    file_cut, engine_cut,
+                    "news disruption drift: {}",
+                    headline.id
+                );
                 assert!(!entry["title"].as_str().unwrap().is_empty());
                 assert!(!entry["summary"].as_str().unwrap().is_empty());
             }

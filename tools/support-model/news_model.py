@@ -65,6 +65,57 @@ def schedule(seed, term):
     return out
 
 
+FAMILIES = ('staffing', 'repairs', 'access')
+CAP = {'staffing': 12, 'repairs': 10, 'access': 4}
+LAG = {'staffing': 1, 'repairs': 2, 'access': 0}
+BALANCED = {'staffing': 50, 'repairs': 40, 'access': 10}
+
+
+def capacity_kept(seed, quarter, answers=()):
+    """Percent of its usual capacity each kind of work keeps in `quarter`, given the disruptions in the news (decision 0011):
+    a disruption lasts `quarters` from the quarter it lands in, may carry into the next term, an answered one is cut by 60% less,
+    and where several meet the worst rules."""
+    keep = {f: 100 for f in FAMILIES}
+    term = (quarter - 1) // 6 + 1
+    for t in (max(term - 1, 0), term):
+        if t < 1:
+            continue
+        for q, tone, index, _surprise in schedule(seed, t):
+            d = NEWS[tone][index].get('disrupts') if tone == 'bad' else None
+            if not d or not (q <= quarter < q + d['quarters']):
+                continue
+            kept = d['keep_pct']
+            if q in answers:
+                kept = 100 - (100 - kept) * (100 - NEWS['relief']['cut_pct']) // 100
+            keep[d['family']] = min(keep[d['family']], kept)
+    return keep
+
+
+def deliveries(campaign_id, plans, answers=(), quarters=None):
+    """Cumulative [staffing, repairs, access] after each quarter when `plans[t]` (a dict, or None to keep the programme) is
+    approved in the first quarter of term t+1, delivered at full effort under the engine's lags and capacities, with the
+    disruptions of this campaign's calendar. Work not delivered by the end of a term is dropped (a new plan replaces it)."""
+    seed = news_seed(campaign_id)
+    quarters = quarters or 6 * len(plans)
+    total, out, left = {f: 0 for f in FAMILIES}, [], {f: 0 for f in FAMILIES}
+    for q in range(1, quarters + 1):
+        term, qt = (q - 1) // 6 + 1, (q - 1) % 6 + 1
+        if qt == 1 and plans[term - 1] is not None:
+            left = dict(plans[term - 1])
+        keep = capacity_kept(seed, q, answers)
+        for f in FAMILIES:
+            if qt <= LAG[f]:
+                continue
+            cap = CAP[f] * keep[f] // 100
+            if f == 'access' and keep[f] == 100 and qt >= 2 and plans[term - 1] is not None and plans[term - 1]['access'] >= 10 and left[f] > 0:
+                cap += 1   # the volunteer bonus, from the second quarter, while access work remains
+            d = min(left[f], cap)
+            left[f] -= d
+            total[f] += d
+        out.append([total[f] for f in FAMILIES])
+    return out
+
+
 def severity(term):
     s, n = NEWS['severity'], max(0, term - 2)
     return (s['base_ppm'] * min(s['base_cap_pct'], 100 + s['base_step_pct'] * n) // 100,
@@ -84,6 +135,11 @@ def landing_shock(tone, index, term, support):
 
 def soften(shock):
     return [sm.trunc_div(x * (100 - NEWS['relief']['cut_pct']), 100) if x < 0 else x for x in shock]
+
+
+def overall_ppm(shock):
+    """The groups' effects weighted by their share of the voters, truncated toward zero as the engine does."""
+    return sm.trunc_div(sum(s * w for s, w in zip(shock, sm.W)), 1_000_000)
 
 
 def relief_cost(shock):
@@ -151,25 +207,38 @@ def check():
 
     expect('schedule, seed 12345, term 1', schedule(12345, 1), [(2, 'good', 3, False), (4, 'good', 0, False)])
     expect('schedule, seed 12345, term 2', schedule(12345, 2),
-           [(8, 'bad', 4, False), (9, 'bad', 5, True), (10, 'bad', 6, False), (11, 'bad', 7, False)])
+           [(8, 'bad', 8, False), (9, 'bad', 5, True), (10, 'bad', 6, False), (11, 'bad', 4, False)])
     expect('schedule, seed 12345, term 3', schedule(12345, 3),
-           [(14, 'bad', 7, False), (16, 'bad', 6, False), (17, 'bad', 0, True), (18, 'bad', 1, True)])
+           [(14, 'bad', 7, False), (16, 'bad', 6, False), (17, 'bad', 4, True), (18, 'bad', 2, True)])
     expect('severity, terms 2, 3, 10', [severity(2), severity(3), severity(10)], [(5000, 40), (7500, 48), (20000, 90)])
     expect('bad news taxes the lead', landing_shock('bad', 3, 2, [500000, 500000, 500000, 560000, 520000, 500000]),
            [0, 0, 0, -29000, -13000, -5000])
     expect('a response softens by 60%', soften([-10000, -20000, 0, -30000, 0, 5000]), [-4000, -8000, 0, -12000, 0, 5000])
     expect('a response costs ceil(10 credits a point)', relief_cost([-10000, -20000, 0, -30000, 0, 5000]), 12)
-    sup, settled, landed = first_election('term')
-    expect('campaign "term": support before election night', sup, [582120, 603600, 484280, 608536, 635080, 520824])
-    expect('campaign "term": election night', settled, [583800, 614000, 484200, 616240, 652600, 528960])
-    expect('campaign "term": the headlines of term 1', [(q, h) for q, _, h, _, _ in landed],
-           [(5, 'recruitment_up'), (6, 'volunteer_surge')])
-    cums = [[sum([0, 12, 12, 12, 12, 2][:q]), sum([0, 0, 10, 10, 10, 10][:q]), sum([4, 5, 1, 0, 0, 0][:q])] for q in range(1, 7)]
-    cums += [cums[-1]] * 6
-    _, settled12, _ = play(cums, 'term', 12, answers=(8,))
-    expect('campaign "term": a hands-off second term, one headline answered', settled12,
-           [526848, 549523, 479700, 550310, 586694, 518367])
-    expect('...and it loses', sum(w * s for w, s in zip(sm.W, settled12)) // 10**6 < BAR, True)
+    # Campaign "dz7" (crates/local-api/src/connected.rs, the election-night test): Balanced in term 1, then 50/35/0 in term 2,
+    # with a flood announced for quarter 11 that stops Repairs for two quarters, answered in quarter 10.
+    cid, plan2 = 'dz7', {'staffing': 50, 'repairs': 35, 'access': 0}
+    sup, settled, landed = play(deliveries(cid, [BALANCED], quarters=6), cid, 6)
+    expect('dz7: support before election night 1', sup, [602120, 613600, 484280, 603536, 620080, 495824])
+    expect('dz7: election night 1', settled, [603800, 624000, 484200, 611240, 637600, 503960])
+    expect('dz7: the headlines of term 1', [(q, h) for q, _, h, _, _ in landed], [(3, 'recruitment_up'), (6, 'attendance_rises')])
+    sup9, _, _ = play(deliveries(cid, [BALANCED, plan2], quarters=9), cid, 9)
+    expect('dz7: support at the start of quarter 10', sup9, [595420, 611100, 476420, 592156, 614300, 489244])
+    flood = next(i for i, h in enumerate(NEWS['bad']) if h['id'] == 'flooding_halts_repairs')
+    mood = landing_shock('bad', flood, 2, sup9)
+    # 25 repair units still to deliver; stopped in quarters 11 and 12 only quarter 10's ten arrive: 15 slip past the election.
+    delivery_effect = [-sm.response(ix, [0, 15, 0], **P) for ix in range(6)]
+    total = [a + b for a, b in zip(mood, delivery_effect)]
+    expect('dz7: what the delayed work would have earned, taken away', delivery_effect, [1200, -12000, -1200, -10140, -24600, -15060])
+    expect('dz7: the quote for the flood', total, [-3116, -16944, -1700, -22698, -39816, -16560])
+    expect('dz7: ...overall, truncated toward zero', overall_ppm(total), -12208)
+    expect('dz7: ...and what answering costs', relief_cost(total), 13)
+    expect('an answer turns a stoppage into a 60% slowdown', capacity_kept(news_seed(cid), 11, answers=(11,))['repairs'], 60)
+    cums = deliveries(cid, [BALANCED, plan2], answers=(11,), quarters=12)
+    expect('dz7: units delivered by quarter 12 with the answer', cums[-1], [100, 72, 10])
+    _, settled12, landed12 = play(cums, cid, 12, answers=(11,))
+    expect('dz7: election night 2', settled12, [632663, 673322, 461560, 609905, 664664, 501697])
+    expect('dz7: the flood, answered', [shock for q, _, _, _, shock in landed12 if q == 11][0], [-1952, -2336, -200, -6819, -8396, -1217])
     return ok
 
 

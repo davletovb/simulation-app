@@ -127,6 +127,19 @@ export interface Upcoming {
   relief_cost: number | null
   relief_cut_pct: number
   paid: number | null
+  /** Set when the story also stops one kind of work. */
+  disruption: Disruption | null
+}
+/** What a disruption would do to the work the player has promised. */
+export interface Disruption {
+  family: 'staffing' | 'repairs' | 'access'
+  /** How much of its usual capacity that kind of work keeps, in percent, and for how many quarters. */
+  keep_pct: number
+  quarters: number
+  /** Units that would be delivered after the term's election instead of before it. */
+  delayed_units: number
+  /** The support those units would have earned by the election, per group, taken away (already in `effect_ppm`). */
+  effect_ppm: number[]
 }
 export interface Landed {
   quarter: number
@@ -141,6 +154,8 @@ export interface Landed {
   surprise: boolean
   /** An answer softened it. */
   responded: boolean
+  /** Set when the story also stopped one kind of work; `keep_pct` is what was applied, after any answer. */
+  disruption: { family: 'staffing' | 'repairs' | 'access'; keep_pct: number; quarters: number } | null
 }
 export interface Operation {
   campaign_id: string

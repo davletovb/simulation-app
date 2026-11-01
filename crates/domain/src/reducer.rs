@@ -92,12 +92,35 @@ pub fn evaluate_election(
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct UpcomingHeadline {
     pub scheduled: Scheduled,
-    /// What it would do to each group's support if it landed now, with no response.
+    /// What it would do to each group's support if it landed now, with no response: the mood it takes plus, for a
+    /// disruption, the support lost because work is delayed past the election.
     pub expected: [i32; 6],
-    /// What a response would cost now; `None` for good news and once a response has been paid.
+    /// What a disruption would do to delivery, if this headline is one.
+    pub delivery: Option<DeliveryQuote>,
+    /// What a response would cost now; `None` for good news, once a response has been paid, and when the headline would
+    /// cost this player nothing.
     pub relief_cost: Option<u16>,
     /// The credits already paid to answer it, if they were.
     pub answered: Option<u16>,
+}
+
+/// How a disruption would hit the work the player has promised.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct DeliveryQuote {
+    pub family: PolicyFamily,
+    /// How much of its usual capacity that kind of work keeps, in percent, and for how many quarters.
+    pub keep_pct: u32,
+    pub quarters: u8,
+    /// Units that would be delivered after the term's election instead of before it.
+    pub delayed_units: u16,
+    /// The support those units would have earned by the election, per group, taken away.
+    pub effect: [i32; 6],
+}
+
+struct Quote {
+    total: [i32; 6],
+    delivery: Option<DeliveryQuote>,
+    cost: Option<u16>,
 }
 
 /// The verdict of one election, kept for the rest of the game. It is derived while the journal is replayed,
@@ -366,8 +389,6 @@ impl Campaign {
         ) {
             return vec![];
         }
-        let support = self.support_values();
-        let weights = *self.world.cohort_weights().parts_ppm();
         news::schedule(seed, now.term())
             .into_iter()
             .filter(|s| {
@@ -376,22 +397,116 @@ impl Campaign {
                     && s.quarter.value() <= now.value() + 1
                     && !self.landed.iter().any(|l| l.scheduled.quarter == s.quarter)
             })
-            .map(|scheduled| {
-                let expected = news::landing_shock(&scheduled, now.term(), &support);
+            .filter_map(|scheduled| {
                 let answered = self
                     .responses
                     .iter()
                     .find(|r| r.headline_quarter == scheduled.quarter)
                     .map(|r| r.credits);
-                UpcomingHeadline {
+                // Once answered, the quote shows what the answer bought: the softened loss and the softened cut.
+                let quote = self.quote(&scheduled, answered.is_some()).ok()?;
+                Some(UpcomingHeadline {
                     scheduled,
-                    expected,
+                    expected: quote.total,
+                    delivery: quote.delivery,
                     relief_cost: (scheduled.tone == Tone::Bad && answered.is_none())
-                        .then(|| news::relief_cost(&expected, &weights)),
+                        .then_some(quote.cost)
+                        .flatten(),
                     answered,
-                }
+                })
             })
             .collect()
+    }
+    /// What a headline would do if it landed now, and what answering it would cost: the mood it takes plus, for a
+    /// disruption, the support lost because work is delayed past the election (decision 0011).
+    fn quote(&self, scheduled: &Scheduled, answered: bool) -> Result<Quote, Rejection> {
+        let support = self.support_values();
+        let weights = *self.world.cohort_weights().parts_ppm();
+        let mut total = news::landing_shock(scheduled, scheduled.quarter.term(), &support);
+        if answered {
+            total = news::soften(total);
+        }
+        let mut delivery = None;
+        if scheduled.tone == Tone::Bad
+            && let Some(d) = scheduled.headline().disrupts
+        {
+            let from = scheduled.quarter.value();
+            let during = move |q: u8| (from..from.saturating_add(d.quarters)).contains(&q);
+            let kept = if answered {
+                news::softened_keep(d.keep_pct)
+            } else {
+                d.keep_pct
+            };
+            let usual = self.projected_delivery(d.family, |_| 100)?;
+            let cut = self.projected_delivery(d.family, |q| if during(q) { kept } else { 100 })?;
+            let delayed = usual.saturating_sub(cut);
+            let mut lost = [0_u16; 3];
+            lost[news::family_slot(d.family)] = delayed;
+            let mut effect = [0_i32; 6];
+            for (ix, e) in effect.iter_mut().enumerate() {
+                // The support those units would have earned by the election, taken away (or, where the work would have
+                // cost a group more than it gave, given back).
+                let earned = cohort_response_scaled(ix, lost, self.rules.magnitude_percent)?;
+                *e = i32::try_from(-earned).map_err(|_| Rejection::Arithmetic)?;
+                total[ix] = total[ix].saturating_add(*e);
+            }
+            delivery = Some(DeliveryQuote {
+                family: d.family,
+                keep_pct: kept,
+                quarters: d.quarters,
+                delayed_units: delayed,
+                effect,
+            });
+        }
+        // Nothing to protect, nothing to sell: a headline that would cost this player nothing cannot be answered.
+        let cost = (news::overall_loss_ppm(&total, &weights) > 0)
+            .then(|| news::relief_cost(&total, &weights));
+        Ok(Quote {
+            total,
+            delivery,
+            cost,
+        })
+    }
+    /// Units of `family` that would be delivered between now and the end of the term, at full effort and with nothing
+    /// changed in the plan, if the family could deliver only `keep(q)` percent of its usual capacity in quarter `q`.
+    fn projected_delivery(
+        &self,
+        family: PolicyFamily,
+        keep: impl Fn(u8) -> u32,
+    ) -> Result<u16, Rejection> {
+        let parts = self.world.private_checkpoint_parts();
+        let mut scopes: Vec<FundedScope> = parts
+            .scopes
+            .iter()
+            .filter(|s| s.family() == family)
+            .cloned()
+            .collect();
+        let now = self.world.quarter();
+        let term_end = now.term() * crate::TERM_QUARTERS;
+        let mut total = 0_u16;
+        for q in now.value()..=term_end {
+            let usual = match family {
+                PolicyFamily::Staffing => self.caps.staff(),
+                PolicyFamily::Repairs if q == 2 => self
+                    .rules
+                    .q2_repair_cap
+                    .map_or(self.caps.repairs(), |v| v.min(self.caps.repairs())),
+                PolicyFamily::Repairs => self.caps.repairs(),
+                PolicyFamily::Access => self.caps.access(),
+            };
+            let cap = u16::try_from(u32::from(usual) * keep(q) / 100).unwrap_or(usual);
+            let delivered = deliver_family_quarter_with_lag(
+                family,
+                cap,
+                false,
+                EffortPermille::new(1000)?,
+                DueQuarter::from(Quarter::new(q)?),
+                self.rules.delivery_extra_lag,
+                &mut scopes,
+            )?;
+            total = total.saturating_add(delivered.total_delivered);
+        }
+        Ok(total)
     }
     fn support_values(&self) -> [u32; 6] {
         let mut out = [0_u32; 6];
@@ -1133,8 +1248,12 @@ impl Campaign {
         {
             return Err(Rejection::InvalidCondition);
         }
-        let shock = news::landing_shock(&scheduled, now.term(), &self.support_values());
-        let credits = news::relief_cost(&shock, self.world.cohort_weights().parts_ppm());
+        // The price is the one the player was shown: what the headline would cost them now. A headline that would cost them
+        // nothing (a disruption to work they have not promised) cannot be answered.
+        let credits = self
+            .quote(&scheduled, false)?
+            .cost
+            .ok_or(Rejection::InvalidCondition)?;
         let mut parts = self.world.private_checkpoint_parts();
         let movement = LedgerMove::SpendRelief { credits };
         let before = parts.treasury;
@@ -1198,6 +1317,18 @@ impl Campaign {
             },
             self.caps.access(),
         ];
+        // Disruptions in the news cut what a kind of work can deliver this quarter (decision 0011). The due schedule is cut the
+        // same way, so a minister is never reported as behind schedule for something the world did.
+        let kept = self.rules.news_seed.map_or([100_u32; 3], |seed| {
+            news::capacity_kept(seed, q, |hq| {
+                self.responses.iter().any(|r| r.headline_quarter == hq)
+            })
+        });
+        let caps: [u16; 3] = std::array::from_fn(|ix| {
+            u16::try_from(u32::from(caps[ix]) * kept[ix] / 100).unwrap_or(caps[ix])
+        });
+        // A volunteer bonus is part of capacity: it does not survive a stoppage.
+        let access_bonus = self.bonus_due && kept[2] == 100;
         let private_staff =
             self.private_efforts[0]
                 .value()
@@ -1232,7 +1363,7 @@ impl Campaign {
             let due = deliver_family_quarter_with_lag(
                 *family,
                 caps[ix],
-                ix == 2 && self.bonus_due,
+                ix == 2 && access_bonus,
                 EffortPermille::new(1000)?,
                 DueQuarter::from(q),
                 self.rules.delivery_extra_lag,
@@ -1248,7 +1379,7 @@ impl Campaign {
             let delivery = deliver_family_quarter_with_lag(
                 *family,
                 caps[ix],
-                ix == 2 && self.bonus_due,
+                ix == 2 && access_bonus,
                 EffortPermille::new(efforts[ix])?,
                 DueQuarter::from(q),
                 self.rules.delivery_extra_lag,
@@ -2987,6 +3118,111 @@ mod tests {
         );
     }
     #[test]
+    fn a_disruption_delays_work_past_the_election_and_is_quoted_before_it_lands() {
+        // A flood that stops repairs for two quarters, announced for quarter 11.
+        let (seed, flood) = (0..20_000_u64)
+            .find_map(|seed| {
+                news::schedule(seed, 2)
+                    .into_iter()
+                    .find(|s| {
+                        s.tone == Tone::Bad
+                            && !s.surprise
+                            && s.quarter.value() == 11
+                            && s.headline().disrupts.is_some_and(|d| {
+                                d.family == PolicyFamily::Repairs
+                                    && d.keep_pct == 0
+                                    && d.quarters == 2
+                            })
+                    })
+                    .map(|s| (seed, s))
+            })
+            .unwrap();
+        let play = |answer: bool| {
+            let mut c = with_calendar(seed);
+            ratify_balanced_q1(&mut c);
+            coast(&mut c, 6, "t1-");
+            c.apply(player(&c, "begin", PlayerCommand::BeginTerm))
+                .unwrap();
+            // A plan that keeps 20 credits back, so there is something to answer with.
+            open_meeting_with(&mut c, 7, Allocation::draft(40, 30, 10).unwrap());
+            coast_to(&mut c, 10, "to-");
+            let quote = c
+                .upcoming_headlines()
+                .into_iter()
+                .find(|u| u.scheduled.quarter == flood.quarter)
+                .expect("announced a quarter ahead");
+            let delivery = quote
+                .delivery
+                .expect("a disruption says what it does to delivery");
+            assert_eq!(delivery.family, PolicyFamily::Repairs);
+            assert_eq!((delivery.keep_pct, delivery.quarters), (0, 2));
+            // The plan promised 30 repair units this term, ten a quarter from quarter 9. By quarter 10 twenty are left;
+            // stopped in quarters 11 and 12, ten of them would land after the election.
+            assert_eq!(delivery.delayed_units, 10);
+            // The quote includes what that costs in support, on top of the mood the story takes.
+            assert!(
+                quote
+                    .expected
+                    .iter()
+                    .zip(delivery.effect)
+                    .all(|(total, d)| *total <= d.max(0) || *total <= 0)
+            );
+            let cost = quote.relief_cost.expect("answerable");
+            if answer {
+                respond_cmd(&mut c, "answer", flood.quarter).unwrap();
+                assert_eq!(c.world().treasury().relief_spent(), cost);
+            }
+            coast(&mut c, 3, "end-");
+            c.world().validate().unwrap();
+            (c.world().treasury().service_spent(), cost)
+        };
+        let (plain, cost) = play(false);
+        let (answered, paid) = play(true);
+        assert_eq!(cost, paid, "what was quoted is what was paid");
+        // Term 1 delivered all 100 credits. In term 2 nothing is lost to the stoppage, but 10 units of repairs slip past
+        // the election; answering turns a stoppage into a slowdown (60% less cut), and all of them are delivered after all.
+        assert_eq!(plain, 100 + 40 + 20 + 10);
+        assert_eq!(answered, plain + 10);
+        assert!(
+            (1..=20).contains(&cost),
+            "an answer the player could afford: {cost}"
+        );
+    }
+    #[test]
+    fn a_disruption_to_work_the_player_never_promised_costs_them_nothing_and_cannot_be_answered() {
+        // Repairs are stopped, but this player funded none: there is nothing to delay and nothing to protect except mood.
+        let (seed, s) = (0..20_000_u64)
+            .find_map(|seed| {
+                news::schedule(seed, 2)
+                    .into_iter()
+                    .find(|s| {
+                        s.tone == Tone::Bad
+                            && !s.surprise
+                            && s.headline().disrupts.is_some_and(|d| {
+                                d.family == PolicyFamily::Access && d.keep_pct == 25
+                            })
+                            && s.quarter.value() >= 9
+                    })
+                    .map(|s| (seed, s))
+            })
+            .unwrap();
+        let mut c = with_calendar(seed);
+        ratify_balanced_q1(&mut c);
+        coast(&mut c, 6, "t1-");
+        c.apply(player(&c, "begin", PlayerCommand::BeginTerm))
+            .unwrap();
+        coast_to(&mut c, s.quarter.value() - 1, "to-");
+        let quote = c
+            .upcoming_headlines()
+            .into_iter()
+            .find(|u| u.scheduled.quarter == s.quarter)
+            .unwrap();
+        let delivery = quote.delivery.unwrap();
+        assert_eq!(delivery.family, PolicyFamily::Access);
+        assert_eq!(delivery.delayed_units, 0, "no access work is promised");
+        assert!(delivery.effect.iter().all(|e| *e == 0));
+    }
+    #[test]
     fn a_player_who_does_nothing_is_voted_out_in_the_end_and_one_who_keeps_delivering_is_not() {
         // Across several calendars, doing nothing after the first win loses an election within a handful of terms,
         // while repeating the Balanced plan every term stays ahead at least that long (decision 0010).
@@ -3039,8 +3275,11 @@ mod tests {
     }
     /// Proposes the Balanced plan in the quarter the campaign is now in, with every minister in favour, and ratifies it.
     fn open_meeting_and_ratify(c: &mut Campaign, quarter: u8) {
+        open_meeting_with(c, quarter, Allocation::draft(50, 40, 10).unwrap());
+    }
+    /// The same, for any plan.
+    fn open_meeting_with(c: &mut Campaign, quarter: u8, draft: Allocation) {
         let meeting = format!("q{quarter}");
-        let draft = Allocation::draft(50, 40, 10).unwrap();
         let assess = PreferredAllocation::assess(draft, 100).unwrap();
         c.apply(player(
             c,

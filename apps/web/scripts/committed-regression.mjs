@@ -216,12 +216,12 @@ test('a long game carries many allocations and many quarters of history',()=>{
 const upcoming = (over = {}) => ({
   quarter: 2, id: 'roof_scare', title: 'Roof scare closes classrooms', summary: 'Surveyors find unsafe ceilings.',
   source: 'invented', tone: 'bad', effect_ppm: [-9462, -11610, -1250, -36310, -40000, -9996], overall_ppm: -13000,
-  severity: 'minor', relief_cost: 13, relief_cut_pct: 60, paid: null, ...over,
+  severity: 'minor', relief_cost: 13, relief_cut_pct: 60, paid: null, disruption: null, ...over,
 })
 const landed = (over = {}) => ({
   quarter: 2, id: 'roof_scare', title: 'Roof scare closes classrooms', summary: 'Surveyors find unsafe ceilings.',
   source: 'invented', tone: 'bad', effect_ppm: [-3852, -5060, -500, -15448, -16000, -4975], overall_ppm: -5200,
-  surprise: false, responded: true, ...over,
+  surprise: false, responded: true, disruption: null, ...over,
 })
 test('the news calendar is validated, so a malformed headline never reaches the screen',()=>{
   const withCalendar = calendar => { const f = completeSseFrame(); f.snapshot.quarter = 1; f.snapshot.calendar = calendar; return f }
@@ -236,7 +236,6 @@ test('the news calendar is validated, so a malformed headline never reaches the 
   bad('announced beyond the next quarter', { upcoming: [upcoming({ quarter: 3 })], recent: [] })
   bad('announced for a quarter already past', { upcoming: [upcoming({ quarter: 0 })], recent: [] })
   bad('an unknown tone', { upcoming: [upcoming({ tone: 'neutral' })], recent: [] })
-  bad('a bad headline with neither a price nor a payment', { upcoming: [upcoming({ relief_cost: null, paid: null })], recent: [] })
   bad('a bad headline with both a price and a payment', { upcoming: [upcoming({ relief_cost: 13, paid: 13 })], recent: [] })
   bad('a price of nothing', { upcoming: [upcoming({ relief_cost: 0 })], recent: [] })
   bad('good news cannot be answered', { upcoming: [{ ...good, relief_cost: 5 }], recent: [] })
@@ -247,6 +246,29 @@ test('the news calendar is validated, so a malformed headline never reaches the 
   bad('headlines out of order', { upcoming: [], recent: [landed({ quarter: 5 }), landed({ quarter: 3 })] })
   bad('the same quarter twice', { upcoming: [], recent: [landed({ quarter: 3 }), landed({ quarter: 3 })] })
   bad('a surprise flag that is not a flag', { upcoming: [], recent: [landed({ surprise: 'yes' })] })
+})
+
+const flood = (over = {}) => ({
+  family: 'repairs', keep_pct: 0, quarters: 2, delayed_units: 15,
+  effect_ppm: [1200, -12000, -1200, -10140, -24600, -15060], ...over,
+})
+test('a headline that stops work says so, and only bad news may',()=>{
+  const withCalendar = calendar => { const f = completeSseFrame(); f.snapshot.quarter = 1; f.snapshot.calendar = calendar; return f }
+  const ok = c => assert.equal(validSnapshot(withCalendar(c),'demo-england'),true)
+  const bad = (name, c) => assert.equal(validSnapshot(withCalendar(c),'demo-england'),false,name)
+  ok({ upcoming: [upcoming({ disruption: flood() })], recent: [] })
+  ok({ upcoming: [upcoming({ disruption: flood({ delayed_units: 0, effect_ppm: [0, 0, 0, 0, 0, 0] }) })], recent: [] })
+  // A story that would cost this player nothing is shown but cannot be answered: no price, no payment.
+  ok({ upcoming: [upcoming({ relief_cost: null, paid: null, disruption: flood({ delayed_units: 0 }) })], recent: [] })
+  ok({ upcoming: [], recent: [landed({ quarter: 1, disruption: { family: 'repairs', keep_pct: 60, quarters: 2 } })] })
+  bad('an unknown kind of work', { upcoming: [upcoming({ disruption: flood({ family: 'defence' }) })], recent: [] })
+  bad('more than a whole capacity kept', { upcoming: [upcoming({ disruption: flood({ keep_pct: 101 }) })], recent: [] })
+  bad('a stoppage of three quarters', { upcoming: [upcoming({ disruption: flood({ quarters: 3 }) })], recent: [] })
+  bad('delayed units that are not a whole number', { upcoming: [upcoming({ disruption: flood({ delayed_units: 1.5 }) })], recent: [] })
+  bad('good news cannot stop work', { upcoming: [upcoming({ tone: 'good', severity: 'welcome', relief_cost: null, disruption: flood() })], recent: [] })
+  bad('a landed headline that is not bad news cannot have stopped work', { upcoming: [], recent: [landed({ tone: 'good', responded: false, disruption: { family: 'repairs', keep_pct: 0, quarters: 1 } })] })
+  bad('a disruption field that is missing altogether is an older server', { upcoming: [(() => { const h = upcoming(); delete h.disruption; return h })()], recent: [] })
+  bad('both a price and a payment', { upcoming: [upcoming({ relief_cost: 13, paid: 13 })], recent: [] })
 })
 
 test('credits spent answering headlines are part of the treasury and must be a whole number',()=>{

@@ -10,7 +10,9 @@
 //! answered with credits. Bad news takes from each group its exposure (a share of the worst case) times a small base plus a
 //! share of the group's lead over 50%, and both the base and the share grow with the term, so a big lead is never a safe one.
 
-use crate::{Quarter, TERM_QUARTERS, reducer::ELECTION_HELD_ABOVE_PPM, reducer::SHOCK_CAP_PPM};
+use crate::{
+    PolicyFamily, Quarter, TERM_QUARTERS, reducer::ELECTION_HELD_ABOVE_PPM, reducer::SHOCK_CAP_PPM,
+};
 
 /// Headlines in term 1: good news only, so the first election is a fair test of the opening plan.
 pub const QUIET_TERM_HEADLINES: u8 = 2;
@@ -43,65 +45,112 @@ pub enum Tone {
     Good,
 }
 
+/// A headline that also stops work: one kind of work delivers only `keep_pct` percent of its usual capacity, for `quarters`
+/// quarters counted from the one the headline lands in (decision 0011). It slows delivery; nothing is lost, and what could not
+/// be delivered waits, but work that slips past the election cannot help win it.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct Disruption {
+    pub family: PolicyFamily,
+    pub keep_pct: u32,
+    pub quarters: u8,
+}
+
 /// One kind of headline. For bad news `effect` is each group's exposure, in percent of the worst case; for good news it
-/// is each group's gain in ppm. Groups: urban low, middle, high income, then rural low, middle, high.
+/// is each group's gain in ppm. Groups: urban low, middle, high income, then rural low, middle, high. A bad headline may also
+/// disrupt one kind of work.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Headline {
     pub id: &'static str,
     pub effect: [u32; 6],
+    pub disrupts: Option<Disruption>,
 }
 
-pub const BAD: [Headline; 8] = [
+const fn story(id: &'static str, effect: [u32; 6]) -> Headline {
     Headline {
-        id: "teacher_shortage",
-        effect: [50, 50, 50, 25, 25, 25],
-    },
+        id,
+        effect,
+        disrupts: None,
+    }
+}
+const fn stoppage(
+    id: &'static str,
+    effect: [u32; 6],
+    family: PolicyFamily,
+    keep_pct: u32,
+    quarters: u8,
+) -> Headline {
     Headline {
-        id: "roof_scare",
-        effect: [25, 25, 25, 75, 75, 75],
-    },
-    Headline {
-        id: "funding_row",
-        effect: [50, 50, 50, 50, 50, 50],
-    },
-    Headline {
-        id: "rural_bus_cuts",
-        effect: [0, 0, 0, 100, 100, 100],
-    },
-    Headline {
-        id: "cost_of_living",
-        effect: [75, 40, 0, 75, 40, 0],
-    },
-    Headline {
-        id: "exam_results_row",
-        effect: [0, 60, 75, 0, 40, 50],
-    },
-    Headline {
-        id: "agency_scandal",
-        effect: [60, 60, 30, 30, 30, 15],
-    },
-    Headline {
-        id: "broadband_outage",
-        effect: [10, 10, 10, 80, 80, 80],
-    },
+        id,
+        effect,
+        disrupts: Some(Disruption {
+            family,
+            keep_pct,
+            quarters,
+        }),
+    }
+}
+
+pub const BAD: [Headline; 12] = [
+    stoppage(
+        "teacher_shortage",
+        [50, 50, 50, 25, 25, 25],
+        PolicyFamily::Staffing,
+        50,
+        1,
+    ),
+    stoppage(
+        "roof_scare",
+        [25, 25, 25, 75, 75, 75],
+        PolicyFamily::Repairs,
+        50,
+        1,
+    ),
+    story("funding_row", [50, 50, 50, 50, 50, 50]),
+    story("rural_bus_cuts", [0, 0, 0, 100, 100, 100]),
+    story("cost_of_living", [75, 40, 0, 75, 40, 0]),
+    story("exam_results_row", [0, 60, 75, 0, 40, 50]),
+    story("agency_scandal", [60, 60, 30, 30, 30, 15]),
+    stoppage(
+        "broadband_outage",
+        [10, 10, 10, 80, 80, 80],
+        PolicyFamily::Access,
+        50,
+        1,
+    ),
+    stoppage(
+        "strike_ballot",
+        [20, 20, 20, 10, 10, 10],
+        PolicyFamily::Staffing,
+        0,
+        2,
+    ),
+    stoppage(
+        "flooding_halts_repairs",
+        [10, 10, 10, 30, 30, 30],
+        PolicyFamily::Repairs,
+        0,
+        2,
+    ),
+    stoppage(
+        "volunteers_stretched",
+        [0, 0, 0, 20, 20, 20],
+        PolicyFamily::Access,
+        25,
+        2,
+    ),
+    stoppage(
+        "materials_shortage",
+        [15, 15, 15, 15, 15, 15],
+        PolicyFamily::Repairs,
+        50,
+        2,
+    ),
 ];
 pub const GOOD: [Headline; 4] = [
-    Headline {
-        id: "inspectorate_praise",
-        effect: [15_000; 6],
-    },
-    Headline {
-        id: "volunteer_surge",
-        effect: [0, 0, 0, 25_000, 25_000, 25_000],
-    },
-    Headline {
-        id: "attendance_rises",
-        effect: [20_000, 10_000, 0, 20_000, 10_000, 0],
-    },
-    Headline {
-        id: "recruitment_up",
-        effect: [12_000; 6],
-    },
+    story("inspectorate_praise", [15_000; 6]),
+    story("volunteer_surge", [0, 0, 0, 25_000, 25_000, 25_000]),
+    story("attendance_rises", [20_000, 10_000, 0, 20_000, 10_000, 0]),
+    story("recruitment_up", [12_000; 6]),
 ];
 
 pub const fn deck(tone: Tone) -> &'static [Headline] {
@@ -254,6 +303,49 @@ pub fn soften(shock: [i32; 6]) -> [i32; 6] {
     })
 }
 
+/// How much of its usual capacity each kind of work (staffing, repairs, access) delivers in `quarter`, in percent, given the
+/// disruptions in the news. A disruption lands in the quarter its headline is scheduled for and lasts its `quarters`; one that
+/// starts in the last quarter of a term carries into the first of the next. An answered headline is cut by the same share a
+/// response takes off every loss. Where several disruptions meet, the worst one rules.
+pub fn capacity_kept(seed: u64, quarter: Quarter, answered: impl Fn(Quarter) -> bool) -> [u32; 3] {
+    let mut keep = [100_u32; 3];
+    let term = quarter.term();
+    for t in [term.saturating_sub(1), term] {
+        for s in schedule(seed, t) {
+            let Some(d) = s.headline().disrupts.filter(|_| s.tone == Tone::Bad) else {
+                continue;
+            };
+            let from = s.quarter.value();
+            if !(from..from.saturating_add(d.quarters)).contains(&quarter.value()) {
+                continue;
+            }
+            let kept = if answered(s.quarter) {
+                softened_keep(d.keep_pct)
+            } else {
+                d.keep_pct
+            };
+            let slot = &mut keep[family_slot(d.family)];
+            *slot = (*slot).min(kept);
+        }
+    }
+    keep
+}
+
+/// A response takes the same share off the cut as off a loss: a stoppage becomes a slowdown.
+pub fn softened_keep(keep_pct: u32) -> u32 {
+    let cut = 100 - keep_pct.min(100);
+    100 - cut * (100 - RELIEF_CUT_PCT.unsigned_abs()) / 100
+}
+
+/// Index of a kind of work in the `[staffing, repairs, access]` order used everywhere.
+pub const fn family_slot(family: PolicyFamily) -> usize {
+    match family {
+        PolicyFamily::Staffing => 0,
+        PolicyFamily::Repairs => 1,
+        PolicyFamily::Access => 2,
+    }
+}
+
 /// Support lost overall, in ppm, if every group took `shock`: the groups' losses weighted by their share of the voters.
 pub fn overall_loss_ppm(shock: &[i32; 6], weights_ppm: &[u32; 6]) -> u64 {
     shock
@@ -333,10 +425,10 @@ mod tests {
         assert_eq!(
             plan(12345, 2),
             [
-                (8, Tone::Bad, 4, false),
+                (8, Tone::Bad, 8, false),
                 (9, Tone::Bad, 5, true),
                 (10, Tone::Bad, 6, false),
-                (11, Tone::Bad, 7, false)
+                (11, Tone::Bad, 4, false)
             ]
         );
         assert_eq!(
@@ -344,8 +436,8 @@ mod tests {
             [
                 (14, Tone::Bad, 7, false),
                 (16, Tone::Bad, 6, false),
-                (17, Tone::Bad, 0, true),
-                (18, Tone::Bad, 1, true)
+                (17, Tone::Bad, 4, true),
+                (18, Tone::Bad, 2, true)
             ]
         );
     }
@@ -418,6 +510,83 @@ mod tests {
         assert_eq!(
             landing_shock(&good, 1, &[900_000; 6]),
             [0, 0, 0, 25_000, 25_000, 25_000]
+        );
+    }
+
+    #[test]
+    fn disruptions_cut_one_kind_of_work_for_their_quarters_and_never_in_the_quiet_first_term() {
+        // Nothing is ever disrupted in term 1: it has no bad news.
+        for seed in 0..200_u64 {
+            for q in 1..=6 {
+                assert_eq!(
+                    capacity_kept(seed, Quarter::new(q).unwrap(), |_| false),
+                    [100; 3],
+                    "seed {seed} quarter {q}"
+                );
+            }
+        }
+        // Find a disruption of two quarters and watch it come and go.
+        let (seed, s) = (0..10_000_u64)
+            .find_map(|seed| {
+                {
+                    schedule(seed, 2).into_iter().find(|s| {
+                        s.tone == Tone::Bad
+                            && s.headline().disrupts.is_some_and(|d| d.quarters == 2)
+                            && s.quarter.value() < 12
+                    })
+                }
+                .map(|s| (seed, s))
+            })
+            .unwrap();
+        let d = s.headline().disrupts.unwrap();
+        let slot = family_slot(d.family);
+        let at = |q: u8, answered: bool| {
+            capacity_kept(seed, Quarter::new(q).unwrap(), move |_| answered)
+        };
+        assert_eq!(
+            at(s.quarter.value() - 1, false)[slot],
+            100,
+            "not before it lands"
+        );
+        assert!(at(s.quarter.value(), false)[slot] <= d.keep_pct);
+        assert!(
+            at(s.quarter.value() + 1, false)[slot] <= d.keep_pct,
+            "and the quarter after"
+        );
+        assert_eq!(
+            at(s.quarter.value() + 2, false)[slot].min(100),
+            at(s.quarter.value() + 2, false)[slot]
+        );
+        // The other kinds of work are untouched by this headline (another may hit them).
+        // An answered headline is cut by 60% less than it would have been.
+        assert_eq!(softened_keep(0), 60);
+        assert_eq!(softened_keep(50), 80);
+        assert_eq!(softened_keep(25), 70);
+        assert_eq!(softened_keep(100), 100);
+        assert!(
+            at(s.quarter.value(), true)[slot]
+                >= softened_keep(d.keep_pct).min(at(s.quarter.value(), false)[slot])
+        );
+    }
+
+    #[test]
+    fn a_disruption_in_the_last_quarter_of_a_term_carries_into_the_next() {
+        let found = (0..20_000_u64).find_map(|seed| {
+            schedule(seed, 2)
+                .into_iter()
+                .find(|s| {
+                    s.tone == Tone::Bad
+                        && s.quarter.value() == 12
+                        && s.headline().disrupts.is_some_and(|d| d.quarters == 2)
+                })
+                .map(|s| (seed, s))
+        });
+        let (seed, s) = found.expect("some calendar disrupts the last quarter of a term");
+        let d = s.headline().disrupts.unwrap();
+        let carried = capacity_kept(seed, Quarter::new(13).unwrap(), |_| false);
+        assert!(
+            carried[family_slot(d.family)] <= d.keep_pct,
+            "the first quarter of term 3 is still disrupted"
         );
     }
 

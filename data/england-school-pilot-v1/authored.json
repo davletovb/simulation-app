@@ -45,7 +45,12 @@
           25,
           25,
           25
-        ]
+        ],
+        "disrupts": {
+          "family": "staffing",
+          "keep_pct": 50,
+          "quarters": 1
+        }
       },
       {
         "id": "roof_scare",
@@ -58,7 +63,12 @@
           75,
           75,
           75
-        ]
+        ],
+        "disrupts": {
+          "family": "repairs",
+          "keep_pct": 50,
+          "quarters": 1
+        }
       },
       {
         "id": "funding_row",
@@ -136,7 +146,84 @@
           80,
           80,
           80
-        ]
+        ],
+        "disrupts": {
+          "family": "access",
+          "keep_pct": 50,
+          "quarters": 1
+        }
+      },
+      {
+        "id": "strike_ballot",
+        "title": "Staff union ballots on strike action",
+        "summary": "Teachers vote on walking out. Even the threat slows classrooms and unsettles families.",
+        "exposure_pct": [
+          20,
+          20,
+          20,
+          10,
+          10,
+          10
+        ],
+        "disrupts": {
+          "family": "staffing",
+          "keep_pct": 0,
+          "quarters": 2
+        }
+      },
+      {
+        "id": "flooding_halts_repairs",
+        "title": "Flooding halts repair crews",
+        "summary": "Heavy rain and rising rivers stop building work for weeks.",
+        "exposure_pct": [
+          10,
+          10,
+          10,
+          30,
+          30,
+          30
+        ],
+        "disrupts": {
+          "family": "repairs",
+          "keep_pct": 0,
+          "quarters": 2
+        }
+      },
+      {
+        "id": "volunteers_stretched",
+        "title": "Volunteer groups stretched thin",
+        "summary": "Fewer volunteers can give their time, and local access support slows.",
+        "exposure_pct": [
+          0,
+          0,
+          0,
+          20,
+          20,
+          20
+        ],
+        "disrupts": {
+          "family": "access",
+          "keep_pct": 25,
+          "quarters": 2
+        }
+      },
+      {
+        "id": "materials_shortage",
+        "title": "Building materials shortage slows work",
+        "summary": "Suppliers run short and repair jobs wait for deliveries.",
+        "exposure_pct": [
+          15,
+          15,
+          15,
+          15,
+          15,
+          15
+        ],
+        "disrupts": {
+          "family": "repairs",
+          "keep_pct": 50,
+          "quarters": 2
+        }
       }
     ],
     "good": [

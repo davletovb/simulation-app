@@ -201,6 +201,12 @@ def authoring_checks(authored):
     need(len(calendar["bad"]) >= 4 and len(calendar["good"]) >= 4, "a term needs four distinct headlines of either tone")
     need(all(len(item.get("exposure_pct", item.get("gain_ppm", []))) == 6 for item in calendar["bad"] + calendar["good"]), "six groups per headline")
     need("invented" in calendar["label"].lower(), "headlines must be labelled as invented")
+    for item in calendar["bad"] + calendar["good"]:
+        cut = item.get("disrupts")
+        if cut is not None:
+            need(item in calendar["bad"], "only bad news may stop work")
+            need(cut["family"] in ("staffing", "repairs", "access") and 0 <= cut["keep_pct"] <= 100 and cut["quarters"] in (1, 2),
+                 "a disruption names a kind of work, a share kept, and one or two quarters")
     need(authored["board"]["support_votes_required"] == 2, "two-thirds vote")
     need(len(authored["board"]["ministers"]) == 3, "not three ministers")
     board = authored["board"]

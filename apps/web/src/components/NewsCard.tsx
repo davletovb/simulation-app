@@ -1,6 +1,6 @@
 import { useCampaign, type Landed, type Snapshot, type Upcoming } from '../campaign'
 import { quarterLabel } from '../game'
-import { canRespond, justIn, landsText, overallText, reliefText, whoItHits } from '../news.mjs'
+import { canRespond, disruptionText, justIn, landsText, overallText, reliefText, whoItHits } from '../news.mjs'
 import { ActionButton } from './ConnectedControls'
 import { Icon } from './Icon'
 
@@ -23,6 +23,10 @@ function Announced({ headline, snapshot, step }: { headline: Upcoming; snapshot:
         {headline.tone === 'bad' ? 'Hits' : 'Helps'}: {whoItHits(headline.effect_ppm, snapshot.support.group_ids)}.{' '}
         <strong>{overallText(headline.overall_ppm, { approximate: true })}</strong>.
       </p>
+      {headline.disruption && (
+        <p className="headline-cut"><Icon name="hourglass" size={14} />
+          {disruptionText(headline.disruption, { delayedUnits: headline.disruption.delayed_units })}</p>
+      )}
       {headline.tone === 'bad' && headline.paid !== null && (
         <p className="headline-done"><Icon name="check" size={14} />Answered: {headline.paid} credits, so it will take {headline.relief_cut_pct}% less.</p>
       )}
@@ -46,6 +50,9 @@ function Landed({ headline }: { headline: Landed }) {
         <span className="tag">{quarterLabel(headline.quarter).short}</span>
         <strong>{headline.title}</strong>
       </div>
+      {headline.disruption && (
+        <p className="headline-cut"><Icon name="hourglass" size={14} />{disruptionText(headline.disruption)}</p>
+      )}
       <p className="headline-facts">
         {headline.surprise ? 'Nobody saw it coming. ' : ''}
         {headline.responded ? 'You answered it. ' : ''}

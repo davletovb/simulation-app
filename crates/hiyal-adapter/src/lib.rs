@@ -70,7 +70,7 @@ pub fn headline_text(tone: d::news::Tone, index: usize) -> Option<(String, Strin
 }
 /// A deliberate, migration-controlled behavior contract, not raw source text.
 /// Bump when P3 rules, parsing, adapters, scenario selection or model policy change.
-pub const RULES_VERSION: &str = "p4-england-education-rules-v6";
+pub const RULES_VERSION: &str = "p4-england-education-rules-v7";
 type FrozenSource = Result<(String, String, [u32; 6]), String>;
 static FROZEN: OnceLock<FrozenSource> = OnceLock::new();
 fn frozen() -> Result<&'static (String, String, [u32; 6]), String> {

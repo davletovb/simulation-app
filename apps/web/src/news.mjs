@@ -47,6 +47,22 @@ export function canRespond(headline, { available, step, busy }) {
   return busy ? { ok: false, why: null } : { ok: true, why: null }
 }
 
+const FAMILY_WORD = { staffing: 'Staffing', repairs: 'Repairs', access: 'Access' }
+
+/**
+ * What a disruption does, in words: which work, how much of its usual capacity it keeps, for how long. `delayedUnits` is
+ * only known for news that has yet to land, and says how much of the player's own promised work would slip past the election.
+ */
+export function disruptionText(disruption, { delayedUnits } = {}) {
+  const work = FAMILY_WORD[disruption.family] ?? disruption.family
+  const how = disruption.keep_pct === 0 ? 'stops' : `slows to ${disruption.keep_pct}%`
+  const long = disruption.quarters === 1 ? 'for a quarter' : `for ${disruption.quarters} quarters`
+  const base = `${work} work ${how} ${long}`
+  if (delayedUnits === undefined) return `${base}.`
+  if (delayedUnits === 0) return `${base}. None of the work you have promised would be delayed past the election.`
+  return `${base}. About ${delayedUnits} unit${delayedUnits === 1 ? '' : 's'} of the work you have promised would arrive after the election instead of before it.`
+}
+
 /** What an answer buys, in one sentence, for the button's explanation. */
 export function reliefText(headline) {
   if (headline.relief_cost === null) return ''

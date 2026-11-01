@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { canRespond, justIn, landsText, overallText, reliefText, whoItHits } from '../src/news.mjs'
+import { canRespond, disruptionText, justIn, landsText, overallText, reliefText, whoItHits } from '../src/news.mjs'
 
 const ids = ['urban_low', 'urban_middle', 'urban_high', 'rural_low', 'rural_middle', 'rural_high']
 const bad = (over = {}) => ({ tone: 'bad', relief_cost: 13, relief_cut_pct: 60, paid: null, ...over })
@@ -62,4 +62,17 @@ test('"just in" is this quarter and the one before', () => {
   assert.deepEqual(justIn(recent, 7), [{ quarter: 6 }, { quarter: 6 }])
   assert.deepEqual(justIn(recent, 6), [{ quarter: 5 }, { quarter: 6 }, { quarter: 6 }])
   assert.deepEqual(justIn([], 1), [])
+})
+
+test('a disruption says which work, how much it keeps, for how long, and what that means for the player\'s own plan', () => {
+  const flood = { family: 'repairs', keep_pct: 0, quarters: 2 }
+  assert.equal(disruptionText(flood), 'Repairs work stops for 2 quarters.')
+  assert.equal(disruptionText({ family: 'staffing', keep_pct: 50, quarters: 1 }), 'Staffing work slows to 50% for a quarter.')
+  assert.equal(disruptionText({ family: 'access', keep_pct: 25, quarters: 2 }), 'Access work slows to 25% for 2 quarters.')
+  // Before it lands, what it would do to the plan the player actually has.
+  assert.equal(disruptionText(flood, { delayedUnits: 15 }),
+    'Repairs work stops for 2 quarters. About 15 units of the work you have promised would arrive after the election instead of before it.')
+  assert.match(disruptionText(flood, { delayedUnits: 1 }), /About 1 unit of the work/)
+  assert.equal(disruptionText(flood, { delayedUnits: 0 }),
+    'Repairs work stops for 2 quarters. None of the work you have promised would be delayed past the election.')
 })

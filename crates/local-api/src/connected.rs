@@ -382,6 +382,21 @@ pub struct PublicUpcoming {
     pub relief_cut_pct: u8,
     /// Credits already paid to answer it, if they were.
     pub paid: Option<u16>,
+    /// Set when the story also stops one kind of work (decision 0011).
+    pub disruption: Option<PublicDisruption>,
+}
+/// What a disruption would do to the work the player has promised.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct PublicDisruption {
+    /// `staffing`, `repairs` or `access`.
+    pub family: String,
+    /// How much of its usual capacity that kind of work keeps, in percent, and for how many quarters.
+    pub keep_pct: u32,
+    pub quarters: u8,
+    /// Units that would be delivered after the term's election instead of before it.
+    pub delayed_units: u16,
+    /// The support those units would have earned by the election, per group, taken away (already counted in `effect_ppm`).
+    pub effect_ppm: [i32; 6],
 }
 /// A headline that has landed.
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -399,6 +414,14 @@ pub struct PublicLanded {
     pub surprise: bool,
     /// A response softened it.
     pub responded: bool,
+    /// Set when the story also stopped one kind of work. `keep_pct` is what was applied, after any response.
+    pub disruption: Option<PublicLandedDisruption>,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct PublicLandedDisruption {
+    pub family: String,
+    pub keep_pct: u32,
+    pub quarters: u8,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct PublicCalendar {
@@ -956,6 +979,13 @@ fn capture(trial: &GameTrial) -> Result<PublicView, String> {
         mode:"offline_scripted",
     })
 }
+fn family_name(family: PolicyFamily) -> &'static str {
+    match family {
+        PolicyFamily::Staffing => "staffing",
+        PolicyFamily::Repairs => "repairs",
+        PolicyFamily::Access => "access",
+    }
+}
 /// What the news calendar shows (decision 0010): headlines announced a quarter ahead with their price, and every headline
 /// that has landed. Words come from the frozen scenario file; the engine only knows numbers.
 fn public_calendar(campaign: &myth_domain::reducer::Campaign) -> Result<PublicCalendar, String> {
@@ -1000,6 +1030,13 @@ fn public_calendar(campaign: &myth_domain::reducer::Campaign) -> Result<PublicCa
             relief_cut_pct: u8::try_from(d::news::RELIEF_CUT_PCT)
                 .map_err(|_| "cut out of range")?,
             paid: up.answered,
+            disruption: up.delivery.map(|delivery| PublicDisruption {
+                family: family_name(delivery.family).into(),
+                keep_pct: delivery.keep_pct,
+                quarters: delivery.quarters,
+                delayed_units: delivery.delayed_units,
+                effect_ppm: delivery.effect,
+            }),
         });
     }
     let mut recent = vec![];
@@ -1016,6 +1053,20 @@ fn public_calendar(campaign: &myth_domain::reducer::Campaign) -> Result<PublicCa
             overall_ppm: overall(&landed.shock)?,
             surprise: landed.scheduled.surprise,
             responded: landed.responded,
+            disruption: landed
+                .scheduled
+                .headline()
+                .disrupts
+                .filter(|_| landed.scheduled.tone == d::news::Tone::Bad)
+                .map(|cut| PublicLandedDisruption {
+                    family: family_name(cut.family).into(),
+                    keep_pct: if landed.responded {
+                        d::news::softened_keep(cut.keep_pct)
+                    } else {
+                        cut.keep_pct
+                    },
+                    quarters: cut.quarters,
+                }),
         });
     }
     Ok(PublicCalendar { upcoming, recent })
@@ -3149,22 +3200,20 @@ mod tests {
         drop(recovered);
         fs::remove_dir_all(dir).unwrap();
     }
-    #[tokio::test]
-    async fn election_night_is_published_and_matches_the_independent_replica() {
-        let dir = root();
-        let service = Connected::new(dir.clone()).unwrap();
-        let alloc = WireAllocation {
-            staff: 50,
-            repairs: 40,
-            access: 10,
-        };
-        // The player's own path: propose, hear reactions, lock, final votes, approve, end the quarter.
-        let mut serial = 1_usize; // the id of the next command
+    /// One plan, proposed and approved the way a player does it: propose, hear reactions, lock, final votes, approve, end the
+    /// quarter. Returns the view after the quarter has ended.
+    async fn play_plan(
+        service: &Arc<Connected>,
+        campaign: &str,
+        allocation: WireAllocation,
+        serial: &mut usize,
+    ) -> PublicView {
+        *serial += 1;
         let mut view = accepted_step(
-            &service,
-            "term",
-            CommandKind::Propose { allocation: alloc },
-            serial,
+            service,
+            campaign,
+            CommandKind::Propose { allocation },
+            *serial,
         )
         .await;
         for kind in [
@@ -3174,9 +3223,37 @@ mod tests {
             CommandKind::Decide { ratify: true },
             CommandKind::AdvanceSlice,
         ] {
-            serial += 1;
-            view = accepted_step(&service, "term", kind, serial).await;
+            *serial += 1;
+            view = accepted_step(service, campaign, kind, *serial).await;
         }
+        view
+    }
+    /// Keep the programme through one quarter (no meeting) and end it.
+    async fn keep_quarter(
+        service: &Arc<Connected>,
+        campaign: &str,
+        serial: &mut usize,
+    ) -> PublicView {
+        *serial += 1;
+        accepted_step(service, campaign, CommandKind::ContinueQuarter, *serial).await;
+        *serial += 1;
+        accepted_step(service, campaign, CommandKind::FinishContinuation, *serial).await
+    }
+    #[tokio::test]
+    async fn election_night_is_published_and_matches_the_independent_replica() {
+        // Every campaign has its own news calendar, fixed by its name (decisions 0010 and 0011). "dz7" was chosen with
+        // tools/support-model/news_model.py for a second term that has an announced flood stopping Repairs in quarter 11.
+        // Every number below is that independent replica's, to the ppm.
+        let id = "dz7";
+        let dir = root();
+        let service = Connected::new(dir.clone()).unwrap();
+        let mut serial = 0_usize;
+        let balanced = WireAllocation {
+            staff: 50,
+            repairs: 40,
+            access: 10,
+        };
+        let mut view = play_plan(&service, id, balanced, &mut serial).await;
         // Q2 is open and the campaign is running: the election is only a projection.
         assert_eq!(view.quarter, 2);
         assert!(!view.closed);
@@ -3186,31 +3263,26 @@ mod tests {
         assert!(view.support.pending_delta_ppm.iter().any(|d| *d != 0));
         // Then keep the programme for the other five quarters.
         for _ in 2..=6 {
-            serial += 1;
-            accepted_step(&service, "term", CommandKind::ContinueQuarter, serial).await;
-            serial += 1;
-            view = accepted_step(&service, "term", CommandKind::FinishContinuation, serial).await;
+            view = keep_quarter(&service, id, &mut serial).await;
         }
         // The first term is won, so the game waits on election night for the player to begin the second.
         assert!(!view.closed);
         assert_eq!(view.phase, "ElectionNight");
         assert_eq!((view.quarter, view.term), (6, 1));
         assert!(!view.election.ceiling);
-        // Expected values come from tools/support-model, an independent implementation.
         assert_eq!(view.election.status, "won");
         assert_eq!(view.election.term, 1);
-        // The news calendar is part of it (decision 0010): this campaign's first term brings two good headlines. The numbers
-        // are those of tools/support-model/news_model.py, which repeats the schedule, the shocks and the arithmetic.
+        // The first term brings good news only: two headlines, announced a quarter ahead.
         assert_eq!(
             view.election.settled_group_ppm,
-            [583_800, 614_000, 484_200, 616_240, 652_600, 528_960]
+            [603_800, 624_000, 484_200, 611_240, 637_600, 503_960]
         );
-        assert_eq!(view.election.weighted_support_ppm, 576_584);
+        assert_eq!(view.election.weighted_support_ppm, 582_184);
         assert_eq!(view.election.blocs_held_ppm, 780_000);
         // Before the election the last quarter's response has not landed yet.
         assert_eq!(
             view.support.group_ppm,
-            [582_120, 603_600, 484_280, 608_536, 635_080, 520_824]
+            [602_120, 613_600, 484_280, 603_536, 620_080, 495_824]
         );
         let landed: Vec<_> = view
             .calendar
@@ -3229,19 +3301,15 @@ mod tests {
         assert_eq!(
             landed,
             [
-                (5, "recruitment_up", "good", false, false),
-                (6, "volunteer_surge", "good", false, false)
+                (3, "recruitment_up", "good", false, false),
+                (6, "attendance_rises", "good", false, false)
             ]
         );
         assert!(
             view.calendar
                 .recent
                 .iter()
-                .all(|h| h.source == "invented" && !h.title.is_empty())
-        );
-        assert_eq!(
-            view.calendar.recent[1].effect_ppm,
-            [0, 0, 0, 25_000, 25_000, 25_000]
+                .all(|h| h.source == "invented" && !h.title.is_empty() && h.disruption.is_none())
         );
         assert!(
             view.calendar.upcoming.is_empty(),
@@ -3264,7 +3332,7 @@ mod tests {
         assert_eq!(view.election.min_support_ppm, ELECTION_MIN_SUPPORT_PPM);
         assert_eq!(view.past_elections.len(), 1);
         assert!(view.past_elections[0].won);
-        assert_eq!(view.past_elections[0].weighted_support_ppm, 576_584);
+        assert_eq!(view.past_elections[0].weighted_support_ppm, 582_184);
         // What the browser receives.
         let wire = serde_json::to_value(&view).unwrap();
         assert_eq!(wire["election"]["status"], "won");
@@ -3274,8 +3342,7 @@ mod tests {
             "the number of terms is not announced: it is not fixed"
         );
         assert_eq!(wire["election"]["ceiling"], false);
-        // A generic step must never begin the second term on the person's behalf, and neither may
-        // the other quarter commands.
+        // A generic step must never begin the next term on the person's behalf, and neither may the other quarter commands.
         for (n, kind) in [
             CommandKind::AdvanceSlice,
             CommandKind::ContinueQuarter,
@@ -3286,7 +3353,7 @@ mod tests {
         {
             let refused = command(
                 State(service.clone()),
-                Path("term".to_owned()),
+                Path(id.to_owned()),
                 Json(Command {
                     command_id: format!("refused-{n}"),
                     expected_world_version: view.view_version.clone(),
@@ -3296,61 +3363,114 @@ mod tests {
             .await;
             assert_eq!(refused.unwrap_err().0, StatusCode::CONFLICT);
         }
-        // Begin the second term: a fresh allocation is granted on top of what was left, and the
-        // earlier result is kept.
+        // Begin the second term: a fresh allocation is granted on top of what was left, and the earlier result is kept.
         let before = view.treasury.available_credits;
         serial += 1;
-        let second = accepted_step(&service, "term", CommandKind::BeginTerm, serial).await;
+        let second = accepted_step(&service, id, CommandKind::BeginTerm, serial).await;
         assert_eq!((second.quarter, second.term), (7, 2));
         assert_eq!(second.phase, "QuarterOpen");
         assert_eq!(second.treasury.available_credits, before + 100);
         assert_eq!(second.election.status, "projected");
         assert_eq!(second.election.term, 2);
         assert_eq!(second.past_elections.len(), 1);
-        // Nothing is rewritten at the boundary: the last quarter's queued response simply lands during
-        // the second term's first quarter, as it would in any other quarter.
+        // Nothing is rewritten at the boundary: the last quarter's queued response lands during the second term's first quarter.
         assert_eq!(second.support.group_ppm, view.support.group_ppm);
         assert_eq!(
             second.support.pending_delta_ppm,
             view.support.pending_delta_ppm
         );
-        // The calendar announces the term's first headline a quarter ahead, with its price. Answer it.
+        // The term's first bad headline is announced already, a mood story with a price. Leave it.
         let up = &second.calendar.upcoming;
-        assert_eq!(
-            up.len(),
-            1,
-            "one headline is due in the next quarter or two: {up:?}"
-        );
+        assert_eq!(up.len(), 1, "{up:?}");
         assert_eq!(
             (up[0].quarter, up[0].id.as_str(), up[0].tone.as_str()),
-            (8, "roof_scare", "bad")
+            (8, "funding_row", "bad")
         );
-        assert_eq!(up[0].source, "invented");
-        assert_eq!(up[0].relief_cut_pct, 60);
-        assert!(up[0].overall_ppm < 0 && up[0].effect_ppm.iter().all(|x| *x <= 0));
-        assert_eq!(up[0].paid, None);
-        // 13 credits, as news_model.py prices it from the support the player has now.
-        assert_eq!(up[0].relief_cost, Some(13));
-        let money_before = second.treasury.available_credits;
+        assert!(up[0].disruption.is_none());
+        assert_eq!(up[0].relief_cost, Some(19));
+        // Plan with a reserve: 50/35/0 still wins the cabinet and keeps 15 credits back to answer a headline with. (Fewer than 50
+        // for Staffing would let the School Staff Association slow it down, which the replica does not model.)
+        let reserve = WireAllocation {
+            staff: 50,
+            repairs: 35,
+            access: 0,
+        };
+        let view = play_plan(&service, id, reserve, &mut serial).await;
+        assert_eq!(view.quarter, 8);
+        assert_eq!(view.treasury.available_credits, 15);
+        let mut view = view;
+        for _ in 8..=9 {
+            view = keep_quarter(&service, id, &mut serial).await;
+        }
+        assert_eq!(view.quarter, 10);
+        // A quarter ahead of a flood that stops Repairs for two quarters, the screen says what it would do to this plan: ten
+        // repair units a quarter from quarter 9 were promised, so 15 of those still to come would land after the election.
+        let flood = view
+            .calendar
+            .upcoming
+            .iter()
+            .find(|h| h.quarter == 11)
+            .expect("announced");
+        assert_eq!(
+            (flood.id.as_str(), flood.tone.as_str()),
+            ("flooding_halts_repairs", "bad")
+        );
+        let cut = flood.disruption.as_ref().expect("a disruption");
+        assert_eq!(
+            (
+                cut.family.as_str(),
+                cut.keep_pct,
+                cut.quarters,
+                cut.delayed_units
+            ),
+            ("repairs", 0, 2, 15)
+        );
+        // The mood the story takes plus what the delayed work would have earned, taken away: tools/support-model/news_model.py.
+        assert_eq!(
+            cut.effect_ppm,
+            [1_200, -12_000, -1_200, -10_140, -24_600, -15_060]
+        );
+        assert_eq!(
+            flood.effect_ppm,
+            [-3_116, -16_944, -1_700, -22_698, -39_816, -16_560]
+        );
+        assert_eq!(flood.overall_ppm, -12_208);
+        assert_eq!(flood.severity, "minor");
+        assert_eq!(flood.relief_cost, Some(13));
+        // Answer it: 13 credits, and the stoppage becomes a slowdown (60% less cut).
+        let money_before = view.treasury.available_credits;
         serial += 1;
         let answered = accepted_step(
             &service,
-            "term",
+            id,
             CommandKind::Respond {
-                headline_quarter: 8,
+                headline_quarter: 11,
             },
             serial,
         )
         .await;
         assert_eq!(answered.treasury.relief_spent, 13);
         assert_eq!(answered.treasury.available_credits, money_before - 13);
-        assert_eq!(answered.calendar.upcoming[0].paid, Some(13));
-        assert_eq!(answered.calendar.upcoming[0].relief_cost, None);
-        // Answering twice, a headline that does not exist, and a quarter with nothing announced are all refused.
-        for (n, quarter) in [(1_u8, 8_u8), (2, 9), (3, 30)] {
+        let paid = answered
+            .calendar
+            .upcoming
+            .iter()
+            .find(|h| h.quarter == 11)
+            .unwrap();
+        assert_eq!((paid.paid, paid.relief_cost), (Some(13), None));
+        // Once answered, the card shows what the answer bought: a 60% slowdown instead of a stoppage, and only 3 of the 25
+        // units still to come arriving after the election instead of 15.
+        let bought = paid.disruption.as_ref().unwrap();
+        assert_eq!((bought.keep_pct, bought.delayed_units), (60, 3));
+        assert!(
+            paid.overall_ppm > flood.overall_ppm,
+            "an answered headline is expected to cost less"
+        );
+        // Answering twice, a quarter with nothing announced, and a quarter that does not exist are all refused.
+        for (n, quarter) in [(1_u8, 11_u8), (2, 12), (3, 30)] {
             let refused = command(
                 State(service.clone()),
-                Path("term".to_owned()),
+                Path(id.to_owned()),
                 Json(Command {
                     command_id: format!("respond-refused-{n}"),
                     expected_world_version: answered.view_version.clone(),
@@ -3366,79 +3486,60 @@ mod tests {
                 "quarter {quarter}"
             );
         }
-        let second = answered;
-        // Beginning a term twice is refused.
-        let again = command(
-            State(service.clone()),
-            Path("term".to_owned()),
-            Json(Command {
-                command_id: "again".into(),
-                expected_world_version: second.view_version.clone(),
-                kind: CommandKind::BeginTerm,
-            }),
-        )
-        .await;
-        assert_eq!(again.unwrap_err().0, StatusCode::CONFLICT);
-        // Keep the programme through the second term: its own election ends the game.
-        let mut view = second;
-        for _ in 7..=12 {
-            serial += 1;
-            accepted_step(&service, "term", CommandKind::ContinueQuarter, serial).await;
-            serial += 1;
-            view = accepted_step(&service, "term", CommandKind::FinishContinuation, serial).await;
+        let mut view = answered;
+        for _ in 10..=12 {
+            view = keep_quarter(&service, id, &mut serial).await;
         }
-        // The calendar did its job. This player stopped playing after the first term, and the same support that won the first
-        // election (57.7%) was worn down by the second term's headlines to 53.0% even with one of them softened: voted out. The
-        // numbers are tools/support-model/news_model.py's, with the response in quarter 8.
-        assert!(view.closed, "doing nothing no longer wins term after term");
+        // The second election is won, so the game goes on: term 3 is waiting.
+        assert!(!view.closed);
+        assert_eq!(view.phase, "ElectionNight");
         assert_eq!((view.quarter, view.term), (12, 2));
-        assert_eq!(view.election.status, "lost");
+        assert_eq!(view.election.status, "won");
         assert_eq!(
             view.election.settled_group_ppm,
-            [526_848, 549_523, 479_700, 550_310, 586_694, 518_367]
+            [632_663, 673_322, 461_560, 609_905, 664_664, 501_697]
         );
-        assert_eq!(view.election.weighted_support_ppm, 529_737);
-        assert_eq!(view.election.blocs_held_ppm, 780_000);
-        assert_eq!(view.past_elections.len(), 2);
-        assert!(view.past_elections[0].won && !view.past_elections[1].won);
-        assert_eq!(view.past_elections[1].weighted_support_ppm, 529_737);
+        assert_eq!(view.election.weighted_support_ppm, 602_449);
         let landed: Vec<_> = view
             .calendar
             .recent
             .iter()
-            .map(|h| (h.quarter, h.tone.as_str(), h.responded))
+            .filter(|h| h.quarter >= 7)
+            .map(|h| (h.quarter, h.id.as_str(), h.responded))
             .collect();
         assert_eq!(
             landed,
             [
-                (5, "good", false),
-                (6, "good", false),
-                (8, "bad", true),
-                (9, "bad", false),
-                (11, "bad", false),
-                (12, "bad", false)
+                (8, "funding_row", false),
+                (10, "volunteer_surge", false),
+                (11, "flooding_halts_repairs", true),
+                (12, "broadband_outage", false)
             ]
         );
-        // The answered headline took 60% less than it would have.
+        // The answered flood took 60% less, and slowed Repairs to 60% for two quarters instead of stopping it.
+        let flooded = view
+            .calendar
+            .recent
+            .iter()
+            .find(|h| h.quarter == 11)
+            .unwrap();
         assert_eq!(
-            view.calendar.recent[2].effect_ppm,
-            [-3_852, -5_060, -500, -15_448, -16_000, -4_975]
+            flooded.effect_ppm,
+            [-1_952, -2_336, -200, -6_819, -8_396, -1_217]
         );
-        assert!(view.calendar.recent[2].overall_ppm > view.calendar.recent[3].overall_ppm / 2 - 1);
-        // A lost election cannot be undone by beginning another term.
-        let after = command(
-            State(service.clone()),
-            Path("term".to_owned()),
-            Json(Command {
-                command_id: "too-late".into(),
-                expected_world_version: view.view_version.clone(),
-                kind: CommandKind::BeginTerm,
-            }),
-        )
-        .await;
-        assert_eq!(after.unwrap_err().0, StatusCode::CONFLICT);
-        // Every credit is still in exactly one account, answers included.
+        let cut = flooded.disruption.as_ref().unwrap();
+        assert_eq!(
+            (cut.family.as_str(), cut.keep_pct, cut.quarters),
+            ("repairs", 60, 2)
+        );
+        // The delivery is as the replica predicts: 32 of the 35 repair units arrived (10, 10, then 6 and 6 in the slowdown).
         let t = &view.treasury;
+        assert_eq!(t.service_spent, 100 + 50 + 32);
+        assert_eq!(
+            (t.encumbered_repairs, t.relief_spent, t.available_credits),
+            (3, 13, 2)
+        );
+        // Every credit is still in exactly one account, answers included.
         assert_eq!(
             u32::from(t.available_credits)
                 + u32::from(t.encumbered_staff)
@@ -3449,7 +3550,12 @@ mod tests {
                 + u32::from(t.relief_spent),
             200
         );
-        assert_eq!(view.delivery_history.len(), 12);
+        // And term 3 can begin, with both wins on record.
+        serial += 1;
+        let third = accepted_step(&service, id, CommandKind::BeginTerm, serial).await;
+        assert_eq!((third.quarter, third.term), (13, 3));
+        assert_eq!(third.past_elections.len(), 2);
+        assert!(third.past_elections.iter().all(|e| e.won));
         fs::remove_dir_all(dir).unwrap();
     }
 }

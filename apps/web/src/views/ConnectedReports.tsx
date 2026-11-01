@@ -1,7 +1,7 @@
 import { BudgetFigures } from '../components/BudgetFigures'
 import { Icon } from '../components/Icon'
 import { FAMILIES, MINISTERS, quarterLabel } from '../game'
-import { overallText } from '../news.mjs'
+import { disruptionText, overallText } from '../news.mjs'
 import { formatDay, formatPpm, formatUtc, humanize, outcomeLabel, pillTone, positionLabel, shortHash, stageLabel } from '../format'
 import { answeredMinistries, positionsFor } from '../positions.mjs'
 import { STEPS, turnState } from '../turn.mjs'
@@ -166,6 +166,7 @@ export function ConnectedCampaignReport() {
         <div className="ledger-body">
           <div className="ledger-title"><strong>{h.title}</strong></div>
           <p className="ledger-votes">{h.summary}</p>
+          {h.disruption && <p className="ledger-votes">{disruptionText(h.disruption)}</p>}
           <p className="ledger-votes">
             {h.surprise ? 'Nobody saw it coming. ' : 'It was announced a quarter ahead. '}
             {h.responded ? 'You answered it. ' : ''}
