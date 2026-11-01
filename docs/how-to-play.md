@@ -64,6 +64,19 @@ should not have to.
   checks the truth.
 - **Ministers are scripted** in this build. No AI is called.
 
+## The news
+
+Each term brings a few **invented** headlines (they say so on screen). Good ones lift support. Bad ones take some of it back, and
+**the higher a group stands, the more they take**, so a lead is never a safe lead; every term is heavier than the last. The first term
+brings good news only.
+
+- **Most headlines are announced a quarter ahead** in the **News** card: who it hits, about how many points of overall support it would
+  cost, and its price to answer. **A few arrive unannounced** and cannot be answered.
+- **Answer it** (at the start of a quarter, before you plan) takes 60% off the loss for credits: 10 for every point of overall support it
+  would have taken. Those credits do not become delivered work, so you need a **reserve** of unspent credits, and they count against
+  your Legacy. Do it for the big ones, or when your lead is thin.
+- The Progress screen keeps the whole **news log**.
+
 ## Elections and further terms
 
 After the sixth quarter of every term the public votes. You win with **at least 55% overall

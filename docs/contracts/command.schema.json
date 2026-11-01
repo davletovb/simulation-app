@@ -207,7 +207,7 @@
             "inspected_quarter": {
               "type": "integer",
               "format": "uint8",
-              "maximum": 6,
+              "maximum": 60,
               "minimum": 1
             },
             "kind": {
@@ -289,6 +289,27 @@
           "additionalProperties": false,
           "required": [
             "kind"
+          ]
+        },
+        {
+          "description": "Pay to soften an announced bad headline that lands in `headline_quarter` (decision 0010).",
+          "type": "object",
+          "properties": {
+            "headline_quarter": {
+              "type": "integer",
+              "format": "uint8",
+              "maximum": 60,
+              "minimum": 2
+            },
+            "kind": {
+              "type": "string",
+              "const": "respond"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "headline_quarter"
           ]
         }
       ]

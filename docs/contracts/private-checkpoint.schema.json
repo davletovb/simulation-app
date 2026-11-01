@@ -356,6 +356,14 @@
           "maximum": 65535,
           "minimum": 0
         },
+        "relief_spent": {
+          "description": "Credits spent answering headlines (decision 0010). Absent in data written before the calendar existed.",
+          "type": "integer",
+          "format": "uint16",
+          "default": 0,
+          "maximum": 65535,
+          "minimum": 0
+        },
         "service_spent": {
           "type": "integer",
           "format": "uint16",

@@ -15,6 +15,7 @@ old one is marked **Superseded by NNNN**.
 | [0007](0007-two-terms-in-one-campaign.md) | Terms in one campaign; explicit `begin_term`; the bars join the hashed scenario; audit resets per term. (Its "exactly two terms" part was a misreading.) | **Implemented**; two-term part superseded by 0008 |
 | [0008](0008-terms-continue-while-the-player-wins.md) | Terms continue for as long as the player keeps winning; nothing announces a number of terms; technical ceiling of 10 | **Implemented** (rules v4); known weakness: winning needs no effort after the first win |
 | [0009](0009-overall-support-is-the-only-bar.md) | Overall support is the only election bar; the groups behind you are shown as information | **Implemented** (rules v5); evidence: the second bar never decided a result |
+| [0010](0010-news-calendar.md) | The news calendar: invented headlines each term, some announced a quarter ahead and some surprises, bad news that takes a share of the lead and grows each term, a paid response; term 1 has no bad news | **Implemented** (stage 1, rules v6); disruption, scrutiny, windfalls and real-world news still to come |
 
 Each record has: the decision and who made it, the evidence, the consequences, and how to revert or change it.
 Statuses: *Accepted*, *Provisional*, *Implemented*, *Superseded*, *Reverted*.

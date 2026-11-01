@@ -5,8 +5,9 @@ accepted (0001), the election rule is accepted (0002), the **engine recalibratio
 (per-group support and the election result in the snapshot, 0006), the election night screen, and open-ended terms
 (0005, 0007, 0008, rules v5) are done**, and the win bar is accepted: 55% overall support, nothing else (0004, 0009). Every win starts another term with a
 fresh 100 credits added to anything unspent, and every term ends with its own election: the game goes on for as long as the player
-keeps winning (there is only a technical ceiling of ten terms). **Known weak point:** nothing erodes support yet, so after the first
-win a player can do nothing and keep winning (0007, 0008).
+keeps winning (there is only a technical ceiling of ten terms). The old weak point (after one win a player could do nothing and keep
+winning) is addressed by **the news calendar** (0010, rules v6): bad headlines take a share of the lead and grow each term, with a paid
+response.
 
 The calibration below is now the engine's, expressed as the equivalent base numbers (Staffing 3200,
 Repairs 2800, Access 3000, cost 2000, clip ±40,000) instead of "800 and 700 at 400% scale". The table
@@ -107,7 +108,7 @@ takes to show it to a player.
 | **Next quarter's mood** | "Coming next quarter: urban-middle +1.4, urban-high −0.9" | The engine already queues the response a quarter ahead. Expose the queue |
 | **Honeymoon and backlash** | The one-quarter lag becomes the drama: you act now, you are judged next quarter | Exists; needs the previous item to be visible |
 | **Lobbies** | School Staff Association (influence, strike threat) and Community Access Network (volunteer days, access boost) as allies you keep or lose | Exist in the engine and are described on the Progress screen; their live balances are not in the snapshot |
-| **News calendar** | A scripted event each quarter that hits some groups (a shortage headline, a funding row) | Hook exists (`shocks`, per group per quarter) but is all-zero and capped at ±8,000; raise the cap and author the events. The calendar is frozen, so branches stay comparable |
+| **News calendar** | A headline in most quarters that hits some groups (a shortage headline, a funding row) | **Built (0010, stage 1):** invented headlines, announced a quarter ahead or a surprise, a paid response. The calendar is fixed by the campaign's identity, so replays and branches match |
 | **Scrutiny** | An audit is the inspectorate report. If a minister overstated, it hurts | Needs audit results shown in the app and ministers that can misreport (see `goal-and-score.md`) |
 | **Polls** | A noisy poll each quarter, with the true figure revealed only on election night | The framework calls polls "reported observations". New content: a deterministic, seeded error so replays still match |
 

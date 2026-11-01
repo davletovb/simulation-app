@@ -58,7 +58,7 @@ saved under v3 cannot be opened; the start screen explains this and offers a fre
 - The scripted-run helper `run_until_closed` was **removed**: with a scripted player who always wins it would play all ten terms.
   Scripted runs stop at the end of a term (`run_until_term_end`), including the `p4-trial` benchmark.
 
-## Known weakness, now more important (unchanged from 0007)
+## Known weakness, now more important (unchanged from 0007) — **addressed by [0010](0010-news-calendar.md), the news calendar**
 
 Nothing erodes support, so a player who wins the first election can **do nothing in every later term and keep winning**, up to the
 ceiling (the pinned test shows identical numbers on the second election). With open-ended terms this stops being a quirk of term 2

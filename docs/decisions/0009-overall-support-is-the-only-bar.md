@@ -63,7 +63,7 @@ test, but it is a result of the player's choices and not of anything the current
 - A player can no longer be told "you won overall but your coalition was too narrow". If a later version gives groups opposed
   interests (news events, policy positions), a coalition rule can come back as a new decision; the tool above is how to check
   whether it would change anything.
-- The weakness recorded in [0008](0008-terms-continue-while-the-player-wins.md) is untouched and now matters more: with one bar and
+- The weakness recorded in [0008](0008-terms-continue-while-the-player-wins.md) (since addressed by [0010](0010-news-calendar.md)) was untouched here and mattered more: with one bar and
   no erosion of support, a player who wins once can do nothing and keep winning.
 
 ## To change or revert
