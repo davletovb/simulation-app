@@ -1,10 +1,11 @@
 # "Stay in power" as the goal: design proposal
 
-**Status (2026-11-01): decided in part. See [`decisions/`](decisions/README.md).** The goal is
-accepted (0001), the election rule is accepted except what "continues" means (0002), and the **engine
-recalibration (0003, rules v2) and stage B (per-group support and the election result in the snapshot, 0006)
-are done**. A win starts a second term, with a new allocation each term (0005, not built). The UI for all
-of it is **not built yet**, and the win bar is provisional (0004).
+**Status (2026-11-01): decided and built. See [`decisions/`](decisions/README.md).** The goal is
+accepted (0001), the election rule is accepted (0002), the **engine recalibration (0003, rules v2), stage B
+(per-group support and the election result in the snapshot, 0006), the election night screen, and the second term
+(0005, 0007, rules v3) are done**, and the 55% / 60% win bar is accepted (0004). A win starts a second term with a
+fresh 100 credits added to anything unspent; the second term ends with its own election. **Known weak point:**
+the second election is nearly free for a player who won the first, because nothing erodes support yet (0007).
 
 The calibration below is now the engine's, expressed as the equivalent base numbers (Staffing 3200,
 Repairs 2800, Access 3000, cost 2000, clip ±40,000) instead of "800 and 700 at 400% scale". The table
@@ -116,8 +117,8 @@ takes to show it to a player.
 2. **Done (stage B, 0006):** the snapshot carries each group's support, what is queued to land, and each
    group's share of the voters. Still to do: the two lobbies' balances.
 3. **Done (stage B, 0006):** an election rule and result in the snapshot, counting the last quarter's work.
-   The bars are constants in `reducer.rs`, deliberately not in the hashed scenario file, so re-tuning them
-   does not invalidate saved games (0004, 0006).
+   The bars were constants in `reducer.rs`, deliberately outside the hashed scenario file. Since the verdict now
+   decides whether the game continues, they moved into `authored.json` (0007), and re-tuning them invalidates saves.
 4. **Done** (`1c2dbee`): CI pins the sensitivity results, so the report and CSV were regenerated in the
    same change (`cargo run -p myth-domain --example p3_report`), and the replica tool holds both
    calibrations so `--check` passes.
@@ -148,13 +149,15 @@ Asked on 2026-11-01 and answered by the owner (full records in [`decisions/`](de
    [0005](decisions/0005-a-win-starts-a-second-term.md))
 3. **Change the frozen engine numbers and regenerate the pinned report in the same change:** yes, and done.
    ([0003](decisions/0003-recalibrate-the-support-model.md))
-4. **The win bar:** the owner is not sure, so 55% overall and 60% of voters stays provisional, with the
-   evidence for how fragile it is. ([0004](decisions/0004-election-win-bar.md))
+4. **The win bar:** 55% overall and 60% of voters, accepted by the owner. ([0004](decisions/0004-election-win-bar.md))
+5. **A second term, ending with its own election; the free audit resets each term.** Built as one twelve-quarter
+   campaign. ([0007](decisions/0007-two-terms-in-one-campaign.md))
 
 ## Suggested order of work
 
 1. **Recalibrate** (done, 0003) **and expose** (done, 0006). Support is meaningful and available to the screen.
-2. **Election night and the bloc map** (UI, plus the Legacy line). The player now has a goal.
+2. **Election night and the bloc map** (UI, plus the Legacy line) and **the second term**. Done: the player has a goal,
+   and a win leads to a second term.
 3. **Events and ministers that slow down or misreport** (content). This is what makes it a game
    rather than a solved puzzle.
 4. **Mood forecast, lobbies, polls** (UI and light engine exposure). The gamification layer.

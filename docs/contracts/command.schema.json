@@ -276,6 +276,20 @@
           "required": [
             "kind"
           ]
+        },
+        {
+          "description": "Begin the next term after winning the election that ended the last one.",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "begin_term"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "kind"
+          ]
         }
       ]
     }

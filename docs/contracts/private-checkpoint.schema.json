@@ -221,6 +221,7 @@
         "amendment_window",
         "final_positions_frozen",
         "resolved",
+        "election_night",
         "quarter_closed"
       ]
     },
@@ -344,6 +345,14 @@
         "encumbered_staff": {
           "type": "integer",
           "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0
+        },
+        "granted": {
+          "description": "Every credit granted so far (100 per term begun). Absent in data written before a second term\nexisted, which always had exactly the opening 100.",
+          "type": "integer",
+          "format": "uint16",
+          "default": 100,
           "maximum": 65535,
           "minimum": 0
         },

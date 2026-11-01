@@ -1,7 +1,8 @@
 # 0005. A win starts a second term (option A)
 
-- **Status:** Accepted (direction). **Budget decided: R3.** One smaller question (the audit allowance) and one
-  assumption to confirm (term 2 ends with a second election) remain. Not built yet.
+- **Status:** Accepted and **implemented** by [0007](0007-two-terms-in-one-campaign.md). Budget decided: R3. On 2026-11-01 the owner also
+  confirmed that **term 2 ends with its own election** and that **the free audit resets each term**. The recommended build
+  (two chained campaigns) was **not** used: see 0007 for why one twelve-quarter campaign was built instead.
 - **Date:** 2026-11-01
 - **Decided by:** the project owner, in conversation. Asked what "if win then continues"
   (decision 0002) means, with three options, they answered **"Option A"**. Recorded by Claude.

@@ -1,6 +1,7 @@
 # 0006. What the snapshot exposes: true per-group support and an election result
 
-- **Status:** Implemented (stage B).
+- **Status:** Implemented (stage B). **Choice 2 below (bars kept out of the hashed scenario) is superseded by [0007](0007-two-terms-in-one-campaign.md):**
+  the verdict now decides whether the game continues, so the bars are in `authored.json`.
 - **Date:** 2026-11-01
 - **Decided by:** the project owner asked for stage B ("build stage B"). The two design choices below
   (true values for now; bars kept out of the hashed scenario) were made by Claude within that and are

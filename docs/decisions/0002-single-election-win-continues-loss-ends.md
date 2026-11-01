@@ -1,6 +1,6 @@
 # 0002. One election at the end; a win continues, a loss ends the game
 
-- **Status:** Accepted. What "continues" means is answered by [0005](0005-a-win-starts-a-second-term.md) (a second term); its budget rule is still open.
+- **Status:** Accepted. What "continues" means is answered by [0005](0005-a-win-starts-a-second-term.md) (a second term, with its own election), built in [0007](0007-two-terms-in-one-campaign.md).
 - **Date:** 2026-11-01
 - **Decided by:** the project owner, in conversation. Their words: *"one election at the end and
   if win then continues, if fail game end."* This record was written by Claude from that conversation.

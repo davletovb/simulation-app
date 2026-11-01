@@ -5,7 +5,9 @@
 > (that is what this page shows), but a small recalibration fixes that. The Delivery Score below
 > then becomes the second line on the end screen, **Legacy**.
 
-**Status: proposal. Nothing in the app computes a score yet.** Every number below comes from
+**Status: partly built.** The headline goal (stay in power, two terms) and **Legacy** (the delivery grade, computed in
+`apps/web/src/election.mjs`) are in the app; see [`decisions/`](decisions/README.md). The rest of this page is the original
+proposal and its evidence. Every number below comes from
 playing the real engine to the end (scripted ministers, `MYTH_MODE=scripted`), not from
 reading the rules, because reading the rules alone led to two wrong assumptions (see
 [Corrections](#corrections-to-earlier-statements)).
@@ -151,7 +153,7 @@ These are already in the case contract and are, in my order of preference:
 | Live updates missing for a newly started campaign; failure over the stream never reported | **Fixed** |
 | "No budget left" and re-planning | **Fixed on the working branch, not yet on main** (see below) |
 | Audit shows nothing; paid audit fails with no credits | **Mitigated** in wording only; root causes are items 3 and 4 |
-| No goal or score | **Drafted here**, not built |
+| No goal or score | **Built**: the goal is staying in power (election at the end of each term) with Legacy as the second line; see `decisions/` |
 
 ## Corrections to earlier statements
 

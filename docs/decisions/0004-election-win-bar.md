@@ -1,6 +1,7 @@
-# 0004. The election win bar (provisional)
+# 0004. The election win bar
 
-- **Status:** **Provisional.** The owner said they are not sure about it. Nothing in the engine reads it yet.
+- **Status:** **Accepted** by the owner on 2026-11-01 (*"your recommended 55% / 60% bar is ok"*) and implemented. It was provisional
+  before that; the original wording is kept below. The bars are now part of the hashed scenario (see [0007](0007-two-terms-in-one-campaign.md)).
 - **Date:** 2026-11-01
 - **Decided by:** the project owner, in conversation: *"On 4: i am not sure about."* Recorded by Claude,
   which proposed the starting value below. It is a starting point, not a considered choice.
