@@ -75,8 +75,16 @@ brings good news only.
 - **Some headlines also stop work.** A flood can stop Repairs for two quarters; a strike ballot can stop Staffing. Nothing is lost: what
   could not be delivered waits. But work that slips past the election cannot help you win it, and the card says how many of *your*
   promised units that would be. A stoppage that touches work you have not promised costs you nothing.
+- **Some send inspectors.** An audit or a spot check counts the work you have **promised and not yet finished** in the kinds of work it
+  names, and takes a share of what that work would have earned each group. The share grows every term. A plan you have just made is
+  mostly unfinished, so an inspection hurts most early in a term and not at all after a plan has been delivered; a player who has
+  promised nothing owes nothing. The card says how many units would still be owed by then. A smaller plan has less to count, though
+  re-planning restarts the delivery delays of work not yet delivered.
+- **A few bring credits.** A grant or a donation adds 10 or 15 credits. They arrive when the news lands, on top of anything you have
+  left, and count in every budget figure. Planning them into a running programme means a new plan (with the same restart), so they are
+  most useful as a **reserve** to answer a headline with, or carried into the next term.
 - **Answer it** (at the start of a quarter, before you plan) takes 60% off the loss, and turns a stoppage into a slowdown, for credits:
-  10 for every point of overall support it would have taken (mood and delayed work together). Those credits do not become delivered work, so you need a **reserve** of unspent credits, and they count against
+  10 for every point of overall support it would have taken (mood, delayed work and unfinished work together). Those credits do not become delivered work, so you need a **reserve** of unspent credits, and they count against
   your Legacy. Do it for the big ones, or when your lead is thin.
 - The Progress screen keeps the whole **news log**.
 

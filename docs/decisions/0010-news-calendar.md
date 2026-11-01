@@ -72,7 +72,7 @@ and doing nothing lost the second term at 54.4%.
 ## Not built yet (and why)
 
 - **Disruption headlines** (one kind of work delivers less for a quarter): **built in stage 2, see [0011](0011-disruption-headlines.md).**
-  **Scrutiny** (unfinished promises cost support) and **windfalls** (extra credits): stage 3 in the plan, on the same machinery.
+  **Scrutiny** (unfinished promises cost support) and **windfalls** (extra credits): **built in stage 3, see [0012](0012-scrutiny-and-windfalls.md).**
 - **Real-world news.** The data and screens carry a `source` field (`invented` today; `real` is accepted and must be labelled), so a
   real lane can be added without reshaping anything. It needs its own decision: whether such items only inform or also move support,
   and how that stays reproducible for a saved game.

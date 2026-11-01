@@ -84,9 +84,14 @@ A drift test compares the deck, its `disrupts` data and the constants in `author
 - **Surprises** (a third of headlines) still cannot be answered. A surprise that disrupts lands without warning, so the quote cannot
   be shown beforehand.
 
+## A defect found afterwards
+
+The web app refused the quote for a disruption when it passed 4 points for one group, which froze the screen on "Saving…". Fixed with
+stage 3; see [0012](0012-scrutiny-and-windfalls.md).
+
 ## Not built yet
 
-- **Scrutiny** (unfinished promises cost support) and **windfalls** (extra credits to spend): stage 3 in the plan.
+- **Scrutiny** (unfinished promises cost support) and **windfalls** (extra credits to spend): built in stage 3, see [0012](0012-scrutiny-and-windfalls.md).
 - **Real-world news**, and **groups with opposed interests**: as in 0010.
 
 ## To change or revert
